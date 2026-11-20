@@ -1,8 +1,15 @@
+import { catalogCsv } from '../../shared/csv'
 import { api } from '../api'
+import type { NetworkRecord } from '../types'
 
-export function LogView({ count, openCount }: { count: number; openCount: number }) {
+export function LogView({ count, openCount, networks }: { count: number; openCount: number; networks: NetworkRecord[] }) {
   async function download() {
-    const blob = await api.csv()
+    let blob: Blob
+    try {
+      blob = await api.csv()
+    } catch {
+      blob = new Blob([catalogCsv(networks)], { type: 'text/csv; charset=utf-8' })
+    }
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url

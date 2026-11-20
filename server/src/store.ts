@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs'
 import { Redis } from 'ioredis'
 import pg from 'pg'
 import { bssidHmac, decryptJson, encryptJson } from './crypto.js'
-import { clampRadius, DEFAULT_RADIUS_M, timingFor } from './dwell.js'
-import { haversineMeters } from './geo.js'
+import { circleFor, snapshotFrom } from '../../shared/range.js'
+import { DEFAULT_RADIUS_M, timingFor } from './dwell.js'
 import { mergeRecord, collapseScan, normalizeBssid } from './merge.js'
 import { openRows } from './security.js'
 import type { Fix, NetworkRecord, OpenRow, PlaceInfo, RangeSnapshot, ScanAp } from './types.js'
@@ -140,7 +140,7 @@ export class Store {
         )
         heard.push(merged)
       }
-      const snapshot = this.snapshotFrom(heard, fix, scan.speedMps)
+      const snapshot = snapshotFrom(heard, fix, scan.speedMps)
       const sealedSnapshot = encryptJson(snapshot)
       await client.query(
         `INSERT INTO range_snapshot (id, payload, nonce, updated_at)
@@ -172,7 +172,7 @@ export class Store {
     const networks = await this.catalog()
     const snapshot = await this.range()
     const cached = await this.redis.get('range:circle')
-    const circle = cached ? unpack<NetworkRecord[]>(cached) : this.circleFor(networks, snapshot)
+    const circle = cached ? unpack<NetworkRecord[]>(cached) : circleFor(networks, snapshot)
     if (!cached) {
       const ttl = Math.max(1, Math.ceil(snapshot.scanPeriodSeconds))
       await this.redis.set('range:circle', pack(circle), 'EX', ttl)
@@ -237,43 +237,10 @@ export class Store {
     return { count: Number(count.rows[0]?.count ?? 0), openCount, snapshot }
   }
 
-  private snapshotFrom(heard: NetworkRecord[], phone: Fix, speedMps: number | null): RangeSnapshot {
-    const radiusM = this.radiusOf(phone, heard)
-    const timing = timingFor(radiusM, speedMps)
-    return {
-      heard,
-      radiusM,
-      phone,
-      speedMps,
-      dwellSeconds: timing.dwellSeconds,
-      scanPeriodSeconds: timing.scanPeriodSeconds,
-    }
-  }
-
-  private radiusOf(phone: Fix, heard: NetworkRecord[]): number {
-    if (phone.lat == null || phone.lon == null) return DEFAULT_RADIUS_M
-    let farthest = 0
-    for (const network of heard) {
-      if (network.bestLat == null || network.bestLon == null) continue
-      farthest = Math.max(farthest, haversineMeters(phone.lat, phone.lon, network.bestLat, network.bestLon))
-    }
-    if (farthest < 10) return DEFAULT_RADIUS_M
-    return clampRadius(farthest)
-  }
-
-  private circleFor(networks: NetworkRecord[], snapshot: RangeSnapshot): NetworkRecord[] {
-    if (snapshot.phone.lat == null || snapshot.phone.lon == null) return []
-    const { lat, lon } = snapshot.phone
-    return networks.filter((network) => {
-      if (network.bestLat == null || network.bestLon == null) return false
-      return haversineMeters(lat, lon, network.bestLat, network.bestLon) <= snapshot.radiusM
-    })
-  }
-
   private async cacheRange(snapshot: RangeSnapshot, heard: NetworkRecord[]): Promise<void> {
     const ttl = Math.max(1, Math.ceil(snapshot.scanPeriodSeconds))
     const networks = await this.catalog()
-    const circle = this.circleFor(networks, snapshot)
+    const circle = circleFor(networks, snapshot)
     await this.redis.set('range:heard', pack(snapshot), 'EX', ttl)
     await this.redis.set('range:circle', pack(circle), 'EX', ttl)
     for (const network of heard) {

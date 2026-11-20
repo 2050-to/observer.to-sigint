@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import androidx.core.content.ContextCompat
 import com.getcapacitor.JSObject
 import com.getcapacitor.PermissionState
@@ -13,6 +15,7 @@ import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
 import com.getcapacitor.annotation.Permission
 import com.getcapacitor.annotation.PermissionCallback
+import org.json.JSONArray
 
 @CapacitorPlugin(
     name = "Wardrive",
@@ -23,6 +26,16 @@ import com.getcapacitor.annotation.PermissionCallback
     ],
 )
 class WardrivePlugin : Plugin() {
+    override fun load() {
+        instance = this
+        super.load()
+    }
+
+    override fun handleOnDestroy() {
+        if (instance === this) instance = null
+        super.handleOnDestroy()
+    }
+
     @PluginMethod
     fun startDrive(call: PluginCall) {
         val missing = requiredPermissions().filter { permission ->
@@ -64,6 +77,56 @@ class WardrivePlugin : Plugin() {
         status.put("running", WardriveService.running)
         status.put("message", WardriveService.message)
         call.resolve(status)
+    }
+
+    @PluginMethod
+    fun getLocalCatalog(call: PluginCall) {
+        val store = Outbox(context)
+        val result = JSObject()
+        result.put("catalog", store.readCatalogText())
+        result.put("journal", store.readJournalText())
+        call.resolve(result)
+    }
+
+    @PluginMethod
+    fun saveLocalCatalog(call: PluginCall) {
+        val catalog = call.getString("catalog") ?: ""
+        Outbox(context).writeCatalog(catalog)
+        call.resolve()
+    }
+
+    @PluginMethod
+    fun markUploaded(call: PluginCall) {
+        val raw = call.getString("scanIds") ?: "[]"
+        val ids = JSONArray(raw)
+        val saved = mutableSetOf<String>()
+        for (index in 0 until ids.length()) {
+            val id = ids.optString(index)
+            if (id.isNotEmpty()) saved += id
+        }
+        Outbox(context).markUploaded(saved)
+        call.resolve()
+    }
+
+    companion object {
+        @Volatile
+        private var instance: WardrivePlugin? = null
+
+        fun emitScanQueued() {
+            val plugin = instance ?: return
+            Handler(Looper.getMainLooper()).post {
+                plugin.notifyListeners("scanQueued", JSObject())
+            }
+        }
+
+        fun emitScansSynced(count: Int) {
+            val plugin = instance ?: return
+            Handler(Looper.getMainLooper()).post {
+                val data = JSObject()
+                data.put("count", count)
+                plugin.notifyListeners("scansSynced", data)
+            }
+        }
     }
 
     private fun launch(call: PluginCall) {

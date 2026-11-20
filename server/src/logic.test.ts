@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { emptyCatalog, foldScans, reconcileCatalog, scanHearsSaved } from '../../shared/catalog.js'
+import { catalogCsv } from '../../shared/csv.js'
 import { decryptJson, encryptJson, bssidHmac } from './crypto.js'
 import { timingFor } from './dwell.js'
 import { eastNorthMeters, plottedHeight } from './height.js'
@@ -103,5 +105,61 @@ assert.equal(rows.length, 2)
 assert.equal(rows.find((row) => row.ssid === 'Cafe')?.bssidCount, 2)
 assert.equal(rows.some((row) => row.ssid === 'Home'), false)
 assert.equal(rows.find((row) => row.hidden)?.label, 'Hidden EE04')
+
+const scanA = {
+  scanId: '11111111-1111-4111-8111-111111111111',
+  observedAt: '2026-01-01T00:00:00.000Z',
+  lat: 47.62,
+  lon: -122.35,
+  accuracy: 5,
+  altitudeM: 30,
+  verticalAccuracyM: 3,
+  relativeM: 0,
+  speedMps: 1,
+  networks: [ap({ ssid: 'Cafe', bssid: 'AA:BB:CC:DD:EE:01', rssi: -42, capabilities: '[ESS]' })],
+}
+const folded = foldScans(emptyCatalog(), [scanA, scanA])
+assert.equal(folded.networks.length, 1)
+assert.equal(folded.networks[0]?.seenCount, 1)
+assert.equal(folded.networks[0]?.bestRssi, -42)
+assert.equal(folded.syncedBssids.length, 0)
+assert.equal(folded.foldedScanIds.length, 1)
+const weaker = foldScans(folded, [{
+  ...scanA,
+  scanId: '22222222-2222-4222-8222-222222222222',
+  networks: [ap({ ssid: '', bssid: 'aa:bb:cc:dd:ee:01', rssi: -70, capabilities: '[ESS]' })],
+}])
+assert.equal(weaker.networks[0]?.ssid, 'Cafe')
+assert.equal(weaker.networks[0]?.bestRssi, -42)
+assert.equal(weaker.networks[0]?.lastRssi, -70)
+assert.equal(weaker.networks[0]?.seenCount, 2)
+assert.equal(scanHearsSaved(weaker.networks, weaker.syncedBssids), false)
+assert.equal(scanHearsSaved([{ bssid: 'aa:bb:cc:dd:ee:09' }], ['aa:bb:cc:dd:ee:01']), false)
+assert.equal(scanHearsSaved([{ bssid: 'AA:BB:CC:DD:EE:01' }], ['aa:bb:cc:dd:ee:01']), true)
+const pending = {
+  ...scanA,
+  scanId: '33333333-3333-4333-8333-333333333333',
+  uploaded: false,
+  networks: [ap({ ssid: 'New', bssid: 'aa:bb:cc:dd:ee:09', rssi: -40, capabilities: '[ESS]' })],
+}
+const reconciled = reconcileCatalog(
+  { ...weaker, syncedBssids: ['aa:bb:cc:dd:ee:01'] },
+  [{ ...scanA, uploaded: true }, pending],
+  {
+    networks: weaker.networks,
+    snapshot: {
+      heard: weaker.networks,
+      radiusM: 91.4,
+      phone: weaker.phone,
+      speedMps: weaker.speedMps,
+      dwellSeconds: 1,
+      scanPeriodSeconds: 30,
+    },
+  },
+)
+assert.equal(reconciled.networks.find((network) => network.bssid === 'aa:bb:cc:dd:ee:09')?.ssid, 'New')
+assert.equal(reconciled.syncedBssids.includes('aa:bb:cc:dd:ee:09'), false)
+assert.equal(reconciled.networks.find((network) => network.bssid === 'aa:bb:cc:dd:ee:01')?.seenCount, 2)
+assert.equal(catalogCsv(reconciled.networks).split('\n')[0], 'last_seen,best_rssi,lat,lon,ssid,bssid,channel,security,altitude_m,floor')
 
 console.log('logic tests passed')

@@ -45,6 +45,8 @@ class WardriveService : Service() {
     private var speedMps: Double? = null
     private var periodMs = 30_000L
     private var lastFingerprint = ""
+    private var flushing = false
+    private var flushAgain = false
     private var locationCallback: LocationCallback? = null
     private var sensorManager: SensorManager? = null
     private var pressureListener: SensorEventListener? = null
@@ -214,47 +216,86 @@ class WardriveService : Service() {
         body.put("relativeM", relativeM ?: JSONObject.NULL)
         body.put("speedMps", speedMps ?: JSONObject.NULL)
         body.put("networks", networks)
-        synchronized(outbox) {
-            val queued = outbox.read()
-            queued.put(body)
-            outbox.write(queued)
+        outbox.append(body)
+        WardrivePlugin.emitScanQueued()
+        if (hearsSaved(networks)) {
+            Thread { flush() }.start()
+        } else {
+            updateStatus(waitingStatus())
         }
-        Thread { flush() }.start()
+    }
+
+    private fun hearsSaved(networks: JSONArray): Boolean {
+        val saved = outbox.syncedBssids()
+        if (saved.isEmpty()) return false
+        for (index in 0 until networks.length()) {
+            val bssid = networks.getJSONObject(index).optString("bssid").trim().lowercase()
+            if (bssid.isNotEmpty() && saved.contains(bssid)) return true
+        }
+        return false
     }
 
     private fun flush() {
-        val accepted = mutableListOf<JSONObject>()
-        val pending = synchronized(outbox) {
-            val queued = outbox.read()
-            (0 until queued.length()).map { queued.getJSONObject(it) }
-        }
-        val remaining = JSONArray()
-        for (body in pending) {
-            val response = postScan(body)
-            if (response == null) {
-                remaining.put(body)
-                continue
+        synchronized(this) {
+            if (flushing) {
+                flushAgain = true
+                return
             }
-            accepted += response
+            flushing = true
         }
-        synchronized(outbox) {
-            val current = outbox.read()
-            val kept = JSONArray()
-            for (index in 0 until current.length()) {
-                val item = current.getJSONObject(index)
-                val stillPending = (0 until remaining.length()).any { remaining.getJSONObject(it).getString("scanId") == item.getString("scanId") }
-                val wasInBatch = pending.any { it.getString("scanId") == item.getString("scanId") }
-                if (stillPending || !wasInBatch) kept.put(item)
+        var accepted = 0
+        try {
+            var again = true
+            while (again) {
+                synchronized(this) { flushAgain = false }
+                val pending = outbox.unuploaded()
+                val uploadedIds = mutableListOf<String>()
+                val synced = mutableListOf<String>()
+                var failed = false
+                for (body in pending) {
+                    val response = postScan(body)
+                    if (response == null) {
+                        failed = true
+                        break
+                    }
+                    uploadedIds += body.getString("scanId")
+                    val networks = body.optJSONArray("networks")
+                    if (networks != null) {
+                        for (index in 0 until networks.length()) {
+                            val bssid = networks.getJSONObject(index).optString("bssid").trim().lowercase()
+                            if (bssid.isNotEmpty()) synced += bssid
+                        }
+                    }
+                    response.optDouble("radiusM").takeIf { it.isFinite() && it > 0 }?.let { radiusM = it }
+                    response.optDouble("scanPeriodSeconds").takeIf { it.isFinite() && it > 0 }?.let {
+                        periodMs = (it * 1000).toLong()
+                    }
+                }
+                if (uploadedIds.isNotEmpty()) {
+                    outbox.markUploaded(uploadedIds.toSet())
+                    outbox.addSyncedBssids(synced)
+                    accepted += uploadedIds.size
+                }
+                if (failed) break
+                again = synchronized(this) { flushAgain }
             }
-            outbox.write(kept)
+        } finally {
+            synchronized(this) { flushing = false }
         }
-        for (response in accepted) {
-            response.optDouble("radiusM").takeIf { it.isFinite() && it > 0 }?.let { radiusM = it }
-            response.optDouble("scanPeriodSeconds").takeIf { it.isFinite() && it > 0 }?.let {
-                periodMs = (it * 1000).toLong()
-            }
+        if (accepted > 0) {
+            val noun = if (accepted == 1) "scan" else "scans"
+            updateStatus("Synced $accepted $noun.")
+            WardrivePlugin.emitScansSynced(accepted)
+        } else if (outbox.countUnuploaded() > 0) {
+            updateStatus(waitingStatus())
         }
-        if (accepted.isNotEmpty()) updateStatus("Scan saved. Next scan in ${periodMs / 1000}s")
+    }
+
+    private fun waitingStatus(): String {
+        val count = outbox.countUnuploaded()
+        val noun = if (count == 1) "scan" else "scans"
+        val pronoun = if (count == 1) "It" else "They"
+        return "$count $noun on this phone. $pronoun will sync when a saved network is in range."
     }
 
     private fun postScan(body: JSONObject): JSONObject? {

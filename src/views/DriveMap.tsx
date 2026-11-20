@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import { api } from '../api'
 import { floorLabel, gpsGround, plottedHeight } from '../height'
+import { streetTiles } from '../tiles'
 import type { MapState, NetworkRecord, PlaceInfo } from '../types'
 
 function levelLabel(map: MapState, network: NetworkRecord | null): string | null {
@@ -50,10 +51,7 @@ export function DriveMap({
   useEffect(() => {
     if (!host.current || leaflet.current) return
     const next = L.map(host.current, { zoomControl: true })
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap',
-      maxZoom: 19,
-    }).addTo(next)
+    streetTiles().addTo(next)
     next.setView([47.62, -122.35], 15)
     layer.current = L.layerGroup().addTo(next)
     leaflet.current = next
@@ -134,6 +132,10 @@ export function DriveMap({
       setCard({ title, place: known, floor: level ?? null, ...facts, error: known.crossStreets.length === 0 ? 'Cross streets were not available.' : '' })
       return
     }
+    if (!navigator.onLine) {
+      setCard({ title, place: null, floor: level ?? null, ...facts, error: 'The address will be looked up when the phone is online.' })
+      return
+    }
     setBusy(true)
     setCard({ title, place: null, floor: level ?? null, ...facts, error: '' })
     try {
@@ -142,7 +144,14 @@ export function DriveMap({
       setCard({ title, place: result.place, floor: level ?? null, ...facts, error: result.place.crossStreets.length === 0 ? 'Cross streets were not available.' : '' })
       onPlaceSaved?.()
     } catch (error) {
-      setCard({ title, place: null, floor: level ?? null, ...facts, error: error instanceof Error ? error.message : 'Lookup failed' })
+      const offline = !navigator.onLine || error instanceof TypeError
+      setCard({
+        title,
+        place: null,
+        floor: level ?? null,
+        ...facts,
+        error: offline ? 'The address will be looked up when the phone is online.' : error instanceof Error ? error.message : 'Lookup failed',
+      })
     } finally {
       setBusy(false)
     }
