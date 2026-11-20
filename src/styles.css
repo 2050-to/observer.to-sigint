@@ -106,3 +106,10 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #2c3a33; }
 .meta dd { margin: 0; }
 
 .map.leaflet-container { background: #1c2420; height: 520px; width: 100%; font: inherit; }
+
+.sonar {
+  width: 100%;
+  max-width: 520px;
+  background: #1c2420;
+  border-radius: 16px;
+}

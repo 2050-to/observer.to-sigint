@@ -23,6 +23,8 @@ import org.json.JSONArray
         Permission(strings = [Manifest.permission.ACCESS_FINE_LOCATION], alias = "location"),
         Permission(strings = [Manifest.permission.POST_NOTIFICATIONS], alias = "notifications"),
         Permission(strings = [Manifest.permission.NEARBY_WIFI_DEVICES], alias = "nearby"),
+        Permission(strings = [Manifest.permission.BLUETOOTH_SCAN], alias = "bluetoothScan"),
+        Permission(strings = [Manifest.permission.BLUETOOTH_CONNECT], alias = "bluetoothConnect"),
     ],
 )
 class WardrivePlugin : Plugin() {
@@ -60,6 +62,14 @@ class WardrivePlugin : Plugin() {
         }
         if (Build.VERSION.SDK_INT >= 33 && getPermissionState("nearby") != PermissionState.GRANTED) {
             call.reject("Nearby Wi-Fi permission is required to read scan results")
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 31 && getPermissionState("bluetoothScan") != PermissionState.GRANTED) {
+            call.reject("Bluetooth scan permission is required to map nearby advertisements")
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 31 && getPermissionState("bluetoothConnect") != PermissionState.GRANTED) {
+            call.reject("Bluetooth permission is required to read advertisement addresses")
             return
         }
         launch(call)
@@ -153,6 +163,10 @@ class WardrivePlugin : Plugin() {
             permissions += Manifest.permission.POST_NOTIFICATIONS
             permissions += Manifest.permission.NEARBY_WIFI_DEVICES
         }
+        if (Build.VERSION.SDK_INT >= 31) {
+            permissions += Manifest.permission.BLUETOOTH_SCAN
+            permissions += Manifest.permission.BLUETOOTH_CONNECT
+        }
         return permissions
     }
 
@@ -161,6 +175,8 @@ class WardrivePlugin : Plugin() {
             when (permission) {
                 Manifest.permission.POST_NOTIFICATIONS -> "notifications"
                 Manifest.permission.NEARBY_WIFI_DEVICES -> "nearby"
+                Manifest.permission.BLUETOOTH_SCAN -> "bluetoothScan"
+                Manifest.permission.BLUETOOTH_CONNECT -> "bluetoothConnect"
                 else -> "location"
             }
         }.toTypedArray()

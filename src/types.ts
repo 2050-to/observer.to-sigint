@@ -1,13 +1,19 @@
-import type { NetworkRecord, RangeSnapshot, SecurityLabel } from '../shared/types'
+import type { CellRecord, DeviceRecord, MotionTrack, NetworkRecord, RangeSnapshot, Room, SecurityLabel } from '../shared/types'
 
 export type {
   AffiliatedLink,
+  CellRecord,
+  DeviceRecord,
   Fix,
+  MotionTrack,
   NetworkRecord,
   OpenRow,
   PlaceInfo,
   RangeSnapshot,
+  Room,
   ScanAp,
+  ScanCell,
+  ScanDevice,
   SecurityLabel,
 } from '../shared/types'
 
@@ -18,6 +24,10 @@ export interface MapState {
   scanPeriodSeconds: number
   circle: NetworkRecord[]
   networks: NetworkRecord[]
+  devices: DeviceRecord[]
+  cells: CellRecord[]
+  rooms: Room[]
+  movers: MotionTrack[]
 }
 
 export const SECURITY_COLORS: Record<SecurityLabel, string> = {

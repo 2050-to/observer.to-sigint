@@ -16,3 +16,17 @@ CREATE TABLE IF NOT EXISTS range_snapshot (
   nonce bytea NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS devices (
+  address_hmac bytea PRIMARY KEY,
+  payload bytea NOT NULL,
+  nonce bytea NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS cells (
+  cell_hmac bytea PRIMARY KEY,
+  payload bytea NOT NULL,
+  nonce bytea NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);

@@ -25,6 +25,18 @@ export function eastNorthMeters(
   return { east, north }
 }
 
+export function latLonFromEastNorth(
+  originLat: number,
+  originLon: number,
+  east: number,
+  north: number,
+): { lat: number; lon: number } {
+  return {
+    lat: originLat + north / 110540,
+    lon: originLon + east / (111320 * Math.cos((originLat * Math.PI) / 180)),
+  }
+}
+
 export function gpsGround(points: { altitudeM: number | null }[]): number | null {
   let lowest: number | null = null
   for (const point of points) {

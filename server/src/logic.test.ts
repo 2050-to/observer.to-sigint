@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict'
 import { emptyCatalog, foldScans, reconcileCatalog, scanHearsSaved } from '../../shared/catalog.js'
 import { catalogCsv } from '../../shared/csv.js'
+import { haversineMeters } from '../../shared/geo.js'
+import { distanceFromRssi } from '../../shared/pathloss.js'
+import { mergeCell, mergeDevice } from '../../shared/radios.js'
+import { inferScene, stripPing } from '../../shared/scene.js'
 import { decryptJson, encryptJson, bssidHmac } from './crypto.js'
 import { timingFor } from './dwell.js'
 import { eastNorthMeters, plottedHeight } from './height.js'
 import { collapseScan, mergeRecord } from './merge.js'
 import { classifySecurity, openRows } from './security.js'
-import type { NetworkRecord, ScanAp } from './types.js'
+import type { NetworkRecord, ScanAp, ScanCell, ScanDevice, ScenePing } from './types.js'
 
 process.env.DATA_KEY = Buffer.alloc(32, 7).toString('base64')
 process.env.HMAC_KEY = Buffer.alloc(32, 9).toString('base64')
@@ -154,6 +158,9 @@ const reconciled = reconcileCatalog(
       speedMps: weaker.speedMps,
       dwellSeconds: 1,
       scanPeriodSeconds: 30,
+      rooms: [],
+      movers: [],
+      history: [],
     },
   },
 )
@@ -161,5 +168,147 @@ assert.equal(reconciled.networks.find((network) => network.bssid === 'aa:bb:cc:d
 assert.equal(reconciled.syncedBssids.includes('aa:bb:cc:dd:ee:09'), false)
 assert.equal(reconciled.networks.find((network) => network.bssid === 'aa:bb:cc:dd:ee:01')?.seenCount, 2)
 assert.equal(catalogCsv(reconciled.networks).split('\n')[0], 'last_seen,best_rssi,lat,lon,ssid,bssid,channel,security,altitude_m,floor')
+
+assert.ok(Math.abs(distanceFromRssi(-59, -59) - 1) < 0.01)
+assert.ok(Math.abs(distanceFromRssi(-81, -59) - 10) < 0.05)
+assert.equal(distanceFromRssi(-120, -59), 30)
+
+function rssiFor(distance: number): number {
+  return -59 - 22 * Math.log10(distance)
+}
+
+function radio(address: string, rssi: number, addressType: 'public' | 'random' = 'random', extra: Partial<ScanDevice> = {}): ScanDevice {
+  return {
+    address,
+    addressType,
+    name: extra.name ?? null,
+    rssi,
+    txPower: -59,
+    serviceUuids: [],
+    ...extra,
+  }
+}
+
+function ping(partial: Partial<ScenePing> & Pick<ScenePing, 'observedAt'>): ScenePing {
+  return {
+    lat: 47.62,
+    lon: -122.35,
+    speedMps: 0,
+    wifiOn: false,
+    bluetoothOn: false,
+    cellOn: false,
+    networks: [],
+    devices: [],
+    cells: [],
+    ...partial,
+  }
+}
+
+const cafeRoom = inferScene([
+  ping({ observedAt: '2026-01-01T00:00:00.000Z', devices: [radio('b0:00:00:00:00:01', -50, 'public', { name: 'Beacon' })], networks: [{ bssid: 'aa:bb:cc:dd:ee:01', ssid: 'Cafe', rssi: -45 }] }),
+  ping({ observedAt: '2026-01-01T00:00:05.000Z', devices: [radio('b0:00:00:00:00:01', -50, 'public', { name: 'Beacon' })], networks: [{ bssid: 'aa:bb:cc:dd:ee:01', ssid: 'Cafe', rssi: -45 }] }),
+  ping({ observedAt: '2026-01-01T00:00:20.000Z', lat: 47.63, devices: [radio('b0:00:00:00:00:02', -55, 'public')], networks: [{ bssid: 'aa:bb:cc:dd:ee:09', ssid: 'Hall', rssi: -80 }] }),
+  ping({ observedAt: '2026-01-01T00:00:25.000Z', lat: 47.63, devices: [radio('b0:00:00:00:00:02', -55, 'public')], networks: [{ bssid: 'aa:bb:cc:dd:ee:09', ssid: 'Hall', rssi: -80 }] }),
+])
+assert.equal(cafeRoom.rooms.length, 2)
+assert.equal(cafeRoom.rooms.find((room) => room.members.some((member) => member.id === 'b0:00:00:00:00:01'))?.originKind, 'wifi')
+assert.equal(cafeRoom.rooms.find((room) => room.members.some((member) => member.id === 'b0:00:00:00:00:02'))?.originKind, 'bluetooth')
+
+function pair(speedLabel: string, distances: number[], times: string[], broadcast = false): ScenePing[] {
+  return distances.map((distance, index) => ping({
+    observedAt: times[index],
+    devices: [radio('aa:bb:cc:00:00:10', rssiFor(distance), 'random', broadcast ? {
+      broadcastLat: 47.62 + (index * 15) / 110540,
+      broadcastLon: -122.35,
+    } : {})],
+    networks: [{ bssid: 'de:ad:be:ef:00:01', ssid: 'Phone Hotspot', rssi: rssiFor(distance) }],
+  }))
+}
+
+const walking = inferScene(pair('walk', [20, 18.5, 17], ['2026-01-01T00:10:00.000Z', '2026-01-01T00:10:01.000Z', '2026-01-01T00:10:02.000Z']))
+const walker = walking.movers.find((mover) => mover.capabilities.includes('wifi') && mover.capabilities.includes('bluetooth'))
+assert.equal(walker?.kind, 'person or vehicle')
+assert.ok(walker != null && Math.abs((walker.speedMps ?? 0) - 1.5) < 0.15)
+
+const driving = inferScene(pair('drive', [30, 15], ['2026-01-01T00:20:00.000Z', '2026-01-01T00:20:01.000Z'], true))
+const driver = driving.movers.find((mover) => mover.kind === 'vehicle' && mover.id !== 'phone')
+assert.equal(driver?.speedKind, 'ground')
+assert.ok(driver != null && Math.abs((driver.speedMps ?? 0) - 15) < 1)
+
+const fastRadial = inferScene(pair('radial', [24, 12], ['2026-01-01T00:30:00.000Z', '2026-01-01T00:30:01.000Z']))
+const fast = fastRadial.movers.find((mover) => mover.capabilities.includes('wifi'))
+assert.equal(fast?.kind, 'vehicle')
+assert.equal(fast?.speedKind, 'radial_lower_bound')
+assert.ok(fast != null && Math.abs((fast.speedMps ?? 0) - 12) < 0.2)
+
+const slowRadial = inferScene(pair('slow', [20, 17], ['2026-01-01T00:40:00.000Z', '2026-01-01T00:40:01.000Z']))
+const slow = slowRadial.movers.find((mover) => mover.capabilities.includes('wifi'))
+assert.equal(slow?.kind, 'person or vehicle')
+assert.equal(slow?.speedKind, 'radial_lower_bound')
+assert.ok(slow != null && Math.abs((slow.speedMps ?? 0) - 3) < 0.2)
+
+const alone = inferScene([
+  ping({ observedAt: '2026-01-01T00:50:00.000Z', devices: [radio('aa:bb:cc:00:00:11', rssiFor(20))] }),
+  ping({ observedAt: '2026-01-01T00:50:01.000Z', devices: [radio('aa:bb:cc:00:00:11', rssiFor(16))] }),
+  ping({ observedAt: '2026-01-01T00:50:02.000Z', devices: [radio('aa:bb:cc:00:00:11', rssiFor(12))] }),
+])
+const solo = alone.movers.find((mover) => mover.capabilities.includes('bluetooth') && mover.capabilities.length === 1)
+assert.equal(solo?.kind, 'approaching')
+assert.equal(alone.movers.some((mover) => mover.kind === 'vehicle' || mover.kind === 'person or vehicle'), false)
+
+const withPhone = inferScene([
+  ping({ observedAt: '2026-01-01T01:00:00.000Z', devices: [radio('b0:00:00:00:00:01', -50, 'public')], networks: [{ bssid: 'aa:bb:cc:dd:ee:01', ssid: 'Cafe', rssi: -45 }] }),
+  ping({ observedAt: '2026-01-01T01:00:05.000Z', devices: [radio('b0:00:00:00:00:01', -50, 'public')], networks: [{ bssid: 'aa:bb:cc:dd:ee:01', ssid: 'Cafe', rssi: -45 }] }),
+  ping({ observedAt: '2026-01-01T01:00:10.000Z', speedMps: 15, wifiOn: true, lat: 47.62, lon: -122.35 }),
+])
+const handset = withPhone.movers.find((mover) => mover.id === 'phone')
+assert.equal(handset?.kind, 'vehicle')
+assert.equal(handset?.roomId, null)
+assert.ok(withPhone.rooms.every((room) => room.members.every((member) => member.id !== 'phone')))
+
+const namedA = mergeDevice(null, radio('aa:bb:cc:00:00:21', -60, 'random', { name: 'Phone' }), fix, '2026-01-01T02:00:00.000Z')
+const namedB = mergeDevice(null, radio('aa:bb:cc:00:00:22', -60, 'random', { name: 'Phone' }), fix, '2026-01-01T02:00:00.000Z')
+assert.notEqual(namedA.address, namedB.address)
+assert.equal(namedA.name, 'Phone')
+assert.equal(namedB.name, 'Phone')
+
+const heard = mergeDevice(null, radio('aa:bb:cc:00:00:23', -60, 'random', { broadcastLat: 47.7, broadcastLon: -122.2 }), fix, '2026-01-01T02:00:00.000Z')
+assert.equal('broadcastLat' in heard, false)
+assert.equal(heard.observations[0]?.lat, fix.lat)
+assert.equal(JSON.stringify(heard).includes('47.7'), false)
+const stripped = stripPing(ping({
+  observedAt: '2026-01-01T02:00:00.000Z',
+  devices: [radio('aa:bb:cc:00:00:23', -60, 'random', { broadcastLat: 47.7, broadcastLon: -122.2 })],
+}))
+assert.equal('broadcastLat' in stripped.devices[0], false)
+
+const towerInput = (registered: boolean, timing: number | null): ScanCell => ({
+  radio: 'lte',
+  registered,
+  mcc: '310',
+  mnc: '260',
+  area: '1234',
+  cellId: registered ? '99' : '100',
+  pci: 12,
+  rssi: registered ? -80 : -110,
+  timingAdvanceM: timing,
+})
+const northLat = 47.62 + 200 / 110540
+let serving = mergeCell(null, towerInput(true, 100), { ...fix, lat: 47.62, lon: -122.35 }, '2026-01-01T03:00:00.000Z')
+serving = mergeCell(serving, towerInput(true, 100), { ...fix, lat: northLat, lon: -122.35 }, '2026-01-01T03:00:10.000Z')
+assert.equal(serving.role, 'serving')
+assert.equal(serving.mcc, '310')
+assert.equal(serving.area, '1234')
+assert.equal(serving.cellId, '99')
+assert.equal('imsi' in serving, false)
+assert.equal('tmsi' in serving, false)
+assert.equal('imei' in serving, false)
+assert.ok(serving.siteLat != null && serving.siteLon != null)
+assert.ok(haversineMeters(serving.siteLat, serving.siteLon, 47.62 + 100 / 110540, -122.35) < 20)
+
+let remote = mergeCell(null, towerInput(false, null), { ...fix, lat: 47.62, lon: -122.35 }, '2026-01-01T03:01:00.000Z')
+remote = mergeCell(remote, towerInput(false, null), { ...fix, lat: 47.62 + 10 / 110540, lon: -122.35 }, '2026-01-01T03:01:10.000Z')
+assert.equal(remote.role, 'remote')
+assert.equal(remote.siteLat, null)
 
 console.log('logic tests passed')

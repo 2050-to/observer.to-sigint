@@ -1,10 +1,17 @@
 export type {
   AffiliatedLink,
+  CellRecord,
+  DeviceRecord,
   Fix,
+  MotionTrack,
   NetworkRecord,
   OpenRow,
   PlaceInfo,
   RangeSnapshot,
+  Room,
   ScanAp,
+  ScanCell,
+  ScanDevice,
+  ScenePing,
   SecurityLabel,
 } from '../../shared/types.js'

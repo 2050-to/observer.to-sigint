@@ -12,6 +12,43 @@ The browser cannot scan Wi-Fi. Use **Load sample drive** there. Real scans run i
 
 Android builds also need Android Studio with SDK 35. The app targets devices on API 29 or newer.
 
+## Install on macOS
+
+Install [Homebrew](https://brew.sh) if it is not already installed, then install Node.js 20 or newer:
+
+```bash
+brew install node
+node -v
+```
+
+Install [Docker Desktop for Mac](https://docs.docker.com/desktop/setup/install/mac-install/) and open it. Leave it running. `docker compose` works once the menu bar icon reports that Docker is running.
+
+macOS includes an OpenSSL-compatible `openssl`. Confirm it:
+
+```bash
+openssl version
+```
+
+If that command is missing, install OpenSSL and put it on your PATH. Add the `export` line to `~/.zshrc` so new terminals keep it:
+
+```bash
+brew install openssl
+echo 'export PATH="$(brew --prefix openssl)/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+From the repo root, install the UI and the API, then generate certificates and `.env`:
+
+```bash
+npm install
+npm install --prefix server
+npm run setup
+```
+
+Continue with Configure and Run below. The first time the API starts, macOS may ask to allow incoming connections for Node. Allow them so an Android emulator on this Mac can reach the API.
+
+For a device build, install Android Studio for Mac and add Android SDK 35 from its SDK Manager.
+
 ## Install
 
 From the repo root, install the UI and the API:

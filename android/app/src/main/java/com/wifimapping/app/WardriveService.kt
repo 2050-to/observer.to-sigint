@@ -2,6 +2,12 @@ package com.wifimapping.app
 
 import android.annotation.SuppressLint
 import android.app.Notification
+import android.bluetooth.BluetoothManager
+import android.bluetooth.le.BluetoothLeScanner
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
+import android.content.pm.PackageManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -56,6 +62,14 @@ class WardriveService : Service() {
     private var relativeM: Double? = null
     private lateinit var outbox: Outbox
     private lateinit var wifiManager: WifiManager
+    private var bleScanner: BluetoothLeScanner? = null
+    private val adverts = LinkedHashMap<String, org.json.JSONObject>()
+    private val bleCallback = object : ScanCallback() {
+        override fun onScanResult(callbackType: Int, result: ScanResult) {
+            val json = advertJson(result) ?: return
+            synchronized(adverts) { adverts[json.getString("address")] = json }
+        }
+    }
 
     private val scanTask = Runnable { requestScan() }
     private val receiver = object : BroadcastReceiver() {
@@ -79,7 +93,7 @@ class WardriveService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        startForeground(NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        startForeground(NOTIFICATION_ID, notification(), foregroundTypes())
         if (!::outbox.isInitialized) {
             outbox = Outbox(this)
             wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
@@ -96,6 +110,7 @@ class WardriveService : Service() {
             }
             startLocation()
             startBarometer()
+            startBluetooth()
             running = true
             updateStatus("Drive is running")
             requestScan()
@@ -115,6 +130,7 @@ class WardriveService : Service() {
         }
         pressureListener?.let { sensorManager?.unregisterListener(it) }
         pressureListener = null
+        stopBluetooth()
         wakeLock?.release()
         running = false
         updateStatus("Drive is stopped.")
@@ -216,6 +232,14 @@ class WardriveService : Service() {
         body.put("relativeM", relativeM ?: JSONObject.NULL)
         body.put("speedMps", speedMps ?: JSONObject.NULL)
         body.put("networks", networks)
+        val radios = radioPayload()
+        body.put("devices", radios.first)
+        body.put("cells", radios.second)
+        body.put("wifiOn", wifiManager.isWifiEnabled)
+        body.put("bluetoothOn", bluetoothEnabled(this))
+        body.put("cellOn", radios.second.let { cells ->
+            (0 until cells.length()).any { index -> cells.getJSONObject(index).optBoolean("registered") }
+        })
         outbox.append(body)
         WardrivePlugin.emitScanQueued()
         if (hearsSaved(networks)) {
@@ -317,6 +341,43 @@ class WardriveService : Service() {
         }
     }
 
+    @SuppressLint("MissingPermission")
+    private fun startBluetooth() {
+        if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) return
+        val scanner = getSystemService(BluetoothManager::class.java)?.adapter?.bluetoothLeScanner ?: return
+        val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+        try {
+            scanner.startScan(emptyList(), settings, bleCallback)
+            bleScanner = scanner
+        } catch (_: SecurityException) {
+            bleScanner = null
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun stopBluetooth() {
+        try {
+            bleScanner?.stopScan(bleCallback)
+        } catch (_: SecurityException) {
+            // The scan was already stopped.
+        }
+        bleScanner = null
+    }
+
+    private fun radioPayload(): Pair<JSONArray, JSONArray> {
+        val devices = JSONArray()
+        synchronized(adverts) {
+            adverts.values.forEach { devices.put(it) }
+            adverts.clear()
+        }
+        val cells = try {
+            cellTowers(this)
+        } catch (_: Exception) {
+            JSONArray()
+        }
+        return devices to cells
+    }
+
     private fun notification(): Notification {
         val manager = getSystemService(NotificationManager::class.java)
         val channel = NotificationChannel(CHANNEL_ID, "Wardrive", NotificationManager.IMPORTANCE_LOW)
@@ -346,6 +407,15 @@ class WardriveService : Service() {
         @Volatile var lastLat: Double? = null
         @Volatile var lastLon: Double? = null
         @Volatile var lastAccuracy: Double? = null
+
+        fun foregroundTypes(): Int {
+            val location = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            return if (Build.VERSION.SDK_INT >= 34) {
+                location or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            } else {
+                location
+            }
+        }
 
         fun periodFor(radiusM: Double, speedMps: Double?): Long {
             val speed = when {

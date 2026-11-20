@@ -3,11 +3,11 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'node:https'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { catalogCsv } from '../../shared/csv.js'
+import { catalogBundleCsv } from '../../shared/csv.js'
 import { lookupPlace } from './geocode.js'
 import { Store, type ScanInput } from './store.js'
 import { bearerOk } from './crypto.js'
-import type { ScanAp } from './types.js'
+import type { ScanAp, ScanCell, ScanDevice } from './types.js'
 
 function loadEnv(path: string): void {
   if (!existsSync(path)) return
@@ -79,7 +79,69 @@ function asScan(body: unknown): ScanInput {
     verticalAccuracyM: numberOrNull(scan.verticalAccuracyM),
     relativeM: numberOrNull(scan.relativeM),
     speedMps: numberOrNull(scan.speedMps),
+    wifiOn: Boolean(scan.wifiOn),
+    bluetoothOn: Boolean(scan.bluetoothOn),
+    cellOn: Boolean(scan.cellOn),
     networks: scan.networks.map(asAp),
+    devices: asDevices(scan.devices),
+    cells: asCells(scan.cells),
+  }
+}
+
+function asDevices(value: unknown): ScanDevice[] {
+  if (!Array.isArray(value)) return []
+  const devices: ScanDevice[] = []
+  for (const entry of value) {
+    const device = asDevice(entry)
+    if (device) devices.push(device)
+  }
+  return devices
+}
+
+function asDevice(value: unknown): ScanDevice | null {
+  if (!value || typeof value !== 'object') return null
+  const device = value as Partial<ScanDevice>
+  if (typeof device.address !== 'string' || !Number.isFinite(device.rssi)) return null
+  const addressType = device.addressType === 'public' ? 'public' : 'random'
+  return {
+    address: device.address,
+    addressType,
+    name: typeof device.name === 'string' ? device.name : null,
+    rssi: Number(device.rssi),
+    txPower: numberOrNull(device.txPower),
+    serviceUuids: Array.isArray(device.serviceUuids) ? device.serviceUuids.map(String) : [],
+    broadcastLat: numberOrNull(device.broadcastLat),
+    broadcastLon: numberOrNull(device.broadcastLon),
+  }
+}
+
+function asCells(value: unknown): ScanCell[] {
+  if (!Array.isArray(value)) return []
+  const cells: ScanCell[] = []
+  for (const entry of value) {
+    const cell = asCell(entry)
+    if (cell) cells.push(cell)
+  }
+  return cells
+}
+
+function asCell(value: unknown): ScanCell | null {
+  if (!value || typeof value !== 'object') return null
+  const cell = value as Partial<ScanCell>
+  if (cell.radio !== 'lte' && cell.radio !== 'nr' && cell.radio !== 'wcdma' && cell.radio !== 'gsm') return null
+  if (typeof cell.mcc !== 'string' || typeof cell.mnc !== 'string') return null
+  if (typeof cell.area !== 'string' || typeof cell.cellId !== 'string') return null
+  if (!Number.isFinite(cell.rssi)) return null
+  return {
+    radio: cell.radio,
+    registered: Boolean(cell.registered),
+    mcc: cell.mcc,
+    mnc: cell.mnc,
+    area: cell.area,
+    cellId: cell.cellId,
+    pci: numberOrNull(cell.pci),
+    rssi: Number(cell.rssi),
+    timingAdvanceM: numberOrNull(cell.timingAdvanceM),
   }
 }
 
@@ -186,6 +248,10 @@ async function handle(store: Store, req: IncomingMessage, res: ServerResponse): 
       scanPeriodSeconds: map.snapshot.scanPeriodSeconds,
       circle: map.circle,
       networks: map.networks,
+      devices: map.devices,
+      cells: map.cells,
+      rooms: map.snapshot.rooms,
+      movers: map.snapshot.movers,
     })
     return
   }
@@ -198,7 +264,12 @@ async function handle(store: Store, req: IncomingMessage, res: ServerResponse): 
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/export.csv') {
-    send(res, 200, catalogCsv(await store.catalog()), 'text/csv; charset=utf-8')
+    const snapshot = await store.range()
+    send(res, 200, catalogBundleCsv(await store.catalog(), {
+      devices: await store.devices(),
+      cells: await store.cells(),
+      rooms: snapshot.rooms,
+    }), 'text/csv; charset=utf-8')
     return
   }
   send(res, 404, { error: 'not found' })

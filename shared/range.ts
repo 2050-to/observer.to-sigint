@@ -23,6 +23,9 @@ export function snapshotFrom(heard: NetworkRecord[], phone: Fix, speedMps: numbe
     speedMps,
     dwellSeconds: timing.dwellSeconds,
     scanPeriodSeconds: timing.scanPeriodSeconds,
+    rooms: [],
+    movers: [],
+    history: [],
   }
 }
 

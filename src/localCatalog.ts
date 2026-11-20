@@ -31,6 +31,9 @@ export function parseCatalog(text: string): LocalCatalog {
   const empty = emptyCatalog()
   return {
     networks: Array.isArray(value.networks) ? value.networks : [],
+    devices: Array.isArray(value.devices) ? value.devices : [],
+    cells: Array.isArray(value.cells) ? value.cells : [],
+    history: Array.isArray(value.history) ? value.history : [],
     heardBssids: Array.isArray(value.heardBssids) ? value.heardBssids : [],
     phone: value.phone ?? empty.phone,
     foldedScanIds: Array.isArray(value.foldedScanIds) ? value.foldedScanIds : [],
@@ -46,6 +49,8 @@ export function parseJournal(text: string): JournalScan[] {
   return value.filter((scan) => scan && typeof scan.scanId === 'string').map((scan) => ({
     ...scan,
     networks: Array.isArray(scan.networks) ? scan.networks : [],
+    devices: Array.isArray(scan.devices) ? scan.devices : [],
+    cells: Array.isArray(scan.cells) ? scan.cells : [],
     uploaded: Boolean(scan.uploaded),
   }))
 }
@@ -89,10 +94,10 @@ async function uploadPending(journal: JournalScan[]): Promise<{ journal: Journal
   return { journal: next, bssids, uploadedCount: uploadedIds.length }
 }
 
-async function fetchServer(): Promise<{ networks: LocalCatalog['networks']; snapshot: RangeSnapshot } | null> {
+async function fetchServer(): Promise<{ networks: LocalCatalog['networks']; devices: LocalCatalog['devices']; cells: LocalCatalog['cells']; snapshot: RangeSnapshot } | null> {
   try {
     const [snapshot, map] = await Promise.all([api.range(), api.map()])
-    return { networks: map.networks, snapshot }
+    return { networks: map.networks, devices: map.devices ?? [], cells: map.cells ?? [], snapshot }
   } catch {
     return null
   }
@@ -135,6 +140,10 @@ export async function loadView(mode: RefreshMode): Promise<LocalView> {
       scanPeriodSeconds: presented.range.scanPeriodSeconds,
       circle: presented.circle,
       networks: presented.networks,
+      devices: catalog.devices,
+      cells: catalog.cells,
+      rooms: presented.range.rooms,
+      movers: presented.range.movers,
     },
     openRows: presented.openRows,
     count: presented.count,

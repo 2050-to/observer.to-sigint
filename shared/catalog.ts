@@ -1,7 +1,9 @@
 import { collapseScan, mergeRecord, normalizeBssid } from './merge.js'
 import { circleFor, snapshotFrom } from './range.js'
+import { cellKeyOf, mergeCell, mergeDevice } from './radios.js'
+import { inferScene, pingFrom, stripPing, trimHistory } from './scene.js'
 import { openRows } from './security.js'
-import type { Fix, NetworkRecord, OpenRow, RangeSnapshot, ScanAp } from './types.js'
+import type { CellRecord, DeviceRecord, Fix, NetworkRecord, OpenRow, RangeSnapshot, ScanAp, ScanCell, ScanDevice } from './types.js'
 
 export interface JournalScan {
   scanId: string
@@ -13,12 +15,20 @@ export interface JournalScan {
   verticalAccuracyM: number | null
   relativeM: number | null
   speedMps: number | null
+  wifiOn?: boolean
+  bluetoothOn?: boolean
+  cellOn?: boolean
   networks: ScanAp[]
+  devices?: ScanDevice[]
+  cells?: ScanCell[]
   uploaded?: boolean
 }
 
 export interface LocalCatalog {
   networks: NetworkRecord[]
+  devices: DeviceRecord[]
+  cells: CellRecord[]
+  history: RangeSnapshot['history']
   heardBssids: string[]
   phone: Fix
   foldedScanIds: string[]
@@ -48,6 +58,9 @@ function emptyFix(): Fix {
 export function emptyCatalog(): LocalCatalog {
   return {
     networks: [],
+    devices: [],
+    cells: [],
+    history: [],
     heardBssids: [],
     phone: emptyFix(),
     foldedScanIds: [],
@@ -92,6 +105,9 @@ function collapseSafe(networks: ScanAp[]): ScanAp[] {
 export function foldScans(catalog: LocalCatalog, scans: JournalScan[]): LocalCatalog {
   const folded = new Set(catalog.foldedScanIds)
   const networks = catalog.networks.map((network) => ({ ...network }))
+  const devices = (catalog.devices ?? []).map((device) => ({ ...device, observations: [...device.observations] }))
+  const cells = (catalog.cells ?? []).map((cell) => ({ ...cell, observations: [...cell.observations] }))
+  let history = [...(catalog.history ?? [])]
   let phone = catalog.phone
   let speedMps = catalog.speedMps
   let heardBssids = catalog.heardBssids
@@ -109,6 +125,24 @@ export function foldScans(catalog: LocalCatalog, scans: JournalScan[]): LocalCat
       else networks.unshift(merged)
       heard.push(merged.bssid)
     }
+    const ping = pingFrom({ ...scan, observedAt: seenAt })
+    for (const device of ping.devices) {
+      try {
+        const index = devices.findIndex((item) => item.address === device.address)
+        const merged = mergeDevice(index >= 0 ? devices[index] : null, device, fix, seenAt)
+        if (index >= 0) devices[index] = merged
+        else devices.unshift(merged)
+      } catch {
+        continue
+      }
+    }
+    for (const cell of ping.cells) {
+      const index = cells.findIndex((item) => item.key === cellKeyOf(cell))
+      const merged = mergeCell(index >= 0 ? cells[index] : null, cell, fix, seenAt)
+      if (index >= 0) cells[index] = merged
+      else cells.unshift(merged)
+    }
+    history = trimHistory([...history, stripPing(ping)])
     phone = fix
     speedMps = numberOrNull(scan.speedMps)
     heardBssids = heard
@@ -116,6 +150,9 @@ export function foldScans(catalog: LocalCatalog, scans: JournalScan[]): LocalCat
   }
   return {
     networks,
+    devices,
+    cells,
+    history,
     heardBssids,
     phone,
     foldedScanIds: [...folded],
@@ -139,7 +176,7 @@ export function scanHearsSaved(networks: { bssid: string }[], syncedBssids: stri
 export function reconcileCatalog(
   catalog: LocalCatalog,
   journal: JournalScan[],
-  server: { networks: NetworkRecord[]; snapshot: RangeSnapshot } | null,
+  server: { networks: NetworkRecord[]; devices?: DeviceRecord[]; cells?: CellRecord[]; snapshot: RangeSnapshot } | null,
 ): LocalCatalog {
   if (!server) return foldScans(catalog, journal)
   const synced = new Set(catalog.syncedBssids.map((bssid) => bssid.toLowerCase()))
@@ -147,6 +184,9 @@ export function reconcileCatalog(
   const uploaded = journal.filter((scan) => scan.uploaded).map((scan) => scan.scanId)
   const base: LocalCatalog = {
     networks: server.networks,
+    devices: server.devices ?? [],
+    cells: server.cells ?? [],
+    history: server.snapshot.history ?? [],
     heardBssids: server.snapshot.heard.map((network) => network.bssid),
     phone: server.snapshot.phone,
     foldedScanIds: uploaded,
@@ -162,7 +202,13 @@ export function presentCatalog(catalog: LocalCatalog): PresentedCatalog {
     const network = byBssid.get(bssid)
     return network ? [network] : []
   })
-  const range = snapshotFrom(heard, catalog.phone, catalog.speedMps)
+  const scene = inferScene(catalog.history ?? [])
+  const range = {
+    ...snapshotFrom(heard, catalog.phone, catalog.speedMps),
+    rooms: scene.rooms,
+    movers: scene.movers,
+    history: catalog.history ?? [],
+  }
   const circle = circleFor(catalog.networks, range)
   return {
     range,

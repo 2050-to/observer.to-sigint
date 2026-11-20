@@ -8,9 +8,10 @@ import { DriveMap } from './views/DriveMap'
 import { LogView } from './views/LogView'
 import { OpenList } from './views/OpenList'
 import { RangeGraph } from './views/RangeGraph'
+import { RoomsView } from './views/RoomsView'
 import { SpaceView } from './views/SpaceView'
 
-type Tab = 'range' | 'map' | 'space' | 'open' | 'log'
+type Tab = 'range' | 'map' | 'space' | 'rooms' | 'open' | 'log'
 
 const SPEEDS = [
   { id: 'walk', label: 'Slow walk', mps: 0.82 },
@@ -173,9 +174,9 @@ export function App() {
       {note && <p className="note">{note}</p>}
       {error && <p className="warn">{error}</p>}
       <nav>
-        {(['range', 'map', 'space', 'open', 'log'] as Tab[]).map((item) => (
+        {(['range', 'map', 'space', 'rooms', 'open', 'log'] as Tab[]).map((item) => (
           <button key={item} type="button" className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>
-            {item === 'range' ? 'In range' : item === 'map' ? 'Map' : item === 'space' ? 'Space' : item === 'open' ? 'Open' : 'Log'}
+            {item === 'range' ? 'In range' : item === 'map' ? 'Map' : item === 'space' ? 'Space' : item === 'rooms' ? 'Rooms' : item === 'open' ? 'Open' : 'Log'}
           </button>
         ))}
       </nav>
@@ -187,7 +188,25 @@ export function App() {
           onPlaceSaved={() => void refresh(running ? 'pull' : 'sync')}
         />
       )}
-      {tab === 'space' && <SpaceView phone={map?.phone ?? null} networks={map?.networks ?? []} />}
+      {tab === 'space' && (
+        <SpaceView
+          phone={map?.phone ?? null}
+          networks={map?.networks ?? []}
+          rooms={map?.rooms ?? []}
+          movers={map?.movers ?? []}
+        />
+      )}
+      {tab === 'rooms' && (
+        <RoomsView
+          rooms={map?.rooms ?? []}
+          movers={map?.movers ?? []}
+          devices={map?.devices ?? []}
+          onShow={(point) => {
+            setFocus(point)
+            setTab('map')
+          }}
+        />
+      )}
       {tab === 'open' && (
         <OpenList
           rows={openRows}
@@ -198,7 +217,16 @@ export function App() {
           }}
         />
       )}
-      {tab === 'log' && <LogView count={count} openCount={openRows.length} networks={map?.networks ?? []} />}
+      {tab === 'log' && (
+        <LogView
+          count={count}
+          openCount={openRows.length}
+          networks={map?.networks ?? []}
+          devices={map?.devices ?? []}
+          cells={map?.cells ?? []}
+          rooms={map?.rooms ?? []}
+        />
+      )}
     </main>
   )
 }

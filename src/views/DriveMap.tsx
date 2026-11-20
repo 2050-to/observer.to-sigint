@@ -101,6 +101,47 @@ export function DriveMap({
         void openCard(title, network.bestLat!, network.bestLon!, network.bssid, network.place, levelLabel(map, network), network)
       })
     }
+    for (const device of map.devices ?? []) {
+      if (device.bestLat == null || device.bestLon == null) continue
+      const marker = L.circleMarker([device.bestLat, device.bestLon], {
+        radius: 4,
+        color: '#c9a0dc',
+        fillColor: '#c9a0dc',
+        fillOpacity: 0.95,
+      }).addTo(group)
+      marker.bindTooltip(device.name || device.address)
+    }
+    for (const cell of map.cells ?? []) {
+      const serving = cell.role === 'serving'
+      const color = serving ? '#e6a23c' : '#8b6cf0'
+      const label = serving ? 'Serving tower' : 'Remote tower'
+      if (cell.siteLat != null && cell.siteLon != null) {
+        const marker = L.circleMarker([cell.siteLat, cell.siteLon], {
+          radius: 8,
+          color,
+          fillColor: color,
+          fillOpacity: 0.95,
+        }).addTo(group)
+        marker.bindTooltip(label)
+        continue
+      }
+      if (cell.bestLat == null || cell.bestLon == null) continue
+      const heard = [...cell.observations].reverse().find((item) => item.distanceM != null)
+      const radius = Math.min(cell.timingAdvanceM ?? heard?.distanceM ?? 800, 2000)
+      L.circle([cell.bestLat, cell.bestLon], {
+        radius,
+        color,
+        weight: 1,
+        fillOpacity: 0.05,
+      }).addTo(group)
+      const marker = L.circleMarker([cell.bestLat, cell.bestLon], {
+        radius: 5,
+        color,
+        fillColor: color,
+        fillOpacity: 0.75,
+      }).addTo(group)
+      marker.bindTooltip(`${label}, heard here`)
+    }
     if (map.phone.lat != null && map.phone.lon != null) {
       mapView.setView([map.phone.lat, map.phone.lon], 16)
     }

@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
 import { eastNorthMeters, floorLabel, gpsGround, plottedHeight, STORY_M, type PlottedHeight } from '../height'
-import { SECURITY_COLORS, type NetworkRecord, type RangeSnapshot } from '../types'
+import { SECURITY_COLORS, type MotionTrack, type NetworkRecord, type RangeSnapshot, type Room } from '../types'
 
 interface PlotPoint {
   id: string
@@ -34,9 +34,13 @@ function phoneFix(phone: RangeSnapshot['phone']) {
 export function SpaceView({
   phone,
   networks,
+  rooms = [],
+  movers = [],
 }: {
   phone: RangeSnapshot['phone'] | null
   networks: NetworkRecord[]
+  rooms?: Room[]
+  movers?: MotionTrack[]
 }) {
   const host = useRef<HTMLDivElement>(null)
   const [floor, setFloor] = useState<string>('all')
@@ -59,7 +63,33 @@ export function SpaceView({
     const phoneHeight = phone ? plottedHeight(phoneFix(phone), ground) : null
     const points: PlotPoint[] = []
     const unknown: NetworkRecord[] = []
-    if (!origin) return { points, unknown, phoneHeight }
+    const volumes: { id: string; east: number; north: number; radius: number; color: string }[] = []
+    if (!origin) return { points, unknown, phoneHeight, volumes }
+    for (const room of rooms) {
+      if (room.lat == null || room.lon == null) continue
+      const { east, north } = eastNorthMeters(origin.lat, origin.lon, room.lat, room.lon)
+      if (Math.hypot(east, north) > 80) continue
+      volumes.push({
+        id: room.id,
+        east,
+        north,
+        radius: Math.max(room.radiusM, 1),
+        color: room.originKind === 'wifi' ? '#3d8bfd' : '#c9a0dc',
+      })
+      for (const mover of movers) {
+        if (mover.roomId !== room.id || mover.distanceM == null) continue
+        const reach = Math.min(mover.distanceM, room.radiusM)
+        points.push({
+          id: mover.id,
+          label: `${mover.label} · ${mover.kind}`,
+          east: east + reach,
+          north,
+          height: phoneHeight ?? { meters: 1, source: 'barometer', floor: 0, uncertain: false },
+          color: mover.kind === 'vehicle' ? '#e85d4c' : '#e6a23c',
+          record: null,
+        })
+      }
+    }
     for (const network of networks) {
       const height = plottedHeight(bestFix(network), ground)
       if (network.bestLat == null || network.bestLon == null || !height) {
@@ -78,8 +108,8 @@ export function SpaceView({
         record: network,
       })
     }
-    return { points, unknown, phoneHeight }
-  }, [networks, phone])
+    return { points, unknown, phoneHeight, volumes }
+  }, [movers, networks, phone, rooms])
 
   const floors = useMemo(
     () => [...new Set(model.points.flatMap((point) => (point.height.floor == null ? [] : [point.height.floor])))].sort((a, b) => a - b),
@@ -151,12 +181,29 @@ export function SpaceView({
       place(point.id, point.east, point.height.meters, point.north, point.color, 1.6)
     }
     if (showPhone) place('phone', 0, model.phoneHeight?.meters ?? 0, 0, '#7dcea0', 2.4)
+    for (const volume of model.volumes) {
+      const mesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(volume.radius, volume.radius, 2.4, 28, 1, true),
+        new THREE.MeshStandardMaterial({
+          color: volume.color,
+          transparent: true,
+          opacity: 0.18,
+          side: THREE.DoubleSide,
+        }),
+      )
+      mesh.position.set(volume.east, 1.2, volume.north)
+      scene.add(mesh)
+    }
 
     const heights = visible.map((point) => point.height.meters)
     if (showPhone) heights.push(model.phoneHeight?.meters ?? 0)
     const minY = Math.min(0, ...heights)
     const maxY = Math.max(STORY_M, ...heights)
-    const span = Math.max(24, ...visible.map((point) => Math.hypot(point.east, point.north) * 2))
+    const span = Math.max(
+      24,
+      ...visible.map((point) => Math.hypot(point.east, point.north) * 2),
+      ...model.volumes.map((volume) => (Math.hypot(volume.east, volume.north) + volume.radius) * 2),
+    )
     for (let level = Math.floor(minY / STORY_M); level <= Math.ceil(maxY / STORY_M); level += 1) {
       const grid = new THREE.GridHelper(span, 6, 0x3d4f46, 0x2c3a33)
       grid.position.y = level * STORY_M
@@ -242,7 +289,7 @@ export function SpaceView({
       renderer.dispose()
       node.replaceChildren()
     }
-  }, [floor, model.phoneHeight, visible])
+  }, [floor, model.phoneHeight, model.volumes, visible])
 
   const phoneSelected = selectedId === 'phone'
   const activeHeight = phoneSelected ? model.phoneHeight : selected?.height ?? null

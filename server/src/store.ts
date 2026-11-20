@@ -3,10 +3,12 @@ import { Redis } from 'ioredis'
 import pg from 'pg'
 import { bssidHmac, decryptJson, encryptJson } from './crypto.js'
 import { circleFor, snapshotFrom } from '../../shared/range.js'
+import { cellKeyOf, collapseCells, collapseDevices, mergeCell, mergeDevice } from '../../shared/radios.js'
+import { inferScene, pingFrom, stripPing, trimHistory } from '../../shared/scene.js'
 import { DEFAULT_RADIUS_M, timingFor } from './dwell.js'
 import { mergeRecord, collapseScan, normalizeBssid } from './merge.js'
 import { openRows } from './security.js'
-import type { Fix, NetworkRecord, OpenRow, PlaceInfo, RangeSnapshot, ScanAp } from './types.js'
+import type { CellRecord, DeviceRecord, Fix, NetworkRecord, OpenRow, PlaceInfo, RangeSnapshot, ScanAp, ScanCell, ScanDevice } from './types.js'
 
 const { Pool } = pg
 
@@ -20,7 +22,12 @@ export interface ScanInput {
   verticalAccuracyM: number | null
   relativeM: number | null
   speedMps: number | null
+  wifiOn?: boolean
+  bluetoothOn?: boolean
+  cellOn?: boolean
   networks: ScanAp[]
+  devices?: ScanDevice[]
+  cells?: ScanCell[]
 }
 
 function pack(value: unknown): string {
@@ -38,6 +45,23 @@ function unpack<T>(raw: string): T {
 
 function asRecord(row: { payload: Buffer; nonce: Buffer }): NetworkRecord {
   return decryptJson<NetworkRecord>(row.payload, row.nonce)
+}
+
+function asDevice(row: { payload: Buffer; nonce: Buffer }): DeviceRecord {
+  return decryptJson<DeviceRecord>(row.payload, row.nonce)
+}
+
+function asCell(row: { payload: Buffer; nonce: Buffer }): CellRecord {
+  return decryptJson<CellRecord>(row.payload, row.nonce)
+}
+
+function completeSnapshot(snapshot: RangeSnapshot): RangeSnapshot {
+  return {
+    ...snapshot,
+    rooms: snapshot.rooms ?? [],
+    movers: snapshot.movers ?? [],
+    history: snapshot.history ?? [],
+  }
 }
 
 export class Store {
@@ -109,6 +133,12 @@ export class Store {
       relativeM: scan.relativeM,
     }
     const collapsed = collapseScan(scan.networks)
+    const devices = collapseDevices(scan.devices ?? [])
+    const cells = collapseCells(scan.cells ?? [])
+    const previous = await this.readSnapshot()
+    const rawPing = pingFrom({ ...scan, devices, cells })
+    const scene = inferScene(trimHistory([...previous.history, rawPing]))
+    const history = trimHistory([...previous.history.map(stripPing), stripPing(rawPing)])
     const client = await this.db.connect()
     try {
       await client.query('BEGIN')
@@ -140,7 +170,46 @@ export class Store {
         )
         heard.push(merged)
       }
-      const snapshot = snapshotFrom(heard, fix, scan.speedMps)
+      for (const device of devices) {
+        const hmac = bssidHmac(device.address)
+        const existingRow = await client.query<{ payload: Buffer; nonce: Buffer }>(
+          'SELECT payload, nonce FROM devices WHERE address_hmac = $1 FOR UPDATE',
+          [hmac],
+        )
+        const existing = existingRow.rowCount ? asDevice(existingRow.rows[0]) : null
+        const merged = mergeDevice(existing, device, fix, seenAt)
+        const sealed = encryptJson(merged)
+        await client.query(
+          `INSERT INTO devices (address_hmac, payload, nonce, updated_at)
+           VALUES ($1, $2, $3, now())
+           ON CONFLICT (address_hmac) DO UPDATE
+           SET payload = EXCLUDED.payload, nonce = EXCLUDED.nonce, updated_at = now()`,
+          [hmac, sealed.payload, sealed.nonce],
+        )
+      }
+      for (const cell of cells) {
+        const hmac = bssidHmac(cellKeyOf(cell))
+        const existingRow = await client.query<{ payload: Buffer; nonce: Buffer }>(
+          'SELECT payload, nonce FROM cells WHERE cell_hmac = $1 FOR UPDATE',
+          [hmac],
+        )
+        const existing = existingRow.rowCount ? asCell(existingRow.rows[0]) : null
+        const merged = mergeCell(existing, cell, fix, seenAt)
+        const sealed = encryptJson(merged)
+        await client.query(
+          `INSERT INTO cells (cell_hmac, payload, nonce, updated_at)
+           VALUES ($1, $2, $3, now())
+           ON CONFLICT (cell_hmac) DO UPDATE
+           SET payload = EXCLUDED.payload, nonce = EXCLUDED.nonce, updated_at = now()`,
+          [hmac, sealed.payload, sealed.nonce],
+        )
+      }
+      const snapshot = {
+        ...snapshotFrom(heard, fix, scan.speedMps),
+        rooms: scene.rooms,
+        movers: scene.movers,
+        history,
+      }
       const sealedSnapshot = encryptJson(snapshot)
       await client.query(
         `INSERT INTO range_snapshot (id, payload, nonce, updated_at)
@@ -168,8 +237,16 @@ export class Store {
     return snapshot
   }
 
-  async map(): Promise<{ snapshot: RangeSnapshot; circle: NetworkRecord[]; networks: NetworkRecord[] }> {
+  async map(): Promise<{
+    snapshot: RangeSnapshot
+    circle: NetworkRecord[]
+    networks: NetworkRecord[]
+    devices: DeviceRecord[]
+    cells: CellRecord[]
+  }> {
     const networks = await this.catalog()
+    const devices = await this.devices()
+    const cells = await this.cells()
     const snapshot = await this.range()
     const cached = await this.redis.get('range:circle')
     const circle = cached ? unpack<NetworkRecord[]>(cached) : circleFor(networks, snapshot)
@@ -177,7 +254,7 @@ export class Store {
       const ttl = Math.max(1, Math.ceil(snapshot.scanPeriodSeconds))
       await this.redis.set('range:circle', pack(circle), 'EX', ttl)
     }
-    return { snapshot, circle, networks }
+    return { snapshot, circle, networks, devices, cells }
   }
 
   async open(): Promise<OpenRow[]> {
@@ -189,6 +266,20 @@ export class Store {
       'SELECT payload, nonce FROM networks ORDER BY updated_at DESC',
     )
     return result.rows.map(asRecord)
+  }
+
+  async devices(): Promise<DeviceRecord[]> {
+    const result = await this.db.query<{ payload: Buffer; nonce: Buffer }>(
+      'SELECT payload, nonce FROM devices ORDER BY updated_at DESC',
+    )
+    return result.rows.map(asDevice)
+  }
+
+  async cells(): Promise<CellRecord[]> {
+    const result = await this.db.query<{ payload: Buffer; nonce: Buffer }>(
+      'SELECT payload, nonce FROM cells ORDER BY updated_at DESC',
+    )
+    return result.rows.map(asCell)
   }
 
   async saveNetworkPlace(bssid: string, place: PlaceInfo): Promise<NetworkRecord> {
@@ -262,8 +353,11 @@ export class Store {
         speedMps: null,
         dwellSeconds: timing.dwellSeconds,
         scanPeriodSeconds: timing.scanPeriodSeconds,
+        rooms: [],
+        movers: [],
+        history: [],
       }
     }
-    return decryptJson<RangeSnapshot>(result.rows[0].payload, result.rows[0].nonce)
+    return completeSnapshot(decryptJson<RangeSnapshot>(result.rows[0].payload, result.rows[0].nonce))
   }
 }
