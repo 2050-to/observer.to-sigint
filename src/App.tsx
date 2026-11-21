@@ -294,7 +294,6 @@ export function App() {
       </section>
       {note && <p className="note">{note}</p>}
       {error && <p className="warn">{error}</p>}
-      <OwnedNetwork active={onDevice()} resetToken={ownedReset} />
       <nav>
         {(['range', 'map', 'open', 'log'] as Tab[]).map((item) => (
           <button key={item} type="button" className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>
@@ -344,6 +343,7 @@ export function App() {
           rename={rename}
         />
       )}
+      <OwnedNetwork active={onDevice()} resetToken={ownedReset} />
     </main>
   )
 }
