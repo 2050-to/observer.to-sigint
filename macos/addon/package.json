@@ -1,0 +1,7 @@
+{
+  "name": "wifi-mapping-scanner",
+  "private": true,
+  "dependencies": {
+    "node-addon-api": "^8.5.0"
+  }
+}

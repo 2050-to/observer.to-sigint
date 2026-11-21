@@ -24,8 +24,8 @@ PORT=8443
 API_TOKEN=${API_TOKEN}
 DATA_KEY=${DATA_KEY}
 HMAC_KEY=${HMAC_KEY}
-DATABASE_URL=postgres://wifi:wifi@localhost:5432/wifi?sslmode=verify-full
-REDIS_URL=rediss://localhost:6379
+DATABASE_URL=postgres://wifi:wifi@localhost:5434/wifi?sslmode=verify-full
+REDIS_URL=rediss://localhost:6380
 PGSSLROOTCERT=certs/ca.crt
 REDIS_CA=certs/ca.crt
 TLS_CERT=certs/server.crt

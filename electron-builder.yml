@@ -1,0 +1,25 @@
+appId: com.wifimapping.app
+productName: Wi-Fi Mapping
+directories:
+  output: release
+files:
+  - dist/**/*
+  - electron/dist/**/*
+  - macos/addon/build/Release/scanner.node
+  - package.json
+asarUnpack:
+  - "**/*.node"
+extraResources:
+  - from: build-resources
+    to: .
+    filter:
+      - ca.crt
+mac:
+  identity: null
+  hardenedRuntime: false
+  target:
+    - dir
+  extendInfo:
+    NSLocationUsageDescription: Wi-Fi Mapping uses your location to record where each network was heard.
+    NSLocationWhenInUseUsageDescription: Wi-Fi Mapping uses your location to record where each network was heard.
+    NSBluetoothAlwaysUsageDescription: Wi-Fi Mapping listens for nearby Bluetooth advertisements while a drive is running.

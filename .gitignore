@@ -10,3 +10,9 @@ android/local.properties
 .DS_Store
 server/node_modules
 .local
+release/
+electron/dist/
+macos/addon/build/
+macos/addon/node_modules/
+build-resources/
+.dmg

@@ -79,9 +79,14 @@ export function App() {
     let stop = false
     const handles: { remove: () => Promise<void> }[] = []
     void Wardrive.addListener('scanQueued', () => {
-      if (!stop) void refresh('local').catch((reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : 'The catalog is unavailable')
-      })
+      if (!stop) {
+        void Wardrive.getStatus().then((status) => {
+          if (status.running) setNote(status.message)
+        })
+        void refresh('local').catch((reason: unknown) => {
+          setError(reason instanceof Error ? reason.message : 'The catalog is unavailable')
+        })
+      }
     }).then((handle) => {
       if (stop) void handle.remove()
       else handles.push(handle)
@@ -132,7 +137,12 @@ export function App() {
     const apiUrl = onDevice()
       ? (import.meta.env.VITE_DEVICE_API_URL || 'https://127.0.0.1:9453')
       : window.location.origin
-    await Wardrive.startDrive({ apiUrl, token })
+    try {
+      await Wardrive.startDrive({ apiUrl, token })
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : 'The drive could not start')
+      return
+    }
     const status = await Wardrive.getStatus()
     setRunning(true)
     setNote(status.message)

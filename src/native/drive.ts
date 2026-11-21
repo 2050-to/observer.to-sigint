@@ -82,10 +82,66 @@ function foldedIds(catalog: string): string[] {
   return Array.isArray(value.foldedScanIds) ? value.foldedScanIds : []
 }
 
-export const Wardrive = registerPlugin<WardrivePlugin>('Wardrive', {
-  web: () => new WardriveWeb(),
-})
+interface MacBridge {
+  startDrive(options: { apiUrl: string; token: string }): Promise<void>
+  stopDrive(): Promise<void>
+  getStatus(): Promise<DriveStatus>
+  getLocalCatalog(): Promise<LocalCatalogFile>
+  saveLocalCatalog(options: { catalog: string }): Promise<void>
+  markUploaded(options: { scanIds: string }): Promise<void>
+  enqueue(options: { scans: string }): Promise<void>
+  addListener(eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void): Promise<PluginListenerHandle>
+}
+
+class WardriveMac extends WebPlugin {
+  constructor(private readonly bridge: MacBridge) {
+    super()
+  }
+
+  startDrive(options: { apiUrl: string; token: string }): Promise<void> {
+    return this.bridge.startDrive(options)
+  }
+
+  stopDrive(): Promise<void> {
+    return this.bridge.stopDrive()
+  }
+
+  getStatus(): Promise<DriveStatus> {
+    return this.bridge.getStatus()
+  }
+
+  getLocalCatalog(): Promise<LocalCatalogFile> {
+    return this.bridge.getLocalCatalog()
+  }
+
+  saveLocalCatalog(options: { catalog: string }): Promise<void> {
+    return this.bridge.saveLocalCatalog(options)
+  }
+
+  markUploaded(options: { scanIds: string }): Promise<void> {
+    return this.bridge.markUploaded(options)
+  }
+
+  enqueue(options: { scans: string }): Promise<void> {
+    return this.bridge.enqueue(options)
+  }
+
+  addListener(eventName: 'scanQueued' | 'scansSynced', listenerFunc: (event?: { count?: number }) => void): Promise<PluginListenerHandle> {
+    return this.bridge.addListener(eventName, listenerFunc)
+  }
+}
+
+function macBridge(): MacBridge | null {
+  if (typeof window === 'undefined') return null
+  return window.wifiMapping?.wardrive ?? null
+}
+
+const desktop = macBridge()
+
+export const Wardrive: WardrivePlugin = desktop
+  ? new WardriveMac(desktop) as WardrivePlugin
+  : registerPlugin<WardrivePlugin>('Wardrive', { web: () => new WardriveWeb() })
 
 export function onDevice(): boolean {
-  return Capacitor.isNativePlatform()
+  return Capacitor.isNativePlatform() || desktop != null
 }

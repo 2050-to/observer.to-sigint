@@ -1,6 +1,6 @@
 # Wi-Fi Mapping
 
-Local app for collecting and reviewing Wi-Fi networks. A React UI shows range, map, space, open networks, and a log. An HTTPS API stores scans in Postgres and keeps a short-lived snapshot in Redis. An optional Android app scans nearby networks and posts them to the API.
+Local app for collecting and reviewing Wi-Fi networks. A React UI shows range, map, space, open networks, and a log. An HTTPS API stores scans in Postgres and keeps a short-lived snapshot in Redis. An optional Android app and a macOS app scan nearby networks and post them to the API.
 
 The browser cannot scan Wi-Fi. Use **Load sample drive** there. Real scans run in the Android app.
 
@@ -83,8 +83,8 @@ Restart the Vite dev server after any change to a `VITE_` variable so it picks u
 | `API_TOKEN` | Bearer token required on `/api/*`. |
 | `DATA_KEY` | AES-256-GCM key for stored records. |
 | `HMAC_KEY` | HMAC key used to index BSSIDs. |
-| `DATABASE_URL` | Postgres URL. Default user, password, and database are `wifi`. |
-| `REDIS_URL` | Redis URL over TLS (`rediss://localhost:6379`). |
+| `DATABASE_URL` | Postgres URL. Host port `5434`. Default user, password, and database are `wifi`. |
+| `REDIS_URL` | Redis URL over TLS (`rediss://localhost:6380`). |
 | `PGSSLROOTCERT` | CA file for Postgres (`certs/ca.crt`). |
 | `REDIS_CA` | CA file for Redis (`certs/ca.crt`). |
 | `TLS_CERT` | API certificate (`certs/server.crt`). |
@@ -147,3 +147,16 @@ npm run cap:sync
 `cap:sync` builds the web app and copies it into the Android project. Open `android/` in Android Studio and run it on an emulator or a device.
 
 On first **Start drive**, the app asks for location, nearby Wi-Fi devices, and notifications. Those permissions keep the scan running in the foreground. Point `VITE_DEVICE_API_URL` at the API before `npm run cap:sync`, then rebuild so the packaged app has the token and URL.
+
+## macOS
+
+Build an ad-hoc signed disk image on this Mac:
+
+```bash
+npm run mac:dmg
+```
+
+Open `release/Wi-Fi Mapping.dmg`, drag **Wi-Fi Mapping** to Applications, and open it. On the first **Start drive**, allow Location and Bluetooth. The app scans nearby Wi-Fi and Bluetooth advertisements and keeps the catalog on this Mac. Cell towers are not available. When `npm run server` is running, scans sync to `https://127.0.0.1:9453`.
+
+The disk image is not notarized. It opens on the Mac that built it. On another Mac, Control-click the app and choose Open so Gatekeeper allows it.
+
