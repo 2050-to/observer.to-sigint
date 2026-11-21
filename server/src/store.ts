@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { Redis } from 'ioredis'
 import pg from 'pg'
@@ -97,6 +98,10 @@ function completeSnapshot(snapshot: RangeSnapshot): RangeSnapshot {
   }
 }
 
+function userKey(userId: string, suffix: string): string {
+  return `u:${userId}:${suffix}`
+}
+
 function enrichmentErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : ''
   const status = /DeepSeek request failed \((\d{3})\)/.exec(message)
@@ -127,6 +132,9 @@ export class Store {
         servername: 'localhost',
       },
     })
+    db.on('error', (error: Error) => {
+      console.error(error.message || 'database connection dropped')
+    })
     const redis = new Redis(process.env.REDIS_URL ?? '', {
       tls: { ca: readFileSync(redisCa), servername: 'localhost' },
       maxRetriesPerRequest: 2,
@@ -154,10 +162,33 @@ export class Store {
   }
 
   async migrate(): Promise<void> {
+    const legacy = await this.db.query<{ legacy: number; scoped: number }>(`
+      SELECT
+        (SELECT count(*)::int FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'networks' AND column_name = 'bssid_hmac') AS legacy,
+        (SELECT count(*)::int FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'networks' AND column_name = 'user_id') AS scoped
+    `)
+    if ((legacy.rows[0]?.legacy ?? 0) > 0 && (legacy.rows[0]?.scoped ?? 0) === 0) {
+      await this.db.query('DROP TABLE IF EXISTS networks, devices, cells, applied_scans, range_snapshot CASCADE')
+      await this.deleteLegacyRedis()
+    }
     const sql = readFileSync(new URL('../schema.sql', import.meta.url), 'utf8')
     await this.db.query(sql)
     await this.redis.config('SET', 'save', '').catch(() => undefined)
     await this.redis.config('SET', 'appendonly', 'no').catch(() => undefined)
+  }
+
+  private async deleteLegacyRedis(): Promise<void> {
+    await this.redis.del('range:heard', 'range:circle', 'place:phone')
+    for (const pattern of ['ap:*', 'postal:*']) {
+      let cursor = '0'
+      do {
+        const [next, keys] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', 200)
+        cursor = next
+        if (keys.length) await this.redis.del(...keys)
+      } while (cursor !== '0')
+    }
   }
 
   async close(): Promise<void> {
@@ -165,7 +196,7 @@ export class Store {
     await this.db.end()
   }
 
-  async ingest(scan: ScanInput): Promise<{ applied: boolean; snapshot: RangeSnapshot }> {
+  async ingest(userId: string, scan: ScanInput): Promise<{ applied: boolean; snapshot: RangeSnapshot }> {
     const seenAt = new Date(scan.observedAt).toISOString()
     const fix: Fix = {
       lat: scan.lat,
@@ -178,8 +209,21 @@ export class Store {
     const collapsed = collapseScan(scan.networks)
     const devices = collapseDevices(scan.devices ?? [])
     const cells = collapseCells(scan.cells ?? [])
-    const previous = await this.readSnapshot()
-    const postalCode = await this.cachedPostalCode(scan.lat, scan.lon)
+    const previous = await this.readSnapshot(userId)
+    const postalCode = await this.cachedPostalCode(userId, scan.lat, scan.lon)
+    const bestCodes = new Map<string, Promise<string | null>>()
+    const bestPostalCode = (lat: number | null, lon: number | null): Promise<string | null> => {
+      if (lat == null || lon == null) return Promise.resolve(null)
+      if (scan.lat != null && scan.lon != null && samePostalCell(scan.lat, scan.lon, lat, lon)) return Promise.resolve(postalCode)
+      const key = postalCellKey(lat, lon)
+      const pending = bestCodes.get(key)
+      if (pending) return pending
+      const lookup = this.cachedPostalCode(userId, lat, lon)
+      bestCodes.set(key, lookup)
+      return lookup
+    }
+    const codesFor = async (existing: string[] | null | undefined, bestLat: number | null, bestLon: number | null) =>
+      addPostalCode(addPostalCode(existing, postalCode), await bestPostalCode(bestLat, bestLon))
     const rawPing = pingFrom({ ...scan, devices, cells })
     const scene = inferScene(trimHistory([...previous.history, rawPing]))
     const history = trimHistory([...previous.history.map(stripPing), stripPing(rawPing)])
@@ -187,12 +231,12 @@ export class Store {
     try {
       await client.query('BEGIN')
       const inserted = await client.query(
-        'INSERT INTO applied_scans (scan_id) VALUES ($1) ON CONFLICT DO NOTHING RETURNING scan_id',
-        [scan.scanId],
+        'INSERT INTO applied_scans (user_id, scan_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING scan_id',
+        [userId, scan.scanId],
       )
       if (inserted.rowCount === 0) {
         await client.query('ROLLBACK')
-        const snapshot = await this.readSnapshot()
+        const snapshot = await this.readSnapshot(userId)
         return { applied: false, snapshot }
       }
       const heard: NetworkRecord[] = []
@@ -200,54 +244,56 @@ export class Store {
       for (const ap of collapsed) {
         const hmac = bssidHmac(ap.bssid)
         const existingRow = await client.query<{ payload: Buffer; nonce: Buffer }>(
-          'SELECT payload, nonce FROM networks WHERE bssid_hmac = $1 FOR UPDATE',
-          [hmac],
+          'SELECT payload, nonce FROM networks WHERE user_id = $1 AND bssid_hmac = $2 FOR UPDATE',
+          [userId, hmac],
         )
         const existing = existingRow.rowCount ? asRecord(existingRow.rows[0]) : null
-        const merged = { ...mergeRecord(existing, ap, fix, seenAt), postalCodes: addPostalCode(existing?.postalCodes, postalCode) }
+        const mergedRecord = mergeRecord(existing, ap, fix, seenAt)
+        const merged = { ...mergedRecord, postalCodes: await codesFor(existing?.postalCodes, mergedRecord.bestLat, mergedRecord.bestLon) }
         const sealed = encryptJson(merged)
         await client.query(
-          `INSERT INTO networks (bssid_hmac, payload, nonce, updated_at)
-           VALUES ($1, $2, $3, now())
-           ON CONFLICT (bssid_hmac) DO UPDATE
+          `INSERT INTO networks (user_id, bssid_hmac, payload, nonce, updated_at)
+           VALUES ($1, $2, $3, $4, now())
+           ON CONFLICT (user_id, bssid_hmac) DO UPDATE
            SET payload = EXCLUDED.payload, nonce = EXCLUDED.nonce, updated_at = now()`,
-          [hmac, sealed.payload, sealed.nonce],
+          [userId, hmac, sealed.payload, sealed.nonce],
         )
         heard.push(merged)
       }
       for (const device of devices) {
         const hmac = bssidHmac(device.address)
         const existingRow = await client.query<{ payload: Buffer; nonce: Buffer }>(
-          'SELECT payload, nonce FROM devices WHERE address_hmac = $1 FOR UPDATE',
-          [hmac],
+          'SELECT payload, nonce FROM devices WHERE user_id = $1 AND address_hmac = $2 FOR UPDATE',
+          [userId, hmac],
         )
         const existing = existingRow.rowCount ? asDevice(existingRow.rows[0]) : null
-        const merged = { ...mergeDevice(existing, device, fix, seenAt), postalCodes: addPostalCode(existing?.postalCodes, postalCode) }
+        const mergedDevice = mergeDevice(existing, device, fix, seenAt)
+        const merged = { ...mergedDevice, postalCodes: await codesFor(existing?.postalCodes, mergedDevice.bestLat, mergedDevice.bestLon) }
         const sealed = encryptJson(merged)
         await client.query(
-          `INSERT INTO devices (address_hmac, payload, nonce, updated_at)
-           VALUES ($1, $2, $3, now())
-           ON CONFLICT (address_hmac) DO UPDATE
+          `INSERT INTO devices (user_id, address_hmac, payload, nonce, updated_at)
+           VALUES ($1, $2, $3, $4, now())
+           ON CONFLICT (user_id, address_hmac) DO UPDATE
            SET payload = EXCLUDED.payload, nonce = EXCLUDED.nonce, updated_at = now()`,
-          [hmac, sealed.payload, sealed.nonce],
+          [userId, hmac, sealed.payload, sealed.nonce],
         )
         observedDevices.push(merged)
       }
       for (const cell of cells) {
         const hmac = bssidHmac(cellKeyOf(cell))
         const existingRow = await client.query<{ payload: Buffer; nonce: Buffer }>(
-          'SELECT payload, nonce FROM cells WHERE cell_hmac = $1 FOR UPDATE',
-          [hmac],
+          'SELECT payload, nonce FROM cells WHERE user_id = $1 AND cell_hmac = $2 FOR UPDATE',
+          [userId, hmac],
         )
         const existing = existingRow.rowCount ? asCell(existingRow.rows[0]) : null
         const merged = mergeCell(existing, cell, fix, seenAt)
         const sealed = encryptJson(merged)
         await client.query(
-          `INSERT INTO cells (cell_hmac, payload, nonce, updated_at)
-           VALUES ($1, $2, $3, now())
-           ON CONFLICT (cell_hmac) DO UPDATE
+          `INSERT INTO cells (user_id, cell_hmac, payload, nonce, updated_at)
+           VALUES ($1, $2, $3, $4, now())
+           ON CONFLICT (user_id, cell_hmac) DO UPDATE
            SET payload = EXCLUDED.payload, nonce = EXCLUDED.nonce, updated_at = now()`,
-          [hmac, sealed.payload, sealed.nonce],
+          [userId, hmac, sealed.payload, sealed.nonce],
         )
       }
       const snapshot = {
@@ -258,17 +304,17 @@ export class Store {
       }
       const sealedSnapshot = encryptJson(snapshot)
       await client.query(
-        `INSERT INTO range_snapshot (id, payload, nonce, updated_at)
-         VALUES (1, $1, $2, now())
-         ON CONFLICT (id) DO UPDATE
+        `INSERT INTO range_snapshot (user_id, payload, nonce, updated_at)
+         VALUES ($1, $2, $3, now())
+         ON CONFLICT (user_id) DO UPDATE
          SET payload = EXCLUDED.payload, nonce = EXCLUDED.nonce, updated_at = now()`,
-        [sealedSnapshot.payload, sealedSnapshot.nonce],
+        [userId, sealedSnapshot.payload, sealedSnapshot.nonce],
       )
       await client.query('COMMIT')
       await this.enqueueEnrichmentRecords(heard, observedDevices).catch(() => {
         console.error('failed to queue device enrichment')
       })
-      await this.cacheRange(snapshot, heard)
+      await this.cacheRange(userId, snapshot, heard)
       return { applied: true, snapshot }
     } catch (error) {
       await client.query('ROLLBACK')
@@ -278,40 +324,41 @@ export class Store {
     }
   }
 
-  async range(): Promise<RangeSnapshot> {
-    const cached = await this.redis.get('range:heard')
+  async range(userId: string): Promise<RangeSnapshot> {
+    const cached = await this.redis.get(userKey(userId, 'range:heard'))
     if (cached) return completeSnapshot(unpack<RangeSnapshot>(cached))
-    const snapshot = await this.readSnapshot()
-    await this.cacheRange(snapshot, snapshot.heard)
+    const snapshot = await this.readSnapshot(userId)
+    await this.cacheRange(userId, snapshot, snapshot.heard)
     return snapshot
   }
 
-  async map(): Promise<{
+  async map(userId: string): Promise<{
     snapshot: RangeSnapshot
     circle: NetworkRecord[]
     networks: NetworkRecord[]
     devices: DeviceRecord[]
     cells: CellRecord[]
   }> {
-    const networks = await this.catalog()
-    const devices = await this.devices()
-    const cells = await this.cells()
-    const snapshot = await this.range()
-    const cached = await this.redis.get('range:circle')
+    const networks = await this.catalog(userId)
+    const devices = await this.devices(userId)
+    const cells = await this.cells(userId)
+    const snapshot = await this.range(userId)
+    const circleKey = userKey(userId, 'range:circle')
+    const cached = await this.redis.get(circleKey)
     const circle = cached ? unpack<NetworkRecord[]>(cached) : circleFor(networks, snapshot)
     if (!cached) {
       const ttl = Math.max(1, Math.ceil(snapshot.scanPeriodSeconds))
-      await this.redis.set('range:circle', pack(circle), 'EX', ttl)
+      await this.redis.set(circleKey, pack(circle), 'EX', ttl)
     }
     return { snapshot, circle, networks, devices, cells }
   }
 
-  async open(): Promise<OpenRow[]> {
-    return openRows(await this.catalog())
+  async open(userId: string): Promise<OpenRow[]> {
+    return openRows(await this.catalog(userId))
   }
 
-  async catalog(): Promise<NetworkRecord[]> {
-    const records = await this.rawCatalog()
+  async catalog(userId: string): Promise<NetworkRecord[]> {
+    const records = await this.rawCatalog(userId)
     const enrichments = await this.enrichmentResultMap()
     return records.map((record) => {
       const input = inputForNetwork(record)
@@ -320,15 +367,16 @@ export class Store {
     })
   }
 
-  private async rawCatalog(): Promise<NetworkRecord[]> {
+  private async rawCatalog(userId: string): Promise<NetworkRecord[]> {
     const result = await this.db.query<{ payload: Buffer; nonce: Buffer }>(
-      'SELECT payload, nonce FROM networks ORDER BY updated_at DESC',
+      'SELECT payload, nonce FROM networks WHERE user_id = $1 ORDER BY updated_at DESC',
+      [userId],
     )
     return result.rows.map(asRecord)
   }
 
-  async devices(): Promise<DeviceRecord[]> {
-    const records = await this.rawDevices()
+  async devices(userId: string): Promise<DeviceRecord[]> {
+    const records = await this.rawDevices(userId)
     const enrichments = await this.enrichmentResultMap()
     return records.map((record) => {
       const input = inputForDevice(record)
@@ -337,16 +385,18 @@ export class Store {
     })
   }
 
-  private async rawDevices(): Promise<DeviceRecord[]> {
+  private async rawDevices(userId: string): Promise<DeviceRecord[]> {
     const result = await this.db.query<{ payload: Buffer; nonce: Buffer }>(
-      'SELECT payload, nonce FROM devices ORDER BY updated_at DESC',
+      'SELECT payload, nonce FROM devices WHERE user_id = $1 ORDER BY updated_at DESC',
+      [userId],
     )
     return result.rows.map(asDevice)
   }
 
-  async cells(): Promise<CellRecord[]> {
+  async cells(userId: string): Promise<CellRecord[]> {
     const result = await this.db.query<{ payload: Buffer; nonce: Buffer }>(
-      'SELECT payload, nonce FROM cells ORDER BY updated_at DESC',
+      'SELECT payload, nonce FROM cells WHERE user_id = $1 ORDER BY updated_at DESC',
+      [userId],
     )
     return result.rows.map(asCell)
   }
@@ -380,8 +430,11 @@ export class Store {
   }
 
   async enqueueEnrichmentBackfill(): Promise<number> {
-    const [networks, devices] = await Promise.all([this.rawCatalog(), this.rawDevices()])
-    return this.enqueueEnrichmentRecords(networks, devices)
+    const [networks, devices] = await Promise.all([
+      this.db.query<{ payload: Buffer; nonce: Buffer }>('SELECT payload, nonce FROM networks'),
+      this.db.query<{ payload: Buffer; nonce: Buffer }>('SELECT payload, nonce FROM devices'),
+    ])
+    return this.enqueueEnrichmentRecords(networks.rows.map(asRecord), devices.rows.map(asDevice))
   }
 
   private async enqueueEnrichmentInput(input: EnrichmentInput): Promise<boolean> {
@@ -559,25 +612,34 @@ export class Store {
     }
   }
 
-  async rememberPostalCode(lat: number, lon: number, code: string | null): Promise<void> {
+  async rememberPostalCode(userId: string, lat: number, lon: number, code: string | null): Promise<void> {
     try {
-      await this.redis.set(`postal:${postalCellKey(lat, lon)}`, code ?? '', 'EX', 30 * 24 * 60 * 60)
+      await this.redis.set(userKey(userId, `postal:${postalCellKey(lat, lon)}`), code ?? '', 'EX', 30 * 24 * 60 * 60)
     } catch {
       return
     }
   }
 
-  async appearanceCodes(bssid: string, lat: number, lon: number, postalCode: string | null): Promise<string[]> {
+  async postalCodeFor(userId: string, lat: number, lon: number): Promise<string | null> {
+    return this.cachedPostalCode(userId, lat, lon)
+  }
+
+  async appearanceCodes(userId: string, bssid: string, lat: number, lon: number, postalCode: string | null): Promise<string[]> {
     let codes = addPostalCode([], postalCode)
     try {
-      const record = await this.readNetwork(bssid)
+      const record = await this.readNetwork(userId, bssid)
       codes = addPostalCode(record?.postalCodes, postalCode)
-      if (
-        record?.lastLat != null
-        && record.lastLon != null
-        && !samePostalCell(lat, lon, record.lastLat, record.lastLon)
-      ) {
-        codes = addPostalCode(codes, await this.cachedPostalCode(record.lastLat, record.lastLon))
+      const points = [
+        [record?.bestLat, record?.bestLon],
+        [record?.lastLat, record?.lastLon],
+      ] as const
+      const seen = new Set<string>()
+      for (const [pointLat, pointLon] of points) {
+        if (pointLat == null || pointLon == null || samePostalCell(lat, lon, pointLat, pointLon)) continue
+        const key = postalCellKey(pointLat, pointLon)
+        if (seen.has(key)) continue
+        seen.add(key)
+        codes = addPostalCode(codes, await this.cachedPostalCode(userId, pointLat, pointLon))
       }
     } catch {
       return codes
@@ -585,14 +647,14 @@ export class Store {
     return codes
   }
 
-  async saveNetworkPlace(bssid: string, place: PlaceInfo, postalCodes: string[]): Promise<NetworkRecord> {
+  async saveNetworkPlace(userId: string, bssid: string, place: PlaceInfo, postalCodes: string[]): Promise<NetworkRecord> {
     const hmac = bssidHmac(normalizeBssid(bssid))
     const client = await this.db.connect()
     try {
       await client.query('BEGIN')
       const existingRow = await client.query<{ payload: Buffer; nonce: Buffer }>(
-        'SELECT payload, nonce FROM networks WHERE bssid_hmac = $1 FOR UPDATE',
-        [hmac],
+        'SELECT payload, nonce FROM networks WHERE user_id = $1 AND bssid_hmac = $2 FOR UPDATE',
+        [userId, hmac],
       )
       if (!existingRow.rowCount) {
         await client.query('ROLLBACK')
@@ -603,11 +665,11 @@ export class Store {
       record.postalCodes = postalCodes.reduce<string[]>((codes, code) => addPostalCode(codes, code), record.postalCodes ?? [])
       const sealed = encryptJson(record)
       await client.query(
-        'UPDATE networks SET payload = $2, nonce = $3, updated_at = now() WHERE bssid_hmac = $1',
-        [hmac, sealed.payload, sealed.nonce],
+        'UPDATE networks SET payload = $2, nonce = $3, updated_at = now() WHERE user_id = $4 AND bssid_hmac = $1',
+        [hmac, sealed.payload, sealed.nonce, userId],
       )
       await client.query('COMMIT')
-      await this.redis.set(`ap:${hmac.toString('hex')}`, pack(record), 'EX', 300)
+      await this.redis.set(userKey(userId, `ap:${hmac.toString('hex')}`), pack(record), 'EX', 300)
       return record
     } catch (error) {
       await client.query('ROLLBACK').catch(() => undefined)
@@ -617,38 +679,174 @@ export class Store {
     }
   }
 
-  async savePhonePlace(place: PlaceInfo, postalCode: string | null): Promise<string[]> {
-    await this.redis.set('place:phone', pack(place), 'EX', 86_400)
-    const snapshot = await this.readSnapshot()
+  async savePhonePlace(userId: string, place: PlaceInfo, postalCode: string | null): Promise<string[]> {
+    await this.redis.set(userKey(userId, 'place:phone'), pack(place), 'EX', 86_400)
+    const snapshot = await this.readSnapshot(userId)
     const postalCodes = addPostalCode(snapshot.postalCodes, postalCode)
     if (postalCodes.join('\n') !== (snapshot.postalCodes ?? []).join('\n')) {
       const next = { ...snapshot, postalCodes }
       const sealed = encryptJson(next)
       await this.db.query(
-        `INSERT INTO range_snapshot (id, payload, nonce, updated_at)
-         VALUES (1, $1, $2, now())
-         ON CONFLICT (id) DO UPDATE
+        `INSERT INTO range_snapshot (user_id, payload, nonce, updated_at)
+         VALUES ($1, $2, $3, now())
+         ON CONFLICT (user_id) DO UPDATE
          SET payload = EXCLUDED.payload, nonce = EXCLUDED.nonce, updated_at = now()`,
-        [sealed.payload, sealed.nonce],
+        [userId, sealed.payload, sealed.nonce],
       )
-      await this.cacheRange(next, next.heard)
+      await this.cacheRange(userId, next, next.heard)
     }
     return postalCodes
   }
 
-  private async readNetwork(bssid: string): Promise<NetworkRecord | null> {
+  async upsertUser(email: string): Promise<{ id: string; email: string }> {
+    const result = await this.db.query<{ id: string; email: string }>(
+      `INSERT INTO users (id, email)
+       VALUES ($1, $2)
+       ON CONFLICT (email) DO UPDATE SET email = users.email
+       RETURNING id, email`,
+      [randomUUID(), email],
+    )
+    return result.rows[0]
+  }
+
+  async userById(id: string): Promise<{ id: string; email: string } | null> {
+    const result = await this.db.query<{ id: string; email: string }>(
+      'SELECT id, email FROM users WHERE id = $1',
+      [id],
+    )
+    return result.rows[0] ?? null
+  }
+
+  async saveLoginToken(userId: string, tokenHmac: Buffer, expiresAt: Date): Promise<void> {
+    await this.db.query(
+      'INSERT INTO login_tokens (token_hmac, user_id, expires_at) VALUES ($1, $2, $3)',
+      [tokenHmac, userId, expiresAt],
+    )
+  }
+
+  async consumeLoginToken(tokenHmac: Buffer): Promise<{ id: string; email: string } | null> {
+    const result = await this.db.query<{ id: string; email: string }>(
+      `UPDATE login_tokens AS token
+       SET used_at = now()
+       FROM users
+       WHERE token.token_hmac = $1
+         AND token.user_id = users.id
+         AND token.used_at IS NULL
+         AND token.expires_at > now()
+       RETURNING users.id, users.email`,
+      [tokenHmac],
+    )
+    return result.rows[0] ?? null
+  }
+
+  async subscriptionFor(userId: string): Promise<{
+    status: string
+    stripeCustomerId: string | null
+    stripeSubscriptionId: string | null
+    currentPeriodEnd: string | null
+  }> {
+    const result = await this.db.query<{
+      status: string
+      stripe_customer_id: string | null
+      stripe_subscription_id: string | null
+      current_period_end: Date | null
+    }>(
+      `SELECT status, stripe_customer_id, stripe_subscription_id, current_period_end
+       FROM subscriptions WHERE user_id = $1`,
+      [userId],
+    )
+    const row = result.rows[0]
+    if (!row) {
+      return { status: 'none', stripeCustomerId: null, stripeSubscriptionId: null, currentPeriodEnd: null }
+    }
+    return {
+      status: row.status,
+      stripeCustomerId: row.stripe_customer_id,
+      stripeSubscriptionId: row.stripe_subscription_id,
+      currentPeriodEnd: row.current_period_end ? new Date(row.current_period_end).toISOString() : null,
+    }
+  }
+
+  async saveStripeCustomer(userId: string, customerId: string): Promise<void> {
+    await this.db.query(
+      `INSERT INTO subscriptions (user_id, stripe_customer_id, status)
+       VALUES ($1, $2, 'none')
+       ON CONFLICT (user_id) DO UPDATE
+       SET stripe_customer_id = COALESCE(subscriptions.stripe_customer_id, EXCLUDED.stripe_customer_id),
+           updated_at = now()`,
+      [userId, customerId],
+    )
+  }
+
+  async applySubscription(effect: {
+    customerId: string
+    subscriptionId: string | null
+    status: string
+    currentPeriodEnd: Date | null
+    overrideRisk?: boolean
+  }): Promise<boolean> {
+    const result = await this.db.query(
+      `UPDATE subscriptions
+       SET status = $2,
+           stripe_subscription_id = COALESCE($3, stripe_subscription_id),
+           current_period_end = COALESCE($4, current_period_end),
+           updated_at = now()
+       WHERE stripe_customer_id = $1
+         AND (
+           $5::boolean
+           OR status NOT IN ('disputed', 'refunded', 'fraud_warning')
+           OR $2 IN ('canceled', 'disputed', 'refunded', 'fraud_warning')
+         )`,
+      [effect.customerId, effect.status, effect.subscriptionId, effect.currentPeriodEnd, effect.overrideRisk === true],
+    )
+    return (result.rowCount ?? 0) > 0
+  }
+
+  async alertCandidates(): Promise<{ id: string; email: string; lastAlertAt: string | null }[]> {
+    const result = await this.db.query<{ id: string; email: string; last_alert_at: Date | null }>(
+      `SELECT users.id, users.email, users.last_alert_at
+       FROM users
+       JOIN subscriptions ON subscriptions.user_id = users.id
+       WHERE subscriptions.status = 'active'
+         AND (users.last_alert_at IS NULL OR users.last_alert_at < now() - interval '30 days')
+       ORDER BY users.last_alert_at NULLS FIRST
+       LIMIT 50`,
+    )
+    return result.rows.map((row) => ({
+      id: row.id,
+      email: row.email,
+      lastAlertAt: row.last_alert_at ? new Date(row.last_alert_at).toISOString() : null,
+    }))
+  }
+
+  async claimAlert(userId: string): Promise<boolean> {
+    const result = await this.db.query(
+      `UPDATE users
+       SET last_alert_at = now()
+       WHERE id = $1
+         AND (last_alert_at IS NULL OR last_alert_at < now() - interval '30 days')`,
+      [userId],
+    )
+    return (result.rowCount ?? 0) > 0
+  }
+
+  async restoreAlert(userId: string, lastAlertAt: string | null): Promise<void> {
+    await this.db.query('UPDATE users SET last_alert_at = $2 WHERE id = $1', [userId, lastAlertAt])
+  }
+
+  private async readNetwork(userId: string, bssid: string): Promise<NetworkRecord | null> {
     const hmac = bssidHmac(normalizeBssid(bssid))
     const existing = await this.db.query<{ payload: Buffer; nonce: Buffer }>(
-      'SELECT payload, nonce FROM networks WHERE bssid_hmac = $1',
-      [hmac],
+      'SELECT payload, nonce FROM networks WHERE user_id = $1 AND bssid_hmac = $2',
+      [userId, hmac],
     )
     if (!existing.rowCount) return null
     return asRecord(existing.rows[0])
   }
 
-  private async cachedPostalCode(lat: number | null, lon: number | null): Promise<string | null> {
+  private async cachedPostalCode(userId: string, lat: number | null, lon: number | null): Promise<string | null> {
     if (lat == null || lon == null) return null
-    const key = `postal:${postalCellKey(lat, lon)}`
+    const key = userKey(userId, `postal:${postalCellKey(lat, lon)}`)
     try {
       const cached = await this.redis.get(key)
       if (cached != null) return cached || null
@@ -661,37 +859,50 @@ export class Store {
     }
   }
 
-  async wipe(): Promise<void> {
-    await this.redis.flushdb()
-    await this.db.query('TRUNCATE networks, devices, cells, applied_scans, range_snapshot, enrichment_jobs, enrichment_results')
+  async wipe(userId: string): Promise<void> {
+    let cursor = '0'
+    do {
+      const [next, keys] = await this.redis.scan(cursor, 'MATCH', userKey(userId, '*'), 'COUNT', 200)
+      cursor = next
+      if (keys.length) await this.redis.del(...keys)
+    } while (cursor !== '0')
+    await this.db.query('DELETE FROM networks WHERE user_id = $1', [userId])
+    await this.db.query('DELETE FROM devices WHERE user_id = $1', [userId])
+    await this.db.query('DELETE FROM cells WHERE user_id = $1', [userId])
+    await this.db.query('DELETE FROM applied_scans WHERE user_id = $1', [userId])
+    await this.db.query('DELETE FROM range_snapshot WHERE user_id = $1', [userId])
   }
 
-  async summary(): Promise<{
+  async summary(userId: string): Promise<{
     count: number
     openCount: number
     snapshot: RangeSnapshot
   }> {
-    const count = await this.db.query<{ count: string }>('SELECT count(*)::text AS count FROM networks')
-    const snapshot = await this.range()
-    const openCount = (await this.open()).length
+    const count = await this.db.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM networks WHERE user_id = $1',
+      [userId],
+    )
+    const snapshot = await this.range(userId)
+    const openCount = (await this.open(userId)).length
     return { count: Number(count.rows[0]?.count ?? 0), openCount, snapshot }
   }
 
-  private async cacheRange(snapshot: RangeSnapshot, heard: NetworkRecord[]): Promise<void> {
+  private async cacheRange(userId: string, snapshot: RangeSnapshot, heard: NetworkRecord[]): Promise<void> {
     const ttl = Math.max(1, Math.ceil(snapshot.scanPeriodSeconds))
-    const networks = await this.catalog()
+    const networks = await this.catalog(userId)
     const circle = circleFor(networks, snapshot)
-    await this.redis.set('range:heard', pack(snapshot), 'EX', ttl)
-    await this.redis.set('range:circle', pack(circle), 'EX', ttl)
+    await this.redis.set(userKey(userId, 'range:heard'), pack(snapshot), 'EX', ttl)
+    await this.redis.set(userKey(userId, 'range:circle'), pack(circle), 'EX', ttl)
     for (const network of heard) {
       const hmac = bssidHmac(network.bssid).toString('hex')
-      await this.redis.set(`ap:${hmac}`, pack(network), 'EX', 300)
+      await this.redis.set(userKey(userId, `ap:${hmac}`), pack(network), 'EX', 300)
     }
   }
 
-  private async readSnapshot(): Promise<RangeSnapshot> {
+  private async readSnapshot(userId: string): Promise<RangeSnapshot> {
     const result = await this.db.query<{ payload: Buffer; nonce: Buffer }>(
-      'SELECT payload, nonce FROM range_snapshot WHERE id = 1',
+      'SELECT payload, nonce FROM range_snapshot WHERE user_id = $1',
+      [userId],
     )
     if (!result.rowCount) {
       const timing = timingFor(DEFAULT_RADIUS_M, null)

@@ -14,7 +14,7 @@
   },
   "build": {
     "appId": "com.wifimapping.app",
-    "productName": "Wi-Fi Mapping",
+    "productName": "Observer.to",
     "directories": {
       "output": "release"
     },
@@ -38,11 +38,11 @@
       "hardenedRuntime": true,
       "category": "public.app-category.utilities",
       "extendInfo": {
-        "NSLocationUsageDescription": "Wi-Fi Mapping records where this Mac heard each network and advertisement.",
-        "NSLocationWhenInUseUsageDescription": "Wi-Fi Mapping records where this Mac heard each network and advertisement.",
-        "NSBluetoothAlwaysUsageDescription": "Wi-Fi Mapping reads public Bluetooth advertisements. It does not connect to devices.",
-        "NSBluetoothPeripheralUsageDescription": "Wi-Fi Mapping reads public Bluetooth advertisements. It does not connect to devices.",
-        "NSLocalNetworkUsageDescription": "Wi-Fi Mapping checks this network for cameras and recorders after you allow it. It does not open video or audio."
+        "NSLocationUsageDescription": "Observer.to records where this Mac heard each network and advertisement.",
+        "NSLocationWhenInUseUsageDescription": "Observer.to records where this Mac heard each network and advertisement.",
+        "NSBluetoothAlwaysUsageDescription": "Observer.to reads public Bluetooth advertisements. It does not connect to devices.",
+        "NSBluetoothPeripheralUsageDescription": "Observer.to reads public Bluetooth advertisements. It does not connect to devices.",
+        "NSLocalNetworkUsageDescription": "Observer.to checks this network for cameras and recorders after you allow it. It does not open video or audio."
       }
     }
   },

@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import pg from 'pg'
 import { Redis } from 'ioredis'
+import { signSession } from './auth.js'
+import { Store } from './store.js'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 for (const line of readFileSync(resolve(root, '.env'), 'utf8').split('\n')) {
@@ -19,10 +21,13 @@ for (const key of ['PGSSLROOTCERT', 'REDIS_CA', 'TLS_CERT']) {
 }
 
 const port = process.env.PORT
-const token = process.env.API_TOKEN
-if (!port || !token) throw new Error('missing server env')
+if (!port) throw new Error('missing server env')
 const base = `https://127.0.0.1:${port}`
 const ca = readFileSync(process.env.TLS_CERT!.replace('server.crt', 'ca.crt'))
+const store = await Store.connect()
+await store.migrate()
+const user = await store.upsertUser(`integration-${crypto.randomUUID()}@example.com`)
+const token = await signSession(user)
 
 async function api(path: string, init: RequestInit = {}, auth = true): Promise<{ status: number; headers: Headers; body: string }> {
   const headers = new Headers(init.headers)
@@ -81,7 +86,7 @@ const redis = new Redis(process.env.REDIS_URL ?? '', {
   lazyConnect: true,
 })
 await redis.connect()
-const cached = await redis.get('range:heard')
+const cached = await redis.get(`u:${user.id}:range:heard`)
 assert.ok(cached)
 assert.equal(cached!.includes('Cafe WiFi'), false)
 const persistence = await redis.info('persistence')
@@ -96,5 +101,7 @@ const rows = await pool.query('SELECT encode(payload, \'escape\') AS payload FRO
 for (const row of rows.rows as { payload: string }[]) {
   assert.equal(row.payload.includes('Cafe'), false)
 }
+await pool.query('DELETE FROM users WHERE id = $1', [user.id])
 await pool.end()
+await store.close()
 console.log('integration checks passed')

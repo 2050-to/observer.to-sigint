@@ -378,7 +378,7 @@ async function openWindow(): Promise<void> {
   window = new BrowserWindow({
     width: 1200,
     height: 800,
-    title: 'Wi-Fi Mapping',
+    title: 'Observer.to',
     backgroundColor: '#111214',
     webPreferences: {
       preload: join(__dirname, 'preload.cjs'),

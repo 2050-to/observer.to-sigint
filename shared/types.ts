@@ -11,6 +11,8 @@ export interface PlaceInfo {
   crossStreets: string[]
   elevationM: number | null
   fetchedAt: string
+  lat?: number | null
+  lon?: number | null
 }
 
 export type DeviceCategory =

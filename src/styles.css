@@ -80,6 +80,39 @@ button:disabled { opacity: 0.6; }
 .confirm h2 { font-size: 16px; }
 .confirm p { margin: 4px 0 0; color: #e7b3ac; }
 
+.home { display: grid; gap: 28px; }
+.home h1 { font-size: 40px; letter-spacing: -0.03em; }
+.lede { margin: 0; max-width: 42rem; font-size: 18px; color: var(--text-secondary); }
+.home section { display: grid; gap: 10px; }
+.home ul { margin: 0; padding-left: 18px; display: grid; gap: 8px; color: var(--text-secondary); }
+.home a { color: #86b7ff; }
+.price { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.price article {
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 16px;
+}
+.price p { margin: 8px 0 0; color: var(--text-secondary); }
+.signin { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
+.signin input {
+  background: var(--background);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font: inherit;
+}
+.account {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  background: var(--surface);
+  border-radius: 16px;
+  color: var(--text-secondary);
+}
+.account .warn { margin: 0; }
+
 label { display: flex; gap: 8px; align-items: center; color: var(--text-muted); }
 
 .status, .note, .warn, .empty {

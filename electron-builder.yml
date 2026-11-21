@@ -1,5 +1,5 @@
 appId: com.wifimapping.app
-productName: Wi-Fi Mapping
+productName: Observer.to
 directories:
   output: release
 files:
@@ -20,6 +20,6 @@ mac:
   target:
     - dir
   extendInfo:
-    NSLocationUsageDescription: Wi-Fi Mapping uses your location to record where each network was heard.
-    NSLocationWhenInUseUsageDescription: Wi-Fi Mapping uses your location to record where each network was heard.
-    NSBluetoothAlwaysUsageDescription: Wi-Fi Mapping listens for nearby Bluetooth advertisements while a drive is running.
+    NSLocationUsageDescription: Observer.to uses your location to record where each network was heard.
+    NSLocationWhenInUseUsageDescription: Observer.to uses your location to record where each network was heard.
+    NSBluetoothAlwaysUsageDescription: Observer.to listens for nearby Bluetooth advertisements while a drive is running.

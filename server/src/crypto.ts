@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto'
 
 function keyFromEnv(name: string): Buffer {
   const raw = process.env[name]
@@ -38,12 +38,4 @@ export function decryptJson<T>(payload: Buffer, nonce: Buffer): T {
   decipher.setAuthTag(tag)
   const json = Buffer.concat([decipher.update(body), decipher.final()]).toString('utf8')
   return JSON.parse(json) as T
-}
-
-export function bearerOk(header: string | undefined, expected: string): boolean {
-  const presented = header?.startsWith('Bearer ') ? header.slice(7) : ''
-  const a = Buffer.from(presented)
-  const b = Buffer.from(expected)
-  if (a.length !== b.length || a.length === 0) return false
-  return timingSafeEqual(a, b)
 }

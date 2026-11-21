@@ -234,7 +234,7 @@ static BOOL LocationGranted(CLAuthorizationStatus status) {
   if (networks.count == 0) {
     status = locationAllowed
       ? @"No Wi-Fi networks were found."
-      : [NSString stringWithFormat:@"macOS hid %lu networks. Allow Location for Wi-Fi Mapping to show names and addresses.", (unsigned long)found.count];
+      : [NSString stringWithFormat:@"macOS hid %lu networks. Allow Location for Observer.to to show names and addresses.", (unsigned long)found.count];
   }
   NSMutableDictionary *payload = [@{
     @"wifiOn": @YES,

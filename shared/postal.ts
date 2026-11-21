@@ -34,6 +34,16 @@ export function samePostalCell(lat: number, lon: number, otherLat: number, other
   return postalCellKey(lat, lon) === postalCellKey(otherLat, otherLon)
 }
 
+export function placeCovers(
+  place: { lat?: number | null; lon?: number | null } | null | undefined,
+  lat: number,
+  lon: number,
+): boolean {
+  if (place?.lat == null || place.lon == null) return false
+  if (!Number.isFinite(place.lat) || !Number.isFinite(place.lon)) return false
+  return samePostalCell(place.lat, place.lon, lat, lon)
+}
+
 export function postalLabel(codes: string[] | null | undefined): string | null {
   const saved = unionPostalCodes([codes])
   if (saved.length === 0) return null

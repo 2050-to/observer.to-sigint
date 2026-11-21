@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Wi-Fi Mapping</string>
-    <string name="title_activity_main">Wi-Fi Mapping</string>
+    <string name="app_name">Observer.to</string>
+    <string name="title_activity_main">Observer.to</string>
     <string name="package_name">com.wifimapping.app</string>
     <string name="custom_url_scheme">com.wifimapping.app</string>
 </resources>

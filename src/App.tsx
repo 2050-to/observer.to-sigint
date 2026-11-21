@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLabels } from './labels'
 import { api } from './api'
+import { AccountBar, alertLabel, useAccount } from './AccountBar'
+import { sessionToken } from './session'
 import { sampleScans } from './fixture'
 import { loadView, type RefreshMode } from './localCatalog'
 import { onDevice, Wardrive } from './native/drive'
@@ -59,7 +61,9 @@ export function App() {
   const [erasing, setErasing] = useState(false)
   const [ownedReset, setOwnedReset] = useState(0)
   const { nameFor, draftFor, rename, clear } = useLabels()
+  const account = useAccount()
   const queue = useRef(Promise.resolve())
+  const billing = new URLSearchParams(window.location.search).get('billing')
 
   const refresh = useCallback((mode: RefreshMode) => {
     const run = queue.current.then(() => loadView(mode))
@@ -170,7 +174,7 @@ export function App() {
       await refresh('sync')
       return
     }
-    const token = import.meta.env.VITE_API_TOKEN ?? ''
+    const token = sessionToken()
     const apiUrl = onDevice()
       ? (import.meta.env.VITE_DEVICE_API_URL || 'https://127.0.0.1:9453')
       : window.location.origin
@@ -239,8 +243,9 @@ export function App() {
       <header>
         <div>
           <p className="eyebrow">Omnidirectional range</p>
-          <h1>Wi-Fi Mapping</h1>
+          <h1>Observer.to</h1>
         </div>
+        {account && <AccountBar account={account} />}
         <div className="actions">
           <button type="button" onClick={() => void toggleDrive()}>{running ? 'Stop drive' : 'Start drive'}</button>
           {!onDevice() && (
@@ -292,6 +297,10 @@ export function App() {
         {waiting > 0 && <span>{waitingText(waiting)}</span>}
         {waiting === 0 && syncedCount > 0 && <span>{syncedText(syncedCount)}</span>}
       </section>
+      {billing === 'success' && account && account.alerts.status !== 'active' && (
+        <p className="note">Stripe has not confirmed the subscription yet. Alerts turn on after that confirmation, not from this page.</p>
+      )}
+      {billing === 'cancel' && <p className="note">Checkout was canceled. {account ? alertLabel(account.alerts.status) : 'Monthly alerts stay off.'}</p>}
       {note && <p className="note">{note}</p>}
       {error && <p className="warn">{error}</p>}
       <nav>

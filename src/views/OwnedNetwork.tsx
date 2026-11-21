@@ -197,8 +197,8 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
             </h3>
             <p>
               {prompt === 'addresses'
-                ? 'Wi-Fi Mapping will list every IPv4 address on the Wi-Fi or Ethernet subnet this device is using. It will keep a hardware address or name this device already has, listen for camera and recorder names those devices announce, and check whether each address accepts a connection on ports 554, 8554, and 37777. It does not open video or audio, try passwords, or record traffic. Allow this only for a network you own.'
-                : 'Wi-Fi Mapping will record this device\'s operating system, browser, RAM, CPU, and name. Allow this only for a network you own.'}
+                ? 'Observer.to will list every IPv4 address on the Wi-Fi or Ethernet subnet this device is using. It will keep a hardware address or name this device already has, listen for camera and recorder names those devices announce, and check whether each address accepts a connection on ports 554, 8554, and 37777. It does not open video or audio, try passwords, or record traffic. Allow this only for a network you own.'
+                : 'Observer.to will record this device\'s operating system, browser, RAM, CPU, and name. Allow this only for a network you own.'}
             </p>
           </div>
           <div className="actions">

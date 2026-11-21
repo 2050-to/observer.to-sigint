@@ -1,4 +1,5 @@
 import { collapseScan, mergeRecord, normalizeBssid } from './merge.js'
+import { addPostalCode, cleanPostalCode, samePostalCell } from './postal.js'
 import { circleFor, snapshotFrom } from './range.js'
 import { cellKeyOf, mergeCell, mergeDevice } from './radios.js'
 import { inferScene, pingFrom, stripPing, trimHistory } from './scene.js'
@@ -220,5 +221,36 @@ export function presentCatalog(catalog: LocalCatalog): PresentedCatalog {
     networks: catalog.networks,
     openRows: openRows(catalog.networks),
     count: catalog.networks.length,
+  }
+}
+
+function heardInCell(
+  lat: number,
+  lon: number,
+  bestLat: number | null,
+  bestLon: number | null,
+  lastLat: number | null,
+  lastLon: number | null,
+): boolean {
+  const best = bestLat != null && bestLon != null && samePostalCell(lat, lon, bestLat, bestLon)
+  const last = lastLat != null && lastLon != null && samePostalCell(lat, lon, lastLat, lastLon)
+  return best || last
+}
+
+export function stampFixPostalCode(catalog: LocalCatalog, lat: number, lon: number, code: string | null): LocalCatalog {
+  if (!cleanPostalCode(code)) return catalog
+  return {
+    ...catalog,
+    postalCodes: addPostalCode(catalog.postalCodes, code),
+    networks: catalog.networks.map((network) => (
+      heardInCell(lat, lon, network.bestLat, network.bestLon, network.lastLat, network.lastLon)
+        ? { ...network, postalCodes: addPostalCode(network.postalCodes, code) }
+        : network
+    )),
+    devices: (catalog.devices ?? []).map((device) => (
+      heardInCell(lat, lon, device.bestLat, device.bestLon, device.lastLat, device.lastLon)
+        ? { ...device, postalCodes: addPostalCode(device.postalCodes, code) }
+        : device
+    )),
   }
 }

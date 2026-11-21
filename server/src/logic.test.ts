@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { emptyCatalog, foldScans, reconcileCatalog, scanHearsSaved } from '../../shared/catalog.js'
+import { emptyCatalog, foldScans, reconcileCatalog, scanHearsSaved, stampFixPostalCode } from '../../shared/catalog.js'
 import { catalogBundleCsv, catalogCsv } from '../../shared/csv.js'
 import { catalogForensicsMarkdown } from '../../shared/forensics.js'
 import { haversineMeters } from '../../shared/geo.js'
@@ -217,6 +217,20 @@ assert.equal(reconciled.networks.find((network) => network.bssid === 'aa:bb:cc:d
 assert.equal(reconciled.syncedBssids.includes('aa:bb:cc:dd:ee:09'), false)
 assert.equal(reconciled.networks.find((network) => network.bssid === 'aa:bb:cc:dd:ee:01')?.seenCount, 2)
 assert.deepEqual(reconciled.postalCodes, ['98104'])
+const hereFix = { lat: 47.6204, lon: -122.3494, accuracy: 5, altitudeM: null, verticalAccuracyM: null, relativeM: null }
+const awayFix = { lat: 47.63, lon: -122.3494, accuracy: 5, altitudeM: null, verticalAccuracyM: null, relativeM: null }
+const inCell = { ...mergeRecord(null, ap({ ssid: 'Here', bssid: 'aa:bb:cc:dd:ee:21', rssi: -40, capabilities: '[ESS]' }), hereFix, '2026-01-01T00:00:00.000Z'), postalCodes: ['98109'] }
+const outCell = { ...mergeRecord(null, ap({ ssid: 'Away', bssid: 'aa:bb:cc:dd:ee:22', rssi: -40, capabilities: '[ESS]' }), awayFix, '2026-01-01T00:00:00.000Z'), postalCodes: ['98109'] }
+const awayDevice = mergeDevice(null, radio('aa:bb:cc:00:00:21', -40), awayFix, '2026-01-01T00:00:00.000Z')
+const movedDevice = mergeDevice({ ...awayDevice, postalCodes: ['98109'] }, radio('aa:bb:cc:00:00:21', -70), hereFix, '2026-01-01T00:01:00.000Z')
+const postalCatalog = { ...emptyCatalog(), postalCodes: ['98109'], phone: hereFix, networks: [inCell, outCell], devices: [movedDevice] }
+const stamped = stampFixPostalCode(postalCatalog, hereFix.lat, hereFix.lon, '98107')
+assert.deepEqual(stamped.postalCodes, ['98109', '98107'])
+assert.deepEqual(stamped.networks[0]?.postalCodes, ['98109', '98107'])
+assert.deepEqual(stamped.networks[1]?.postalCodes, ['98109'])
+assert.deepEqual(stamped.devices[0]?.postalCodes, ['98109', '98107'])
+assert.equal(stampFixPostalCode(postalCatalog, hereFix.lat, hereFix.lon, null), postalCatalog)
+assert.equal(stampFixPostalCode(postalCatalog, hereFix.lat, hereFix.lon, '   '), postalCatalog)
 const csvHeader = catalogCsv(reconciled.networks).split('\n')[0]
 assert.ok(csvHeader.startsWith('last_seen,best_rssi,lat,lon,ssid,bssid,channel,security,altitude_m,floor,ground_elevation_m,postal_codes,manufacturer,model,category,tags'))
 assert.ok(csvHeader.includes('vulnerability_ids'))

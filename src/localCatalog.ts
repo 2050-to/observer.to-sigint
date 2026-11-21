@@ -5,6 +5,7 @@ import {
   foldScans,
   presentCatalog,
   reconcileCatalog,
+  stampFixPostalCode,
   type JournalScan,
   type LocalCatalog,
 } from '../shared/catalog'
@@ -96,6 +97,17 @@ async function uploadPending(journal: JournalScan[]): Promise<{ journal: Journal
   return { journal: next, bssids, uploadedCount: uploadedIds.length }
 }
 
+async function stampPhonePostalCode(catalog: LocalCatalog): Promise<LocalCatalog> {
+  const { lat, lon } = catalog.phone
+  if (lat == null || lon == null) return catalog
+  try {
+    const body = await api.postal({ lat, lon })
+    return stampFixPostalCode(catalog, lat, lon, body.postalCode)
+  } catch {
+    return catalog
+  }
+}
+
 async function fetchServer(): Promise<{ networks: LocalCatalog['networks']; devices: LocalCatalog['devices']; cells: LocalCatalog['cells']; snapshot: RangeSnapshot } | null> {
   try {
     const [snapshot, map] = await Promise.all([api.range(), api.map()])
@@ -131,6 +143,7 @@ export async function loadView(mode: RefreshMode): Promise<LocalView> {
     )
     journal = latest.journal
   }
+  catalog = await stampPhonePostalCode(catalog)
   await Wardrive.saveLocalCatalog({ catalog: JSON.stringify(catalog) })
   const presented = presentCatalog(catalog)
   return {

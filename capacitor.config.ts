@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli'
 
 const config: CapacitorConfig = {
   appId: 'com.wifimapping.app',
-  appName: 'Wi-Fi Mapping',
+  appName: 'Observer.to',
   webDir: 'dist',
   android: {
     allowMixedContent: false,

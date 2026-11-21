@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import { estimateLabelSize, labelEdgeTowardAnchor, leaderIsClear, spreadLabels } from '../../shared/labelLayout'
-import { postalLabel } from '../../shared/postal'
+import { placeCovers, postalCellKey, postalLabel, samePostalCell, unionPostalCodes } from '../../shared/postal'
 import { roomSignals, SIGNAL_COLORS, stackFor, stackSignals, type SignalRow } from '../../shared/sources'
 import { api } from '../api'
 import { floorLabel, gpsGround, plottedHeight } from '../height'
@@ -33,6 +33,53 @@ type MapPin = {
   text: string
   marker: L.CircleMarker
   leader: L.Polyline
+}
+
+type PlaceCard = {
+  title: string
+  place: PlaceInfo | null
+  postalCodes: string[]
+  error: string
+  floor: string | null
+  ssid: string | null
+  bestRssi: number | null
+  lastSeen: string | null
+  pinKey: string
+  lat: number
+  lon: number
+}
+
+function pinForCard(map: MapState, pinKey: string): {
+  lat: number
+  lon: number
+  bssid?: string
+  place: PlaceInfo | null
+  level: string | null
+  network: NetworkRecord | null
+  codes: string[]
+} | null {
+  if (pinKey === 'phone') {
+    if (map.phone.lat == null || map.phone.lon == null) return null
+    return {
+      lat: map.phone.lat,
+      lon: map.phone.lon,
+      place: null,
+      level: levelLabel(map, null),
+      network: null,
+      codes: map.postalCodes ?? [],
+    }
+  }
+  const network = map.networks.find((item) => item.bssid === pinKey)
+  if (!network || network.bestLat == null || network.bestLon == null) return null
+  return {
+    lat: network.bestLat,
+    lon: network.bestLon,
+    bssid: network.bssid,
+    place: network.place,
+    level: levelLabel(map, network),
+    network,
+    codes: network.postalCodes ?? [],
+  }
 }
 
 function markerColor(marker: L.CircleMarker): string {
@@ -155,16 +202,9 @@ export function DriveMap({
   const leaflet = useRef<L.Map | null>(null)
   const layer = useRef<L.LayerGroup | null>(null)
   const pins = useRef<MapPin[]>([])
-  const [card, setCard] = useState<{
-    title: string
-    place: PlaceInfo | null
-    postalCodes: string[]
-    error: string
-    floor: string | null
-    ssid: string | null
-    bestRssi: number | null
-    lastSeen: string | null
-  } | null>(null)
+  const [card, setCard] = useState<PlaceCard | null>(null)
+  const refreshKey = useRef<string | null>(null)
+  const lookupGeneration = useRef(0)
   const [busy, setBusy] = useState(false)
   const [pickedKey, setPickedKey] = useState<string | null>(null)
   const pickedRef = useRef(pickedKey)
@@ -344,14 +384,18 @@ export function DriveMap({
     network?: NetworkRecord | null,
     codes: string[] = [],
   ) {
-    const key = bssid ?? 'phone'
-    const known = cached ?? remembered.current.get(key)
+    const generation = ++lookupGeneration.current
+    const pinKey = bssid ?? 'phone'
+    const known = [cached, remembered.current.get(pinKey)].find((place) => place && placeCovers(place, lat, lon)) ?? null
     const ready = known && 'elevationM' in known ? known : null
     const facts = {
       ssid: network ? (network.ssid || 'Hidden') : null,
       bestRssi: network?.bestRssi ?? null,
       lastSeen: network?.lastSeen ?? null,
       postalCodes: codes,
+      pinKey,
+      lat,
+      lon,
     }
     if (ready) {
       setCard({ title, place: ready, floor: level ?? null, ...facts, error: ready.crossStreets.length === 0 ? 'Cross streets were not available.' : '' })
@@ -360,7 +404,7 @@ export function DriveMap({
     if (!navigator.onLine) {
       setCard({
         title,
-        place: known ?? null,
+        place: null,
         floor: level ?? null,
         ...facts,
         error: 'The address will be looked up when the device is online.',
@@ -368,26 +412,45 @@ export function DriveMap({
       return
     }
     setBusy(true)
-    setCard({ title, place: known ?? null, floor: level ?? null, ...facts, error: '' })
+    setCard({ title, place: null, floor: level ?? null, ...facts, error: '' })
     try {
       const result = await api.place({ bssid, lat, lon })
-      remembered.current.set(key, result.place)
-      const postalCodes = result.postalCodes ?? result.network?.postalCodes ?? codes
+      if (generation !== lookupGeneration.current) return
+      remembered.current.set(pinKey, result.place)
+      const postalCodes = unionPostalCodes([codes, result.postalCodes, result.network?.postalCodes])
       setCard({ title, place: result.place, floor: level ?? null, ...facts, postalCodes, error: result.place.crossStreets.length === 0 ? 'Cross streets were not available.' : '' })
       onPlaceSaved?.()
     } catch (error) {
+      if (generation !== lookupGeneration.current) return
       const offline = !navigator.onLine || error instanceof TypeError
       setCard({
         title,
-        place: known ?? null,
+        place: null,
         floor: level ?? null,
         ...facts,
         error: offline ? 'The address will be looked up when the device is online.' : error instanceof Error ? error.message : 'Lookup failed',
       })
     } finally {
-      setBusy(false)
+      if (generation === lookupGeneration.current) setBusy(false)
     }
   }
+
+  useEffect(() => {
+    if (!map || !card) return
+    const pin = pinForCard(map, card.pinKey)
+    if (!pin) return
+    if (!samePostalCell(card.lat, card.lon, pin.lat, pin.lon)) {
+      const key = `${card.pinKey}:${postalCellKey(pin.lat, pin.lon)}`
+      if (refreshKey.current === key) return
+      refreshKey.current = key
+      void openCard(card.title, pin.lat, pin.lon, pin.bssid, pin.place, pin.level, pin.network, pin.codes)
+      return
+    }
+    refreshKey.current = null
+    const postalCodes = unionPostalCodes([card.postalCodes, pin.codes])
+    if (postalCodes.join('\n') === card.postalCodes.join('\n')) return
+    setCard({ ...card, postalCodes })
+  }, [map, card])
 
   const pickedRoom = map?.rooms.find((room) => room.id === pickedKey) ?? null
   const pickedStack = pickedKey ? stackFor(stacks, pickedKey) : null

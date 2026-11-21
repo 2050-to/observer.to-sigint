@@ -4,11 +4,13 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "test": "tsx src/logic.test.ts && tsx src/enrichment.test.ts && tsx src/ownedNetwork.test.ts && tsx src/recorders.test.ts && tsx src/labelLayout.test.ts && tsx src/geo.test.ts"
+    "test": "tsx src/logic.test.ts && tsx src/auth.test.ts && tsx src/billing.test.ts && tsx src/alerts.test.ts && tsx src/accounts.test.ts && tsx src/enrichment.test.ts && tsx src/ownedNetwork.test.ts && tsx src/recorders.test.ts && tsx src/labelLayout.test.ts && tsx src/geo.test.ts"
   },
   "dependencies": {
     "ioredis": "^5.8.2",
-    "pg": "^8.16.3"
+    "jose": "^6.2.18",
+    "pg": "^8.16.3",
+    "stripe": "^23.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.17.2",

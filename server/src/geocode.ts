@@ -8,7 +8,7 @@ export interface PlaceLookup {
   postalCode: string | null
 }
 
-const USER_AGENT = 'wifi-mapping/0.1 (local wardrive)'
+const USER_AGENT = 'Observer.to/0.1 (local observer)'
 
 interface NominatimResponse {
   display_name?: string

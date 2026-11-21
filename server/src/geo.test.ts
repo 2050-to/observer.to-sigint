@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { addPostalCode, postalLabel, samePostalCell } from '../../shared/postal.js'
+import { addPostalCode, placeCovers, postalLabel, samePostalCell } from '../../shared/postal.js'
 import { elevationFrom, postalCodeFrom } from './geocode.js'
 
 assert.equal(elevationFrom({ elevation: [56.04] }), 56)
@@ -32,3 +32,10 @@ assert.equal(postalLabel([]), null)
 
 assert.equal(samePostalCell(47.6204, -122.3494, 47.6201, -122.3491), true)
 assert.equal(samePostalCell(47.6204, -122.3494, 47.6214, -122.3494), false)
+
+const place = { lat: 47.6204, lon: -122.3494 }
+assert.equal(placeCovers(place, 47.6201, -122.3491), true)
+assert.equal(placeCovers(place, 47.6214, -122.3494), false)
+assert.equal(placeCovers({ lat: null, lon: -122.3494 }, 47.6204, -122.3494), false)
+assert.equal(placeCovers({}, 47.6204, -122.3494), false)
+assert.equal(placeCovers(null, 47.6204, -122.3494), false)
