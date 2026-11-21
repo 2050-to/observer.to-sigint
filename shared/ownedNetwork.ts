@@ -1,3 +1,4 @@
+import { recorderPorts, recorderServices } from './recorders.js'
 import { normalizeMac, parseIpv4, type AddressRole, type SubnetPlan } from './subnet.js'
 
 export const OWNED_NETWORK_DISCLAIMER = 'These optional features are intended only for a network you own. Turn them on only while this device is joined to a network you own or are allowed to inventory. Address lists and device details stay on this device.'
@@ -20,6 +21,8 @@ export interface SubnetHost {
   present: boolean
   mac: string | null
   name: string | null
+  services: string[]
+  ports: number[]
 }
 
 export interface SubnetCatalog {
@@ -27,6 +30,7 @@ export interface SubnetCatalog {
   interfacePrefix: number
   limited: boolean
   checked: number
+  internetRoute: boolean
   hosts: SubnetHost[]
 }
 
@@ -130,6 +134,8 @@ export function assembleCatalog(
       present: active,
       mac: active ? (isSelf ? self.mac ?? known?.mac ?? null : known?.mac ?? null) : null,
       name: active ? clip(isSelf ? self.name ?? known?.name ?? null : known?.name ?? null, 120) : null,
+      services: [],
+      ports: [],
     }
   })
   return {
@@ -137,6 +143,7 @@ export function assembleCatalog(
     interfacePrefix: plan.interfacePrefix,
     limited: plan.limited,
     checked: plan.addresses.filter((item) => item.role === 'host').length,
+    internetRoute: false,
     hosts,
   }
 }
@@ -162,6 +169,8 @@ export function asSubnetCatalog(value: unknown): SubnetCatalog | null {
       present: host.present,
       mac: host.mac == null ? null : normalizeMac(String(host.mac)),
       name: host.name == null ? null : clip(String(host.name), 120),
+      services: recorderServices(host.services),
+      ports: recorderPorts(host.ports),
     })
   }
   return {
@@ -169,6 +178,7 @@ export function asSubnetCatalog(value: unknown): SubnetCatalog | null {
     interfacePrefix: Number(record.interfacePrefix),
     limited: record.limited,
     checked: Number(record.checked),
+    internetRoute: record.internetRoute === true,
     hosts,
   }
 }

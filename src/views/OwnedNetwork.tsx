@@ -11,8 +11,10 @@ import {
   toggleAddresses,
   toggleDetails,
   type OwnedPrompt,
+  type SubnetCatalog,
   type SubnetHost,
 } from '../../shared/ownedNetwork'
+import { classifyRecorder } from '../../shared/recorders'
 
 export function OwnedNetwork({ active, resetToken }: { active: boolean; resetToken: number }) {
   const [prefs, setPrefs] = useState<OwnedPrefs>(EMPTY_OWNED)
@@ -34,8 +36,7 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
     setDetailsBusy(false)
     setShowAll(false)
     if (saved.catalog) {
-      const present = saved.catalog.hosts.filter((host) => host.present).length
-      setStatus(`${present} present on ${saved.catalog.cidr}`)
+      setStatus(catalogStatus(saved.catalog))
     } else {
       setStatus('')
     }
@@ -59,8 +60,7 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
         writeOwnedPrefs(next)
         return next
       })
-      const present = catalog.hosts.filter((host) => host.present).length
-      setStatus(`${present} present on ${catalog.cidr}`)
+      setStatus(catalogStatus(catalog))
     } catch (reason: unknown) {
       if (current !== catalogLife.current) return
       setError(reason instanceof Error ? reason.message : 'The subnet could not be cataloged')
@@ -163,7 +163,9 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
   }
 
   const catalog = prefs.catalog
-  const visible = catalog ? (showAll ? catalog.hosts : catalog.hosts.filter((host) => host.present)) : []
+  const visible = catalog
+    ? catalog.hosts.filter((host) => showAll || host.present || classifyRecorder(host) != null)
+    : []
   const busy = catalogBusy || detailsBusy
 
   return (
@@ -195,7 +197,7 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
             </h3>
             <p>
               {prompt === 'addresses'
-                ? 'Wi-Fi Mapping will list every IPv4 address on the Wi-Fi or Ethernet subnet this device is using, including a hardware address or name this device already has. Allow this only for a network you own.'
+                ? 'Wi-Fi Mapping will list every IPv4 address on the Wi-Fi or Ethernet subnet this device is using. It will keep a hardware address or name this device already has, listen for camera and recorder names those devices announce, and check whether each address accepts a connection on ports 554, 8554, and 37777. It does not open video or audio, try passwords, or record traffic. Allow this only for a network you own.'
                 : 'Wi-Fi Mapping will record this device\'s operating system, browser, RAM, CPU, and name. Allow this only for a network you own.'}
             </p>
           </div>
@@ -221,7 +223,8 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
               This device is using a /{catalog.interfacePrefix} prefix. The catalog covers {catalog.cidr}, the block that contains this device.
             </p>
           )}
-          <p className="owned-help">Present means the address answered a ping or this device has its hardware address.</p>
+          <p className="owned-help">Present means the address answered a ping, announced a camera service, accepted a camera port, or this device has its hardware address.</p>
+          <p className="owned-help">A flag means the name, vendor, announced service, or a camera port looks like a camera or recorder. This cannot see a device that is not on this network, cannot tell a camera you installed from one you did not, and does not open video or audio.</p>
           <HostTable hosts={visible} />
           <button type="button" onClick={() => setShowAll((value) => !value)}>
             {showAll ? 'Show present addresses' : `Show every address (${catalog.hosts.length})`}
@@ -263,8 +266,25 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
   }
 }
 
+function catalogStatus(catalog: SubnetCatalog): string {
+  const flagged = catalog.hosts.filter((host) => classifyRecorder(host) != null).length
+  const label = flagged === 1 ? '1 likely camera or recorder' : `${flagged} likely cameras or recorders`
+  const route = catalog.internetRoute
+    ? 'This network has a route to the internet, so a flagged device can use it.'
+    : 'This network has no default internet route.'
+  return `${label} on ${catalog.cidr}. ${route}`
+}
+
 function HostTable({ hosts }: { hosts: SubnetHost[] }) {
-  if (!hosts.length) return <p className="owned-help">No addresses are present yet.</p>
+  const rows = hosts
+    .map((host, index) => ({ host, index, flag: classifyRecorder(host) }))
+    .sort((left, right) => {
+      const leftFlag = left.flag ? 0 : 1
+      const rightFlag = right.flag ? 0 : 1
+      if (leftFlag !== rightFlag) return leftFlag - rightFlag
+      return left.index - right.index
+    })
+  if (!rows.length) return <p className="owned-help">No addresses are present yet.</p>
   return (
     <div className="host-scroll">
       <table>
@@ -275,16 +295,25 @@ function HostTable({ hosts }: { hosts: SubnetHost[] }) {
             <th scope="col">Present</th>
             <th scope="col">Name</th>
             <th scope="col">Hardware address</th>
+            <th scope="col">Notice</th>
           </tr>
         </thead>
         <tbody>
-          {hosts.map((host) => (
-            <tr key={host.ip}>
+          {rows.map(({ host, flag }) => (
+            <tr key={host.ip} className={flag ? 'host-flagged' : undefined}>
               <td>{host.ip}</td>
               <td>{roleLabel(host.role)}</td>
               <td>{host.present ? 'Yes' : 'No'}</td>
               <td>{host.name ?? ''}</td>
               <td>{host.mac ?? ''}</td>
+              <td>
+                {flag && (
+                  <>
+                    <span className="host-notice">{flag.kind === 'recorder' ? 'Likely recorder' : 'Likely camera'}</span>
+                    <span className="host-reasons">{flag.reasons.join(', ')}</span>
+                  </>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>

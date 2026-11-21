@@ -20,7 +20,8 @@ interface MacWardriveBridge {
     interfacePrefix: number
     limited: boolean
     checked: number
-    hosts: { ip: string; role: 'network' | 'broadcast' | 'device' | 'host'; present: boolean; mac: string | null; name: string | null }[]
+    internetRoute: boolean
+    hosts: { ip: string; role: 'network' | 'broadcast' | 'device' | 'host'; present: boolean; mac: string | null; name: string | null; services: string[]; ports: number[] }[]
   }>
   deviceDetails(options: { consent: boolean; browser: string }): Promise<{
     os: string

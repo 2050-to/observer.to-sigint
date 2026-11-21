@@ -41,7 +41,8 @@
         "NSLocationUsageDescription": "Wi-Fi Mapping records where this Mac heard each network and advertisement.",
         "NSLocationWhenInUseUsageDescription": "Wi-Fi Mapping records where this Mac heard each network and advertisement.",
         "NSBluetoothAlwaysUsageDescription": "Wi-Fi Mapping reads public Bluetooth advertisements. It does not connect to devices.",
-        "NSBluetoothPeripheralUsageDescription": "Wi-Fi Mapping reads public Bluetooth advertisements. It does not connect to devices."
+        "NSBluetoothPeripheralUsageDescription": "Wi-Fi Mapping reads public Bluetooth advertisements. It does not connect to devices.",
+        "NSLocalNetworkUsageDescription": "Wi-Fi Mapping checks this network for cameras and recorders after you allow it. It does not open video or audio."
       }
     }
   },

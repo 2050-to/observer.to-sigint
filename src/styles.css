@@ -279,6 +279,9 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #303237; }
 }
 .prompt p { margin: 4px 0 0; color: var(--text-secondary); }
 .host-scroll { max-height: 320px; overflow: auto; }
+.host-flagged td { background: rgba(231, 179, 172, 0.18); }
+.host-notice { display: block; font-weight: 600; }
+.host-reasons { display: block; color: var(--text-muted); font-size: 12px; }
 .owned-network .meta { margin: 0; }
 .owned-network .meta dd { overflow-wrap: anywhere; }
 

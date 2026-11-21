@@ -4,6 +4,9 @@ import android.app.ActivityManager
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.nsd.NsdManager
+import android.net.nsd.NsdServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.provider.Settings
 import android.webkit.WebSettings
@@ -11,9 +14,14 @@ import com.getcapacitor.JSObject
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.net.DatagramPacket
+import java.net.DatagramSocket
 import java.net.Inet4Address
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.NetworkInterface
+import java.net.Socket
+import java.net.SocketTimeoutException
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -32,18 +40,32 @@ class SubnetCataloger(private val context: Context) {
         for (ip in targets) {
             if (arp.containsKey(ip)) present.add(ip)
         }
+        val evidence = ConcurrentHashMap<String, Evidence>()
+        val announcements = Thread({ listenAnnouncements(evidence) }, "recorder-announce")
+        announcements.start()
+        probePorts(targets, evidence)
+        try {
+            announcements.join(5000)
+        } catch (_: InterruptedException) {
+            announcements.interrupt()
+        }
         val hosts = JSONArray()
         for (item in plan.addresses) {
             val endpoint = item.role == "network" || item.role == "broadcast"
             val self = item.role == "device"
-            val active = self || (!endpoint && present.contains(item.ip))
+            val found = viewOf(if (item.role == "host") evidence[item.ip] else null)
+            val announced = found.services.isNotEmpty() || found.ports.isNotEmpty()
+            val active = self || (!endpoint && (present.contains(item.ip) || announced))
             val mac = if (!active) null else if (self) lan.mac ?: arp[item.ip] else arp[item.ip]
+            val name = if (active && item.role == "host") found.name else null
             val row = JSObject()
             row.put("ip", item.ip)
             row.put("role", item.role)
             row.put("present", active)
             row.put("mac", mac ?: JSONObject.NULL)
-            row.put("name", JSONObject.NULL)
+            row.put("name", name ?: JSONObject.NULL)
+            row.put("services", serviceArray(if (active && item.role == "host") found else null))
+            row.put("ports", portArray(if (active && item.role == "host") found else null))
             hosts.put(row)
         }
         val root = JSObject()
@@ -51,6 +73,7 @@ class SubnetCataloger(private val context: Context) {
         root.put("interfacePrefix", plan.interfacePrefix)
         root.put("limited", plan.limited)
         root.put("checked", targets.size)
+        root.put("internetRoute", lan.internet)
         root.put("hosts", hosts)
         return root
     }
@@ -85,7 +108,8 @@ class SubnetCataloger(private val context: Context) {
                 if (address !is Inet4Address || address.isLoopbackAddress || address.isLinkLocalAddress) continue
                 val host = address.hostAddress ?: continue
                 if (parseIpv4(host) == null) continue
-                return LocalLan(host, link.prefixLength, macFor(address))
+                val internet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                return LocalLan(host, link.prefixLength, macFor(address), internet)
             }
         }
         return null
@@ -211,7 +235,15 @@ class SubnetCataloger(private val context: Context) {
         }
     }
 
-    private data class LocalLan(val address: String, val prefix: Int, val mac: String?)
+    private data class LocalLan(val address: String, val prefix: Int, val mac: String?, val internet: Boolean)
+
+    private class Evidence {
+        var name: String? = null
+        val services = linkedSetOf<String>()
+        val ports = linkedSetOf<Int>()
+    }
+
+    private data class EvidenceView(val name: String?, val services: List<String>, val ports: List<Int>)
     private data class PlannedAddress(val ip: String, val role: String)
     private data class SubnetPlan(
         val cidr: String,
@@ -279,5 +311,216 @@ class SubnetCataloger(private val context: Context) {
                 value += 1
             }
         return SubnetPlan("${formatIpv4(network)}/$prefix", prefixLength, limited, device, addresses)
+    }
+
+    private fun listenAnnouncements(found: ConcurrentHashMap<String, Evidence>) {
+        val nsd = context.getSystemService(Context.NSD_SERVICE) as? NsdManager
+        val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        val lock = try {
+            wifi?.createMulticastLock("wifi-mapping-recorders")
+        } catch (_: Exception) {
+            null
+        }
+        lock?.setReferenceCounted(false)
+        try {
+            lock?.acquire()
+        } catch (_: Exception) {
+            // SSDP can still send without the lock.
+        }
+        val listeners = mutableListOf<NsdManager.DiscoveryListener>()
+        try {
+            if (nsd != null) {
+                listeners.add(startDiscovery(nsd, found, "_rtsp._tcp", "rtsp"))
+                listeners.add(startDiscovery(nsd, found, "_onvif._tcp", "onvif"))
+            }
+            collectSsdp(found)
+        } finally {
+            for (listener in listeners) {
+                try {
+                    nsd?.stopServiceDiscovery(listener)
+                } catch (_: Exception) {
+                    // Discovery may already be stopped.
+                }
+            }
+            try {
+                if (lock?.isHeld == true) lock.release()
+            } catch (_: Exception) {
+                // The lock is already released.
+            }
+        }
+    }
+
+    private fun startDiscovery(
+        nsd: NsdManager,
+        found: ConcurrentHashMap<String, Evidence>,
+        type: String,
+        service: String,
+    ): NsdManager.DiscoveryListener {
+        val listener = object : NsdManager.DiscoveryListener {
+            override fun onDiscoveryStarted(serviceType: String) {}
+            override fun onDiscoveryStopped(serviceType: String) {}
+            override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {}
+            override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {}
+            override fun onServiceLost(serviceInfo: NsdServiceInfo) {}
+            override fun onServiceFound(info: NsdServiceInfo) {
+                try {
+                    @Suppress("DEPRECATION")
+                    nsd.resolveService(info, object : NsdManager.ResolveListener {
+                        override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {}
+                        override fun onServiceResolved(resolved: NsdServiceInfo) {
+                            val host = ipv4Of(resolved) ?: return
+                            if (parseIpv4(host) == null) return
+                            merge(found, host, resolved.serviceName, service, emptyList())
+                        }
+                    })
+                } catch (_: Exception) {
+                    // Another resolve may already be in progress.
+                }
+            }
+        }
+        try {
+            nsd.discoverServices(type, NsdManager.PROTOCOL_DNS_SD, listener)
+        } catch (_: Exception) {
+            // The port check still covers hosts that do not announce.
+        }
+        return listener
+    }
+
+    private fun ipv4Of(info: NsdServiceInfo): String? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            return info.hostAddresses.firstOrNull { it is Inet4Address }?.hostAddress
+        }
+        @Suppress("DEPRECATION")
+        val host = info.host
+        return if (host is Inet4Address) host.hostAddress else null
+    }
+
+    private fun collectSsdp(found: ConcurrentHashMap<String, Evidence>) {
+        var socket: DatagramSocket? = null
+        try {
+            socket = DatagramSocket(null)
+            socket.reuseAddress = true
+            socket.broadcast = true
+            socket.soTimeout = 200
+            socket.bind(InetSocketAddress(0))
+            val payload = "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 1\r\nST: ssdp:all\r\n\r\n"
+            val data = payload.toByteArray(Charsets.UTF_8)
+            socket.send(DatagramPacket(data, data.size, InetAddress.getByName("239.255.255.250"), 1900))
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            val buffer = ByteArray(4096)
+            while (System.nanoTime() < deadline) {
+                val incoming = DatagramPacket(buffer, buffer.size)
+                try {
+                    socket.receive(incoming)
+                } catch (_: SocketTimeoutException) {
+                    continue
+                }
+                val message = String(incoming.data, 0, incoming.length, Charsets.UTF_8)
+                readSsdp(found, message, incoming.address?.hostAddress)
+            }
+        } catch (_: Exception) {
+            // Announcements are optional.
+        } finally {
+            socket?.close()
+        }
+    }
+
+    private fun readSsdp(found: ConcurrentHashMap<String, Evidence>, message: String, sourceIp: String?) {
+        if (message.length > 8000) return
+        val response = message.startsWith("HTTP/1.1 200") || message.startsWith("HTTP/1.0 200") || message.startsWith("NOTIFY ")
+        if (!response || !CAMERA_HINT.containsMatchIn(message)) return
+        val location = LOCATION.find(message)?.groupValues?.get(1)
+        val located = location?.let { IPV4.find(it)?.value }
+        val ip = when {
+            located != null && parseIpv4(located) != null -> located
+            sourceIp != null && parseIpv4(sourceIp) != null -> sourceIp
+            else -> return
+        }
+        val services = mutableListOf<String>()
+        if (Regex("(?i)\\brtsp\\b").containsMatchIn(message)) services.add("rtsp")
+        if (Regex("(?i)\\bonvif\\b").containsMatchIn(message)) services.add("onvif")
+        val server = SERVER.find(message)?.groupValues?.get(1)?.trim()
+        merge(found, ip, server, null, emptyList())
+        for (service in services) merge(found, ip, null, service, emptyList())
+    }
+
+    private fun probePorts(hosts: List<String>, found: ConcurrentHashMap<String, Evidence>) {
+        if (hosts.isEmpty()) return
+        val pool = Executors.newFixedThreadPool(minOf(32, hosts.size))
+        try {
+            for (ip in hosts) {
+                pool.submit {
+                    val open = mutableListOf<Int>()
+                    for (port in listOf(554, 8554, 37777)) {
+                        if (connectPort(ip, port)) open.add(port)
+                    }
+                    if (open.isNotEmpty()) merge(found, ip, null, null, open)
+                }
+            }
+            pool.shutdown()
+            if (!pool.awaitTermination(90, TimeUnit.SECONDS)) pool.shutdownNow()
+        } catch (_: Exception) {
+            pool.shutdownNow()
+        }
+    }
+
+    private fun connectPort(ip: String, port: Int): Boolean {
+        if (parseIpv4(ip) == null) return false
+        return try {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress(ip, port), 400)
+                true
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun merge(
+        found: ConcurrentHashMap<String, Evidence>,
+        ip: String,
+        name: String?,
+        service: String?,
+        ports: List<Int>,
+    ) {
+        val clean = name?.replace(Regex("\\s+"), " ")?.trim()?.take(120)
+        found.compute(ip) { _, current ->
+            val evidence = current ?: Evidence()
+            synchronized(evidence) {
+                if (evidence.name.isNullOrBlank() && !clean.isNullOrBlank()) evidence.name = clean
+                if (service == "rtsp" || service == "onvif") evidence.services.add(service)
+                for (port in ports) {
+                    if (port == 554 || port == 8554 || port == 37777) evidence.ports.add(port)
+                }
+            }
+            evidence
+        }
+    }
+
+    private fun viewOf(found: Evidence?): EvidenceView {
+        if (found == null) return EvidenceView(null, emptyList(), emptyList())
+        return synchronized(found) { EvidenceView(found.name, found.services.toList(), found.ports.toList()) }
+    }
+
+    private fun serviceArray(found: EvidenceView?): JSONArray {
+        val array = JSONArray()
+        if (found?.services?.contains("rtsp") == true) array.put("rtsp")
+        if (found?.services?.contains("onvif") == true) array.put("onvif")
+        return array
+    }
+
+    private fun portArray(found: EvidenceView?): JSONArray {
+        val array = JSONArray()
+        for (port in listOf(554, 8554, 37777)) {
+            if (found?.ports?.contains(port) == true) array.put(port)
+        }
+        return array
+    }
+
+    companion object {
+        private val CAMERA_HINT = Regex("""(?i)\b(rtsp|onvif|hikvision|dahua|ezviz|uniview|amcrest|wyze|reolink|lorex|swann|foscam|imou|annke|tapo|eufy|arlo|blink|instar|ipcam|doorbell|nvr|dvr|camera)\b""")
+        private val LOCATION = Regex("""(?im)^location:\s*(\S+)""")
+        private val IPV4 = Regex("""(\d{1,3}(?:\.\d{1,3}){3})""")
+        private val SERVER = Regex("""(?im)^server:\s*(.+)${'$'}""")
     }
 }
