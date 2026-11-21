@@ -2,8 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
+import { SIGNAL_COLORS, roomSignals } from '../../shared/sources'
+import { estimateBuildings, STORY_HEIGHT_M, type PlanBuilding } from '../../shared/structure'
 import { eastNorthMeters, floorLabel, gpsGround, plottedHeight, STORY_M, type PlottedHeight } from '../height'
-import { SECURITY_COLORS, type MotionTrack, type NetworkRecord, type RangeSnapshot, type Room } from '../types'
+import { SignalLegend, SignalStack } from '../SignalStack'
+import { SECURITY_COLORS, type DeviceRecord, type MotionTrack, type NetworkRecord, type RangeSnapshot, type Room } from '../types'
 
 interface PlotPoint {
   id: string
@@ -15,11 +18,110 @@ interface PlotPoint {
   record: NetworkRecord | null
 }
 
-function originColor(kind: Room['originKind']): string {
-  if (kind === 'wifi') return '#3d8bfd'
-  if (kind === 'gps') return '#7dcea0'
-  if (kind === 'cell') return '#e6a23c'
-  return '#c9a0dc'
+interface SceneLevel {
+  id: string
+  label: string
+  index: number
+  east: number
+  north: number
+  width: number
+  depth: number
+  rooms: {
+    id: string
+    label: string
+    east: number
+    north: number
+    width: number
+    depth: number
+    color: string
+  }[]
+  walls: {
+    id: string
+    kind: 'exterior' | 'interior'
+    east1: number
+    north1: number
+    east2: number
+    north2: number
+  }[]
+}
+
+interface SceneBuilding {
+  id: string
+  label: string
+  east: number
+  north: number
+  width: number
+  depth: number
+  base: number
+  top: number
+  levels: SceneLevel[]
+}
+
+function boundsOf(points: { east: number; north: number }[]) {
+  const easts = points.map((point) => point.east)
+  const norths = points.map((point) => point.north)
+  const minEast = Math.min(...easts)
+  const maxEast = Math.max(...easts)
+  const minNorth = Math.min(...norths)
+  const maxNorth = Math.max(...norths)
+  return {
+    east: (minEast + maxEast) / 2,
+    north: (minNorth + maxNorth) / 2,
+    width: Math.max(maxEast - minEast, 2),
+    depth: Math.max(maxNorth - minNorth, 2),
+  }
+}
+
+function sceneBuildings(buildings: PlanBuilding[], origin: { lat: number; lon: number }, nameFor: (id: string, fallback: string) => string): SceneBuilding[] {
+  return buildings.flatMap((building) => {
+    if (building.lat == null || building.lon == null) return []
+    const shift = eastNorthMeters(origin.lat, origin.lon, building.lat, building.lon)
+    const levels = building.floors.map((floor) => {
+      const rooms = floor.rooms.map((room) => ({
+        id: room.id,
+        label: nameFor(room.id, room.label),
+        east: shift.east + room.east,
+        north: shift.north + room.north,
+        width: room.widthM,
+        depth: room.depthM,
+        color: SIGNAL_COLORS[room.originKind],
+      }))
+      const corners = rooms.flatMap((room) => ([
+        { east: room.east - room.width / 2, north: room.north - room.depth / 2 },
+        { east: room.east + room.width / 2, north: room.north + room.depth / 2 },
+      ]))
+      const box = boundsOf(corners)
+      return {
+        id: `${building.id}:floor:${floor.index}`,
+        label: nameFor(`${building.id}:floor:${floor.index}`, floor.label),
+        index: floor.index,
+        ...box,
+        rooms,
+        walls: floor.walls.map((wall) => ({
+          id: wall.id,
+          kind: wall.kind,
+          east1: shift.east + wall.east1,
+          north1: shift.north + wall.north1,
+          east2: shift.east + wall.east2,
+          north2: shift.north + wall.north2,
+        })),
+      }
+    })
+    if (levels.length === 0) return []
+    const shell = boundsOf(levels.flatMap((level) => ([
+      { east: level.east - level.width / 2, north: level.north - level.depth / 2 },
+      { east: level.east + level.width / 2, north: level.north + level.depth / 2 },
+    ])))
+    const indexes = levels.map((level) => level.index)
+    return [{
+      id: building.id,
+      label: nameFor(building.id, building.label),
+      ...shell,
+      base: Math.min(...indexes) * STORY_HEIGHT_M,
+      top: (Math.max(...indexes) + 1) * STORY_HEIGHT_M,
+      levels,
+    }]
+  })
 }
 
 function bestFix(record: NetworkRecord) {
@@ -41,13 +143,21 @@ function phoneFix(phone: RangeSnapshot['phone']) {
 export function SpaceView({
   phone,
   networks,
+  devices = [],
   rooms = [],
   movers = [],
+  nameFor,
+  draftFor,
+  rename,
 }: {
   phone: RangeSnapshot['phone'] | null
   networks: NetworkRecord[]
+  devices?: DeviceRecord[]
   rooms?: Room[]
   movers?: MotionTrack[]
+  nameFor: (id: string, fallback: string) => string
+  draftFor: (id: string, fallback: string) => string
+  rename: (id: string, value: string) => void
 }) {
   const host = useRef<HTMLDivElement>(null)
   const [floor, setFloor] = useState<string>('all')
@@ -70,19 +180,12 @@ export function SpaceView({
     const phoneHeight = phone ? plottedHeight(phoneFix(phone), ground) : null
     const points: PlotPoint[] = []
     const unknown: NetworkRecord[] = []
-    const volumes: { id: string; east: number; north: number; radius: number; color: string }[] = []
-    if (!origin) return { points, unknown, phoneHeight, volumes }
+    const structures = origin ? sceneBuildings(estimateBuildings(rooms, { networks, devices, phone }), origin, nameFor) : []
+    if (!origin) return { points, unknown, phoneHeight, structures }
     for (const room of rooms) {
       if (room.lat == null || room.lon == null) continue
       const { east, north } = eastNorthMeters(origin.lat, origin.lon, room.lat, room.lon)
       if (Math.hypot(east, north) > 80) continue
-      volumes.push({
-        id: room.id,
-        east,
-        north,
-        radius: Math.max(room.radiusM, 1),
-        color: originColor(room.originKind),
-      })
       for (const mover of movers) {
         if (mover.roomId !== room.id || mover.distanceM == null) continue
         const reach = Math.min(mover.distanceM, room.radiusM)
@@ -104,7 +207,7 @@ export function SpaceView({
         continue
       }
       const { east, north } = eastNorthMeters(origin.lat, origin.lon, network.bestLat, network.bestLon)
-      const label = network.hidden || !network.ssid ? network.bssid : network.ssid
+      const label = nameFor(network.bssid, network.hidden || !network.ssid ? network.bssid : network.ssid)
       points.push({
         id: network.bssid,
         label,
@@ -115,12 +218,15 @@ export function SpaceView({
         record: network,
       })
     }
-    return { points, unknown, phoneHeight, volumes }
-  }, [movers, networks, phone, rooms])
+    return { points, unknown, phoneHeight, structures }
+  }, [devices, movers, nameFor, networks, phone, rooms])
 
   const floors = useMemo(
-    () => [...new Set(model.points.flatMap((point) => (point.height.floor == null ? [] : [point.height.floor])))].sort((a, b) => a - b),
-    [model.points],
+    () => [...new Set([
+      ...model.points.flatMap((point) => (point.height.floor == null ? [] : [point.height.floor])),
+      ...model.structures.flatMap((building) => building.levels.map((level) => level.index)),
+    ])].sort((a, b) => a - b),
+    [model.points, model.structures],
   )
   const visible = useMemo(
     () => model.points.filter((point) => floor === 'all' || point.height.floor === Number(floor)),
@@ -188,28 +294,64 @@ export function SpaceView({
       place(point.id, point.east, point.height.meters, point.north, point.color, 1.6)
     }
     if (showPhone) place('phone', 0, model.phoneHeight?.meters ?? 0, 0, '#7dcea0', 2.4)
-    for (const volume of model.volumes) {
-      const mesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(volume.radius, volume.radius, 2.4, 28, 1, true),
-        new THREE.MeshStandardMaterial({
-          color: volume.color,
-          transparent: true,
-          opacity: 0.18,
-          side: THREE.DoubleSide,
-        }),
+    const shownBuildings = model.structures.flatMap((building) => {
+      const levels = building.levels.filter((level) => floor === 'all' || level.index === Number(floor))
+      return levels.length > 0 ? [{ ...building, levels }] : []
+    })
+    const tag = (text: string, east: number, up: number, north: number) => {
+      const node = document.createElement('div')
+      node.className = 'floor-label'
+      node.textContent = text
+      const object = new CSS2DObject(node)
+      object.position.set(east, up, north)
+      scene.add(object)
+    }
+    for (const building of shownBuildings) {
+      const shell = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(building.width, Math.max(building.top - building.base, STORY_M), building.depth)),
+        new THREE.LineBasicMaterial({ color: 0xe7f0ea }),
       )
-      mesh.position.set(volume.east, 1.2, volume.north)
-      scene.add(mesh)
+      shell.position.set(building.east, (building.base + building.top) / 2, building.north)
+      scene.add(shell)
+      tag(building.label, building.east, building.top + 1.2, building.north)
+      for (const level of building.levels) {
+        const slab = new THREE.Mesh(
+          new THREE.BoxGeometry(level.width, 0.16, level.depth),
+          new THREE.MeshStandardMaterial({ color: 0x315744, transparent: true, opacity: 0.45 }),
+        )
+        slab.position.set(level.east, level.index * STORY_M, level.north)
+        slab.userData = { id: level.id }
+        scene.add(slab)
+        meshes.push(slab)
+        tag(level.label, level.east - level.width / 2, level.index * STORY_M + 0.4, level.north - level.depth / 2)
+        for (const room of level.rooms) {
+          const box = new THREE.Mesh(
+            new THREE.BoxGeometry(room.width, STORY_M * 0.82, room.depth),
+            new THREE.MeshStandardMaterial({ color: room.color, transparent: true, opacity: 0.32, side: THREE.DoubleSide }),
+          )
+          box.position.set(room.east, level.index * STORY_M + STORY_M * 0.5, room.north)
+          box.userData = { id: room.id }
+          scene.add(box)
+          meshes.push(box)
+          tag(room.label, room.east, level.index * STORY_M + STORY_M * 0.95, room.north)
+        }
+        const wallGeometry = new THREE.BufferGeometry().setFromPoints(level.walls.flatMap((wall) => ([
+          new THREE.Vector3(wall.east1, level.index * STORY_M + 0.2, wall.north1),
+          new THREE.Vector3(wall.east2, level.index * STORY_M + 0.2, wall.north2),
+        ])))
+        scene.add(new THREE.LineSegments(wallGeometry, new THREE.LineBasicMaterial({ color: 0xe7f0ea })))
+      }
     }
 
     const heights = visible.map((point) => point.height.meters)
     if (showPhone) heights.push(model.phoneHeight?.meters ?? 0)
+    for (const building of shownBuildings) heights.push(building.top)
     const minY = Math.min(0, ...heights)
     const maxY = Math.max(STORY_M, ...heights)
     const span = Math.max(
       24,
       ...visible.map((point) => Math.hypot(point.east, point.north) * 2),
-      ...model.volumes.map((volume) => (Math.hypot(volume.east, volume.north) + volume.radius) * 2),
+      ...shownBuildings.map((building) => (Math.hypot(building.east, building.north) + Math.max(building.width, building.depth)) * 2),
     )
     for (let level = Math.floor(minY / STORY_M); level <= Math.ceil(maxY / STORY_M); level += 1) {
       const grid = new THREE.GridHelper(span, 6, 0x3d4f46, 0x2c3a33)
@@ -296,7 +438,7 @@ export function SpaceView({
       renderer.dispose()
       node.replaceChildren()
     }
-  }, [floor, model.phoneHeight, model.volumes, visible])
+  }, [floor, model.phoneHeight, model.structures, visible])
 
   const phoneSelected = selectedId === 'phone'
   const activeHeight = phoneSelected ? model.phoneHeight : selected?.height ?? null
@@ -312,10 +454,11 @@ export function SpaceView({
             {floors.map((level) => <option key={level} value={level}>Floor {level}</option>)}
           </select>
         </label>
-        <p className="empty">East, north, and up are in meters. Floor lines are 3 m apart.</p>
+        <p className="empty">Boxes are rooms, slabs are floors, and the wireframe is the building. East, north, and up are in meters.</p>
       </div>
+      <SignalLegend />
       <div ref={host} className="space" />
-      {visible.length === 0 && <p className="empty">No networks with a height on this floor.</p>}
+      {visible.length === 0 && model.structures.length === 0 && <p className="empty">No networks with a height on this floor.</p>}
       <div className="actions">
         {model.phoneHeight && (
           <button type="button" onClick={() => setSelectedId('phone')}>
