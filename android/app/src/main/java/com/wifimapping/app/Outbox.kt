@@ -12,6 +12,22 @@ class Outbox(context: Context) {
     private val catalogFile = File(context.filesDir, "catalog.bin")
     private val appContext = context.applicationContext
 
+    fun clear() {
+        synchronized(lock) {
+            generation += 1
+            writeText(catalogFile, "")
+            writeText(journalFile, "[]")
+        }
+    }
+
+    fun replace(catalog: String, journal: String) {
+        synchronized(lock) {
+            generation += 1
+            writeText(catalogFile, catalog)
+            writeText(journalFile, if (journal.isBlank()) "[]" else journal)
+        }
+    }
+
     fun append(body: JSONObject) {
         synchronized(lock) {
             val queued = readJournal()
@@ -157,6 +173,10 @@ class Outbox(context: Context) {
 
     companion object {
         val lock = Any()
+
+        @Volatile
+        var generation: Int = 0
+            private set
 
         private fun collect(array: JSONArray?, into: MutableSet<String>) {
             if (array == null) return

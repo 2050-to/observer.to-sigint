@@ -662,7 +662,7 @@ export function inferMotion(pings: ScenePing[], rooms: Room[]): MotionTrack[] {
     if (labeled) {
       tracks.push({
         id: 'phone',
-        label: 'This phone',
+        label: 'This device',
         roomId: null,
         kind: latest.speedMps > RUN_LIMIT_MPS ? 'vehicle' : 'person or vehicle',
         capabilities,

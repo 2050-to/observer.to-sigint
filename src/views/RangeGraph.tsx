@@ -75,7 +75,7 @@ export function RangeGraph({
     const cy = cytoscape({
       container: host.current,
       elements: [
-        { data: { id: 'phone', label: nameFor('phone', 'This phone'), color: SIGNAL_COLORS.gps, size: 36 }, position: { x: 0, y: 0 } },
+        { data: { id: 'phone', label: nameFor('phone', 'This device'), color: SIGNAL_COLORS.gps, size: 36 }, position: { x: 0, y: 0 } },
         ...groups.flatMap((group, index) => {
           const distance = (5 - ring(group.bestRssi)) * 130 + 110
           const angle = (index / Math.max(groups.length, 1)) * Math.PI * 2 - Math.PI / 2

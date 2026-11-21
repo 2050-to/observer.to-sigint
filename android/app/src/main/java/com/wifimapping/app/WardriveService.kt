@@ -213,6 +213,8 @@ class WardriveService : Service() {
     }
 
     private fun publish(results: List<android.net.wifi.ScanResult>) {
+        if (!running || !uploadsOpen) return
+        val generation = Outbox.generation
         val fingerprint = results.joinToString("|") { "${it.BSSID}:${it.level}:${it.timestamp}" }
         if (fingerprint.isEmpty() || fingerprint == lastFingerprint) return
         lastFingerprint = fingerprint
@@ -240,7 +242,10 @@ class WardriveService : Service() {
         body.put("cellOn", radios.second.let { cells ->
             (0 until cells.length()).any { index -> cells.getJSONObject(index).optBoolean("registered") }
         })
-        outbox.append(body)
+        synchronized(Outbox.lock) {
+            if (!running || !uploadsOpen || Outbox.generation != generation) return
+            outbox.append(body)
+        }
         WardrivePlugin.emitScanQueued()
         if (hearsSaved(networks)) {
             Thread { flush() }.start()
@@ -267,16 +272,22 @@ class WardriveService : Service() {
             }
             flushing = true
         }
+        flushActive = true
         var accepted = 0
         try {
             var again = true
             while (again) {
                 synchronized(this) { flushAgain = false }
+                val generation = Outbox.generation
                 val pending = outbox.unuploaded()
                 val uploadedIds = mutableListOf<String>()
                 val synced = mutableListOf<String>()
                 var failed = false
                 for (body in pending) {
+                    if (!uploadsOpen) {
+                        failed = true
+                        break
+                    }
                     val response = postScan(body)
                     if (response == null) {
                         failed = true
@@ -296,14 +307,21 @@ class WardriveService : Service() {
                     }
                 }
                 if (uploadedIds.isNotEmpty()) {
-                    outbox.markUploaded(uploadedIds.toSet())
-                    outbox.addSyncedBssids(synced)
-                    accepted += uploadedIds.size
+                    val wrote = synchronized(Outbox.lock) {
+                        if (!uploadsOpen || Outbox.generation != generation) false
+                        else {
+                            outbox.markUploaded(uploadedIds.toSet())
+                            outbox.addSyncedBssids(synced)
+                            true
+                        }
+                    }
+                    if (wrote) accepted += uploadedIds.size
                 }
                 if (failed) break
                 again = synchronized(this) { flushAgain }
             }
         } finally {
+            flushActive = false
             synchronized(this) { flushing = false }
         }
         if (accepted > 0) {
@@ -319,7 +337,7 @@ class WardriveService : Service() {
         val count = outbox.countUnuploaded()
         val noun = if (count == 1) "scan" else "scans"
         val pronoun = if (count == 1) "It" else "They"
-        return "$count $noun on this phone. $pronoun will sync when a saved network is in range."
+        return "$count $noun on this device. $pronoun will sync when a saved network is in range."
     }
 
     private fun postScan(body: JSONObject): JSONObject? {
@@ -384,7 +402,7 @@ class WardriveService : Service() {
         manager.createNotificationChannel(channel)
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("Wi-Fi mapping")
-            .setContentText("Collecting networks while the phone is on")
+            .setContentText("Collecting networks while the device is on")
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setOngoing(true)
             .build()
@@ -403,6 +421,8 @@ class WardriveService : Service() {
         private const val V_MAX = 44.704
 
         @Volatile var running = false
+        @Volatile var uploadsOpen = true
+        @Volatile var flushActive = false
         @Volatile var message = "Drive is stopped."
         @Volatile var lastLat: Double? = null
         @Volatile var lastLon: Double? = null

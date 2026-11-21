@@ -22,7 +22,7 @@ const NO_HEARD: RangeSnapshot['heard'] = []
 
 function deviceLabel(): string {
   if (typeof window !== 'undefined' && window.wifiMapping) return 'Mac'
-  return 'phone'
+  return 'device'
 }
 
 function waitingText(count: number): string {
@@ -33,6 +33,10 @@ function waitingText(count: number): string {
 
 function syncedText(count: number): string {
   return `Synced ${count} scan${count === 1 ? '' : 's'}.`
+}
+
+function serverUnreachable(message: string): boolean {
+  return /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ETIMEDOUT|ECONNRESET|Failed to fetch|NetworkError|socket hang up|fetch failed|Internal Server Error/i.test(message)
 }
 
 export function App() {
@@ -48,7 +52,9 @@ export function App() {
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
   const [focus, setFocus] = useState<{ lat: number; lon: number; label: string } | null>(null)
-  const { nameFor, draftFor, rename } = useLabels()
+  const [eraseStep, setEraseStep] = useState<0 | 1 | 2>(0)
+  const [erasing, setErasing] = useState(false)
+  const { nameFor, draftFor, rename, clear } = useLabels()
   const queue = useRef(Promise.resolve())
 
   const refresh = useCallback((mode: RefreshMode) => {
@@ -125,7 +131,7 @@ export function App() {
     } catch {
       await Wardrive.enqueue({ scans: JSON.stringify(scans) })
       await refresh('local')
-      setNote('Sample saved on this phone. It will sync when a saved network is in range.')
+      setNote('Sample saved on this device. It will sync when a saved network is in range.')
     }
   }
 
@@ -153,6 +159,53 @@ export function App() {
     setNote(status.message)
   }
 
+  async function eraseAll() {
+    setErasing(true)
+    setError('')
+    let serverMissed = false
+    try {
+      const run = queue.current.then(async () => {
+        const saved = await Wardrive.getLocalCatalog()
+        const status = await Wardrive.getStatus()
+        if (status.running) await Wardrive.stopDrive()
+        await Wardrive.clearLocal()
+        try {
+          await api.reset()
+          return false
+        } catch (error) {
+          const message = error instanceof Error ? error.message : ''
+          if (serverUnreachable(message)) return true
+          await Wardrive.replaceLocal({
+            catalog: saved.catalog ?? '',
+            journal: saved.journal ?? '[]',
+          }).catch(() => undefined)
+          throw error
+        }
+      })
+      queue.current = run.then(() => undefined, () => undefined)
+      serverMissed = await run
+    } catch (reason: unknown) {
+      setRunning(false)
+      const raw = reason instanceof Error ? reason.message : ''
+      await refresh('pull').catch(() => undefined)
+      setError(raw && !serverUnreachable(raw) ? raw : 'Saved data could not be deleted. Nothing was removed.')
+      return
+    } finally {
+      setErasing(false)
+    }
+    clear()
+    setRunning(false)
+    setFocus(null)
+    setSyncedCount(0)
+    setEraseStep(0)
+    setNote(serverMissed
+      ? 'Saved data on this device was deleted. The server was not running, so any copy there is still stored.'
+      : 'All saved data was deleted.')
+    await refresh(serverMissed ? 'local' : 'pull').catch((reason: unknown) => {
+      setError(reason instanceof Error ? reason.message : 'The catalog is unavailable')
+    })
+  }
+
   return (
     <main>
       <header>
@@ -175,8 +228,33 @@ export function App() {
               </button>
             </>
           )}
+          {eraseStep === 0 && (
+            <button type="button" className="danger" onClick={() => setEraseStep(1)}>Delete all data</button>
+          )}
         </div>
       </header>
+      {eraseStep > 0 && (
+        <section className="confirm" role="alertdialog" aria-labelledby="erase-title">
+          <div>
+            <h2 id="erase-title">{eraseStep === 1 ? 'Delete all saved data?' : 'Delete everything permanently?'}</h2>
+            <p>
+              {eraseStep === 1
+                ? 'This removes every saved network, scan, device, cell, and custom name on this device and on the server.'
+                : 'There is no undo. The catalog will be empty, and a running drive will stop.'}
+            </p>
+          </div>
+          <div className="actions">
+            <button type="button" onClick={() => setEraseStep(0)} disabled={erasing}>Cancel</button>
+            {eraseStep === 1 ? (
+              <button type="button" className="danger" onClick={() => setEraseStep(2)}>Continue</button>
+            ) : (
+              <button type="button" className="danger" onClick={() => void eraseAll()} disabled={erasing}>
+                {erasing ? 'Deleting…' : 'Delete everything'}
+              </button>
+            )}
+          </div>
+        </section>
+      )}
       <section className="status">
         <span>Speed {range?.speedMps ?? 'unknown'} m/s</span>
         <span>Dwell {range ? range.dwellSeconds.toFixed(1) : '…'} s</span>

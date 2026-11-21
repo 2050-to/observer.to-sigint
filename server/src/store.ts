@@ -317,6 +317,11 @@ export class Store {
     await this.redis.set('place:phone', pack(place), 'EX', 86_400)
   }
 
+  async wipe(): Promise<void> {
+    await this.redis.flushdb()
+    await this.db.query('TRUNCATE networks, devices, cells, applied_scans, range_snapshot')
+  }
+
   async summary(): Promise<{
     count: number
     openCount: number

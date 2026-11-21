@@ -20,10 +20,24 @@ export interface StoredScan {
 }
 
 export class CatalogStore {
+  revision = 0
+
   constructor(
     private readonly catalogFile: string,
     private readonly journalFile: string,
   ) {}
+
+  clear(): void {
+    this.revision += 1
+    writeText(this.catalogFile, '')
+    writeText(this.journalFile, '[]')
+  }
+
+  replace(catalog: string, journal: string): void {
+    this.revision += 1
+    writeText(this.catalogFile, catalog)
+    writeText(this.journalFile, journal.trim() ? journal : '[]')
+  }
 
   readCatalog(): string {
     return readText(this.catalogFile)

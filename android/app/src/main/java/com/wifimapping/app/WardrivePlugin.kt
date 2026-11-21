@@ -82,6 +82,21 @@ class WardrivePlugin : Plugin() {
     }
 
     @PluginMethod
+    fun clearLocal(call: PluginCall) {
+        WardriveService.uploadsOpen = false
+        context.stopService(Intent(context, WardriveService::class.java))
+        while (WardriveService.flushActive) Thread.sleep(25)
+        Outbox(context).clear()
+        call.resolve()
+    }
+
+    @PluginMethod
+    fun replaceLocal(call: PluginCall) {
+        Outbox(context).replace(call.getString("catalog") ?: "", call.getString("journal") ?: "[]")
+        call.resolve()
+    }
+
+    @PluginMethod
     fun getStatus(call: PluginCall) {
         val status = JSObject()
         status.put("running", WardriveService.running)
@@ -150,6 +165,7 @@ class WardrivePlugin : Plugin() {
             call.reject("token is required")
             return
         }
+        WardriveService.uploadsOpen = true
         val intent = Intent(context, WardriveService::class.java)
         intent.putExtra(WardriveService.EXTRA_API_URL, apiUrl)
         intent.putExtra(WardriveService.EXTRA_TOKEN, token)

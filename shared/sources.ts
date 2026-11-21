@@ -117,13 +117,13 @@ export function stackSignals(input: {
       const speed = phoneMover?.speedMps
       signals.push({
         kind,
-        title: 'This phone',
-        detail: speed == null ? 'Heard on this phone' : `${speed.toFixed(1)} m/s`,
+        title: 'This device',
+        detail: speed == null ? 'Heard on this device' : `${speed.toFixed(1)} m/s`,
       })
     }
     addGps(signals, coords(input.phone.lat, input.phone.lon))
     if (signals.length > 0) {
-      devices.push({ id: 'phone', label: 'This phone', signals, keys: ['phone'] })
+      devices.push({ id: 'phone', label: 'This device', signals, keys: ['phone'] })
     }
   }
 

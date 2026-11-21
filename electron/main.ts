@@ -54,6 +54,7 @@ let radiusM = 91.4
 let lastSpeed: number | null = null
 let flushing = false
 let flushAgain = false
+let discarding = false
 let chain = Promise.resolve()
 let serverClose: (() => Promise<void>) | null = null
 
@@ -209,11 +210,15 @@ async function flush(): Promise<void> {
     let again = true
     while (again) {
       flushAgain = false
-      const pending = await exclusive(() => store.unuploaded())
+      const pending = await exclusive(() => ({ items: store.unuploaded(), revision: store.revision }))
       const uploadedIds: string[] = []
       const synced: string[] = []
       let failed = false
-      for (const scan of pending) {
+      for (const scan of pending.items) {
+        if (discarding) {
+          failed = true
+          break
+        }
         const response = await postScan(scan)
         if (!response) {
           failed = true
@@ -227,11 +232,13 @@ async function flush(): Promise<void> {
         if (typeof response.radiusM === 'number' && response.radiusM > 0) radiusM = response.radiusM
       }
       if (uploadedIds.length) {
-        await exclusive(() => {
+        const wrote = await exclusive(() => {
+          if (discarding || store.revision !== pending.revision) return false
           store.markUploaded(uploadedIds)
           store.addSynced(synced)
+          return true
         })
-        accepted += uploadedIds.length
+        if (wrote) accepted += uploadedIds.length
       }
       if (failed) break
       again = flushAgain
@@ -267,6 +274,7 @@ async function onNativeScan(json: string): Promise<void> {
     return
   }
   const saved = await exclusive(() => {
+    if (!running || discarding) return false
     const scan = toScan(payload)
     store.append(scan)
     const heard = hearsSaved(networks, store.syncedBssids())
@@ -318,6 +326,30 @@ function registerIpc(): void {
     const scans = JSON.parse(options?.scans || '[]') as StoredScan[]
     await exclusive(() => store.enqueue(Array.isArray(scans) ? scans : []))
     window?.webContents.send('wardrive:queued', {})
+  })
+  ipcMain.handle('wardrive:replace', async (_event, options: { catalog?: string; journal?: string }) => {
+    discarding = true
+    try {
+      await exclusive(() => store.replace(options?.catalog ?? '', options?.journal ?? '[]'))
+    } finally {
+      discarding = false
+    }
+  })
+  ipcMain.handle('wardrive:clear', async () => {
+    running = false
+    message = 'Drive is stopped.'
+    holdAwake(false)
+    scanner?.stop()
+    discarding = true
+    try {
+      while (flushing) {
+        flushAgain = false
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+      await exclusive(() => store.clear())
+    } finally {
+      discarding = false
+    }
   })
 }
 

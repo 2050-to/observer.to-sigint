@@ -36,5 +36,14 @@ export function useLabels() {
     Object.prototype.hasOwnProperty.call(labels, id) ? labels[id] : fallback
   ), [labels])
 
-  return { nameFor, draftFor, rename }
+  const clear = useCallback(() => {
+    try {
+      localStorage.removeItem(KEY)
+    } catch {
+      // The names are already dropped from the page.
+    }
+    setLabels({})
+  }, [])
+
+  return { nameFor, draftFor, rename, clear }
 }

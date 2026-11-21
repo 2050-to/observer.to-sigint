@@ -52,6 +52,24 @@ button, select {
 }
 
 button.active, button:hover { background: #315744; }
+button.danger { background: #6b3a34; border-color: #8a4d46; }
+button.danger:hover { background: #7d433c; }
+button:disabled { opacity: 0.6; }
+
+.confirm {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 12px 0;
+  padding: 14px;
+  background: #2a1c1a;
+  border: 1px solid #6b3a34;
+  border-radius: 16px;
+}
+.confirm h2 { font-size: 16px; }
+.confirm p { margin: 4px 0 0; color: #e7b3ac; }
 
 label { display: flex; gap: 8px; align-items: center; color: #8aa398; }
 

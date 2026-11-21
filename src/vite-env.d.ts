@@ -13,6 +13,8 @@ interface MacWardriveBridge {
   saveLocalCatalog(options: { catalog: string }): Promise<void>
   markUploaded(options: { scanIds: string }): Promise<void>
   enqueue(options: { scans: string }): Promise<void>
+  clearLocal(): Promise<void>
+  replaceLocal(options: { catalog: string; journal: string }): Promise<void>
   addListener(eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void): Promise<{ remove: () => Promise<void> }>
 }
 

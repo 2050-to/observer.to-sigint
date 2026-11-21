@@ -101,10 +101,10 @@ export function DriveMap({
         fillColor: SIGNAL_COLORS.gps,
         fillOpacity: 1,
       }).addTo(group)
-      pin(phone, nameFor('phone', 'This phone'))
+      pin(phone, nameFor('phone', 'This device'))
       phone.on('click', () => {
         setPickedKey('phone')
-        void openCard(nameFor('phone', 'This phone'), map.phone.lat!, map.phone.lon!, undefined, undefined, levelLabel(map, null), null)
+        void openCard(nameFor('phone', 'This device'), map.phone.lat!, map.phone.lon!, undefined, undefined, levelLabel(map, null), null)
       })
     }
     for (const network of map.networks) {
@@ -211,7 +211,7 @@ export function DriveMap({
       return
     }
     if (!navigator.onLine) {
-      setCard({ title, place: null, floor: level ?? null, ...facts, error: 'The address will be looked up when the phone is online.' })
+      setCard({ title, place: null, floor: level ?? null, ...facts, error: 'The address will be looked up when the device is online.' })
       return
     }
     setBusy(true)
@@ -228,7 +228,7 @@ export function DriveMap({
         place: null,
         floor: level ?? null,
         ...facts,
-        error: offline ? 'The address will be looked up when the phone is online.' : error instanceof Error ? error.message : 'Lookup failed',
+        error: offline ? 'The address will be looked up when the device is online.' : error instanceof Error ? error.message : 'Lookup failed',
       })
     } finally {
       setBusy(false)

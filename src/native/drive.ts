@@ -19,6 +19,8 @@ interface WardrivePlugin {
   saveLocalCatalog(options: { catalog: string }): Promise<void>
   markUploaded(options: { scanIds: string }): Promise<void>
   enqueue(options: { scans: string }): Promise<void>
+  clearLocal(): Promise<void>
+  replaceLocal(options: { catalog: string; journal: string }): Promise<void>
   addListener(eventName: 'scanQueued', listenerFunc: () => void): Promise<PluginListenerHandle>
   addListener(eventName: 'scansSynced', listenerFunc: (event: { count: number }) => void): Promise<PluginListenerHandle>
 }
@@ -68,6 +70,17 @@ class WardriveWeb extends WebPlugin implements WardrivePlugin {
     this.journal = JSON.stringify(items)
     this.notifyListeners('scanQueued', {})
   }
+
+  async clearLocal(): Promise<void> {
+    this.running = false
+    this.catalog = ''
+    this.journal = '[]'
+  }
+
+  async replaceLocal(options: { catalog: string; journal: string }): Promise<void> {
+    this.catalog = options.catalog
+    this.journal = options.journal.trim() ? options.journal : '[]'
+  }
 }
 
 function parseJournal(text: string): JournalScan[] {
@@ -90,6 +103,8 @@ interface MacBridge {
   saveLocalCatalog(options: { catalog: string }): Promise<void>
   markUploaded(options: { scanIds: string }): Promise<void>
   enqueue(options: { scans: string }): Promise<void>
+  clearLocal(): Promise<void>
+  replaceLocal(options: { catalog: string; journal: string }): Promise<void>
   addListener(eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void): Promise<PluginListenerHandle>
 }
 
@@ -124,6 +139,14 @@ class WardriveMac extends WebPlugin {
 
   enqueue(options: { scans: string }): Promise<void> {
     return this.bridge.enqueue(options)
+  }
+
+  clearLocal(): Promise<void> {
+    return this.bridge.clearLocal()
+  }
+
+  replaceLocal(options: { catalog: string; journal: string }): Promise<void> {
+    return this.bridge.replaceLocal(options)
   }
 
   addListener(eventName: 'scanQueued' | 'scansSynced', listenerFunc: (event?: { count?: number }) => void): Promise<PluginListenerHandle> {

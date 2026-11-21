@@ -213,6 +213,11 @@ async function handle(store: Store, req: IncomingMessage, res: ServerResponse): 
     send(res, 401, { error: 'unauthorized' })
     return
   }
+  if (req.method === 'POST' && url.pathname === '/api/reset') {
+    await store.wipe()
+    send(res, 200, { ok: true })
+    return
+  }
   if (req.method === 'POST' && url.pathname === '/api/scans') {
     const scan = asScan(JSON.parse(await readBody(req)) as unknown)
     const result = await store.ingest(scan)

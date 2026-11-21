@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('wifiMapping', {
     saveLocalCatalog: (options: { catalog: string }) => ipcRenderer.invoke('wardrive:save', options),
     markUploaded: (options: { scanIds: string }) => ipcRenderer.invoke('wardrive:uploaded', options),
     enqueue: (options: { scans: string }) => ipcRenderer.invoke('wardrive:enqueue', options),
+    clearLocal: () => ipcRenderer.invoke('wardrive:clear'),
+    replaceLocal: (options: { catalog: string; journal: string }) => ipcRenderer.invoke('wardrive:replace', options),
     addListener: (eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void) => {
       const channel = eventName === 'scansSynced' ? 'wardrive:synced' : 'wardrive:queued'
       const wrapped = (_event: IpcRendererEvent, payload: { count?: number }) => listener(payload ?? {})
