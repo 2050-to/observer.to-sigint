@@ -1,3 +1,4 @@
+import { accessPointByBssid, advertiserByAddress, groupAccessPoints, groupAdvertisers } from './accessPoints.js'
 import { gpsGround, plottedHeight } from './height.js'
 import type { CellRecord, DeviceEnrichment, DeviceRecord, NetworkRecord, Room } from './types.js'
 
@@ -69,13 +70,20 @@ function enrichmentCells(enrichment: DeviceEnrichment | null | undefined): (stri
 
 export function catalogCsv(records: NetworkRecord[]): string {
   const ground = gpsGround(records.map((record) => ({ altitudeM: record.bestAltitudeM ?? null })))
-  const header = ['last_seen', 'best_rssi', 'lat', 'lon', 'ssid', 'bssid', 'channel', 'security', 'altitude_m', 'floor', 'ground_elevation_m', 'postal_codes', ...ENRICHMENT_HEADER]
+  const accessPoints = accessPointByBssid(groupAccessPoints(records))
+  const header = [
+    'last_seen', 'best_rssi', 'lat', 'lon', 'ssid', 'bssid', 'channel', 'security', 'altitude_m', 'floor', 'ground_elevation_m', 'postal_codes',
+    ...ENRICHMENT_HEADER,
+    'access_point_id',
+    'access_point',
+  ]
   const lines = records.map((record) => {
     const height = plottedHeight({
       altitudeM: record.bestAltitudeM ?? null,
       verticalAccuracyM: record.bestVerticalAccuracyM ?? null,
       relativeM: record.bestRelativeM ?? null,
     }, ground)
+    const ap = accessPoints.get(record.bssid)
     return [
       record.lastSeen,
       record.bestRssi,
@@ -90,6 +98,8 @@ export function catalogCsv(records: NetworkRecord[]): string {
       record.place?.elevationM != null ? record.place.elevationM.toFixed(1) : null,
       (record.postalCodes ?? []).join('|'),
       ...enrichmentCells(record.enrichment),
+      ap?.id ?? null,
+      ap?.label ?? null,
     ].map(csvCell).join(',')
   })
   const body = [header.join(','), ...lines].join('\n')
@@ -99,7 +109,8 @@ export function catalogCsv(records: NetworkRecord[]): string {
 export function catalogBundleCsv(records: NetworkRecord[], extras: { devices?: DeviceRecord[]; cells?: CellRecord[]; rooms?: Room[] } = {}): string {
   const sections = [catalogCsv(records)]
   if (extras.devices) {
-    const header = ['device_address', 'name', 'address_type', 'best_rssi', 'lat', 'lon', 'last_seen', 'postal_codes', ...ENRICHMENT_HEADER]
+    const groups = advertiserByAddress(groupAdvertisers(extras.devices))
+    const header = ['device_address', 'name', 'address_type', 'best_rssi', 'lat', 'lon', 'last_seen', 'postal_codes', ...ENRICHMENT_HEADER, 'advertiser_group']
     const lines = extras.devices.map((device) => [
       device.address,
       device.name,
@@ -110,6 +121,7 @@ export function catalogBundleCsv(records: NetworkRecord[], extras: { devices?: D
       device.lastSeen,
       (device.postalCodes ?? []).join('|'),
       ...enrichmentCells(device.enrichment),
+      groups.get(device.address)?.id ?? null,
     ].map(csvCell).join(','))
     sections.push([header.join(','), ...lines].join('\n'))
   }

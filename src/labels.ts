@@ -32,6 +32,12 @@ export function useLabels() {
     return custom && custom.trim() ? custom.trim() : fallback
   }, [labels])
 
+  const nameForGroup = useCallback((ids: string[], fallback: string) => {
+    const [id, ...older] = ids
+    if (id !== undefined && Object.prototype.hasOwnProperty.call(labels, id)) return nameFor(id, fallback)
+    return older.map((key) => labels[key]?.trim()).find(Boolean) ?? fallback
+  }, [labels, nameFor])
+
   const draftFor = useCallback((id: string, fallback: string) => (
     Object.prototype.hasOwnProperty.call(labels, id) ? labels[id] : fallback
   ), [labels])
@@ -45,5 +51,5 @@ export function useLabels() {
     setLabels({})
   }, [])
 
-  return { nameFor, draftFor, rename, clear }
+  return { nameFor, nameForGroup, draftFor, rename, clear }
 }

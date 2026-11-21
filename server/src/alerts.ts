@@ -1,3 +1,4 @@
+import { accessPointByBssid, groupAccessPoints, groupAdvertisers } from '../../shared/accessPoints.js'
 import { appOrigin } from './auth.js'
 import { sendEmail } from './mail.js'
 import type { Store } from './store.js'
@@ -8,8 +9,8 @@ export const ALERT_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000
 export interface AlertDigest {
   openNetworks: { name: string; security: string; lastSeen: string; place: string | null }[]
   highRisk: { name: string; reason: string }[]
-  newNetworks: number
-  newDevices: number
+  newAccessPoints: number
+  newAdvertisers: number
   newCells: number
   observationCount: number
 }
@@ -35,10 +36,14 @@ function isNew(firstSeen: string, since: string | null): boolean {
 
 function riskItems(records: { name: string; enrichment: NetworkRecord['enrichment'] }[]): AlertDigest['highRisk'] {
   const items: AlertDigest['highRisk'] = []
+  const listed = new Set<string>()
   for (const record of records) {
     if (record.enrichment?.risk.level !== 'high') continue
+    const name = record.name || 'Unnamed device'
+    if (listed.has(name.trim().toLowerCase())) continue
+    listed.add(name.trim().toLowerCase())
     const reason = record.enrichment.risk.reasons.find((item) => item.trim()) ?? 'Flagged from public support and vulnerability records'
-    items.push({ name: record.name || 'Unnamed device', reason })
+    items.push({ name, reason })
     if (items.length >= 15) break
   }
   return items
@@ -57,10 +62,15 @@ export function digestFromCatalog(input: {
     lastSeen: row.lastSeen,
     place: row.address,
   }))
-  const fromNetworks = input.networks.map((network) => ({
-    name: network.hidden || !network.ssid ? 'Unnamed network' : network.ssid,
-    enrichment: network.enrichment,
-  }))
+  const accessPoints = groupAccessPoints(input.networks)
+  const accessPointOf = accessPointByBssid(accessPoints)
+  const fromNetworks = input.networks.map((network) => {
+    const ap = accessPointOf.get(network.bssid)
+    return {
+      name: ap && ap.ssids.length > 0 ? ap.label : 'Unnamed network',
+      enrichment: network.enrichment,
+    }
+  })
   const fromDevices = input.devices.map((device) => ({
     name: device.name || device.enrichment?.queryTitle || 'Unnamed advertiser',
     enrichment: device.enrichment,
@@ -68,8 +78,9 @@ export function digestFromCatalog(input: {
   return {
     openNetworks,
     highRisk: riskItems([...fromNetworks, ...fromDevices]),
-    newNetworks: input.networks.filter((network) => isNew(network.firstSeen, input.since)).length,
-    newDevices: input.devices.filter((device) => isNew(device.firstSeen, input.since)).length,
+    newAccessPoints: accessPoints.filter((ap) => ap.networks.every((network) => isNew(network.firstSeen, input.since))).length,
+    newAdvertisers: groupAdvertisers(input.devices)
+      .filter((group) => group.devices.every((device) => isNew(device.firstSeen, input.since))).length,
     newCells: input.cells.filter((cell) => isNew(cell.firstSeen, input.since)).length,
     observationCount: input.networks.length + input.devices.length + input.cells.length,
   }
@@ -95,8 +106,8 @@ export function alertText(digest: AlertDigest): string {
     risk,
     '',
     'New since the previous review',
-    `- Networks: ${digest.newNetworks}`,
-    `- Bluetooth advertisers: ${digest.newDevices}`,
+    `- Access points: ${digest.newAccessPoints}`,
+    `- Bluetooth advertisers: ${digest.newAdvertisers}`,
     `- Towers: ${digest.newCells}`,
     '',
     `Open the observer: ${appOrigin()}/app`,

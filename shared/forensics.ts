@@ -1,3 +1,4 @@
+import { accessPointByBssid, groupAccessPoints, groupAdvertisers, type AccessPoint } from './accessPoints.js'
 import { catalogBundleCsv } from './csv.js'
 import { gpsGround, plottedHeight } from './height.js'
 import type { CellRecord, DeviceEnrichment, DeviceRecord, NetworkRecord, Room } from './types.js'
@@ -51,7 +52,7 @@ function enrichmentFields(enrichment: DeviceEnrichment | null | undefined): stri
   ]
 }
 
-function wifiBlock(record: NetworkRecord, ground: number | null): string {
+function wifiBlock(record: NetworkRecord, ground: number | null, ap: AccessPoint | undefined): string {
   const height = plottedHeight({
     altitudeM: record.bestAltitudeM ?? null,
     verticalAccuracyM: record.bestVerticalAccuracyM ?? null,
@@ -62,6 +63,7 @@ function wifiBlock(record: NetworkRecord, ground: number | null): string {
     '',
     field('SSID', record.hidden || !record.ssid ? 'Hidden' : record.ssid),
     field('BSSID', record.bssid),
+    field('Access point', ap ? `${ap.label} (${ap.id})` : null),
     field('Security', record.security),
     field('Channel', record.channel),
     field('Best RSSI', `${record.bestRssi} dBm`),
@@ -157,24 +159,28 @@ export async function catalogForensicsMarkdown(
     ...cells.flatMap((cell) => [cell.firstSeen, cell.lastSeen]),
   ])
   const ground = gpsGround(records.map((record) => ({ altitudeM: record.bestAltitudeM ?? null })))
+  const accessPoints = groupAccessPoints(records)
+  const accessPointOf = accessPointByBssid(accessPoints)
   const parts = [
     '# Digital forensics report',
     '',
     `Generated: ${shown(generatedAt)}`,
     '',
-    'Passive broadcast observations only. No association, no payload capture, and no exploit content. Each BSSID, Bluetooth address, and cell identity stays its own observation. Same display names are not merged.',
+    'Passive broadcast observations only. No association, no payload capture, and no exploit content. Each BSSID, Bluetooth address, and cell identity stays its own observation. Access points and Bluetooth advertiser groups are inferred from sibling addresses and matching names heard nearby, and the records stay separate.',
     '',
     '## Summary',
     '',
     field('Wi-Fi radios', records.length),
+    field('Access points', accessPoints.length),
     field('Bluetooth advertisements', devices.length),
+    field('Bluetooth advertiser groups', groupAdvertisers(devices).length),
     field('Cell sites', cells.length),
     field('Rooms', rooms.length),
     field('First seen', window.first),
     field('Last seen', window.last),
     field('SHA-256 of the companion CSV', hash),
     '',
-    section('Wi-Fi', records.map((record) => wifiBlock(record, ground))),
+    section('Wi-Fi', records.map((record) => wifiBlock(record, ground, accessPointOf.get(record.bssid)))),
     '',
     section('Bluetooth', devices.map((device) => deviceBlock(device))),
     '',

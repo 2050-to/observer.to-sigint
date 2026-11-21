@@ -522,7 +522,7 @@ assert.deepEqual(stackedFloors[0].floors.map((floor) => floor.index), [0, 3])
 
 const linked = stackSignals({
   networks: [{ bssid: 'aa:bb:cc:dd:ee:01', ssid: 'Cafe', hidden: false, bestRssi: -40, bestLat: 47.62, bestLon: -122.35 }],
-  devices: [{ address: 'aa:bb:cc:00:00:10', name: 'Handset', lastRssi: -50, bestLat: null, bestLon: null }],
+  devices: [{ address: 'aa:bb:cc:00:00:10', name: 'Handset', lastRssi: -50, bestRssi: -50, bestLat: null, bestLon: null }],
   cells: [],
   movers: [{
     id: 'track:aa:bb:cc:dd:ee:01+aa:bb:cc:00:00:10@1',

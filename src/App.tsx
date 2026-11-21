@@ -24,6 +24,8 @@ const SPEEDS = [
 
 const NO_HEARD: RangeSnapshot['heard'] = []
 const NO_DEVICES: RangeSnapshot['heardDevices'] = []
+const NO_ACCESS_POINTS: MapState['accessPoints'] = []
+const NO_ADVERTISERS: MapState['advertisers'] = []
 
 function deviceLabel(): string {
   if (typeof window !== 'undefined' && window.wifiMapping) return 'Mac'
@@ -66,7 +68,7 @@ export function App() {
   const [eraseStep, setEraseStep] = useState<0 | 1 | 2>(0)
   const [erasing, setErasing] = useState(false)
   const [ownedReset, setOwnedReset] = useState(0)
-  const { nameFor, draftFor, rename, clear } = useLabels()
+  const { nameFor, nameForGroup, draftFor, rename, clear } = useLabels()
   const account = useAccount()
   const queue = useRef(Promise.resolve())
   const billing = new URLSearchParams(window.location.search).get('billing')
@@ -307,7 +309,7 @@ export function App() {
         <span>Dwell {range ? range.dwellSeconds.toFixed(1) : '…'} s</span>
         <span>Scan every {range ? range.scanPeriodSeconds.toFixed(0) : '…'} s</span>
         <span>Radius {range ? range.radiusM.toFixed(0) : '…'} m</span>
-        <span>{count} saved</span>
+        <span>{map?.accessPoints.length ?? 0} access points</span>
         {waiting > 0 && <span>{waitingText(waiting)}</span>}
         {waiting === 0 && syncedCount > 0 && <span>{syncedText(syncedCount)}</span>}
       </section>
@@ -325,7 +327,16 @@ export function App() {
         ))}
       </nav>
       {tab === 'range' && (
-        <RangeGraph heard={range?.heard ?? NO_HEARD} devices={range?.heardDevices ?? NO_DEVICES} nameFor={nameFor} draftFor={draftFor} rename={rename} />
+        <RangeGraph
+          heard={range?.heard ?? NO_HEARD}
+          devices={range?.heardDevices ?? NO_DEVICES}
+          accessPoints={map?.accessPoints ?? NO_ACCESS_POINTS}
+          advertisers={map?.advertisers ?? NO_ADVERTISERS}
+          nameFor={nameFor}
+          nameForGroup={nameForGroup}
+          draftFor={draftFor}
+          rename={rename}
+        />
       )}
       {tab === 'map' && (
         <DriveMap
@@ -333,6 +344,7 @@ export function App() {
           focus={focus}
           onPlaceSaved={() => void refresh(running ? 'pull' : 'sync')}
           nameFor={nameFor}
+          nameForGroup={nameForGroup}
           draftFor={draftFor}
           rename={rename}
         />
@@ -355,13 +367,16 @@ export function App() {
           count={count}
           openCount={openRows.length}
           networks={map?.networks ?? []}
+          accessPoints={map?.accessPoints ?? []}
           devices={map?.devices ?? []}
+          advertisers={map?.advertisers ?? []}
           cells={map?.cells ?? []}
           rooms={map?.rooms ?? []}
           movers={map?.movers ?? []}
           phone={map?.phone ?? null}
           history={range?.history ?? []}
           enrichmentStatus={enrichmentStatus}
+          nameForGroup={nameForGroup}
           draftFor={draftFor}
           rename={rename}
         />

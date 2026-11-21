@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
+import { labelIds } from '../../shared/accessPoints'
 import { estimateLabelSize, labelEdgeTowardAnchor, leaderIsClear, spreadLabels } from '../../shared/labelLayout'
 import { placeCovers, postalCellKey, postalLabel, samePostalCell, unionPostalCodes } from '../../shared/postal'
 import { roomSignals, SIGNAL_COLORS, stackFor, stackSignals, type SignalRow } from '../../shared/sources'
@@ -7,7 +8,7 @@ import { api } from '../api'
 import { floorLabel, gpsGround, plottedHeight } from '../height'
 import { SignalLegend, SignalStack } from '../SignalStack'
 import { streetTiles } from '../tiles'
-import type { MapState, NetworkRecord, PlaceInfo } from '../types'
+import type { MapState, NetworkRecord, PlaceInfo, Room } from '../types'
 
 function levelLabel(map: MapState, network: NetworkRecord | null): string | null {
   const ground = gpsGround([
@@ -41,7 +42,7 @@ type PlaceCard = {
   postalCodes: string[]
   error: string
   floor: string | null
-  ssid: string | null
+  ssids: string[]
   bestRssi: number | null
   lastSeen: string | null
   pinKey: string
@@ -49,37 +50,65 @@ type PlaceCard = {
   lon: number
 }
 
-function pinForCard(map: MapState, pinKey: string): {
+type PinTarget = {
+  pinKey: string
   lat: number
   lon: number
   bssid?: string
   place: PlaceInfo | null
   level: string | null
-  network: NetworkRecord | null
   codes: string[]
-} | null {
+  ssids: string[]
+  bestRssi: number | null
+  lastSeen: string | null
+}
+
+type Located<T> = T & { bestLat: number; bestLon: number }
+
+function located<T extends { bestLat: number | null; bestLon: number | null }>(items: T[]): Located<T> | undefined {
+  return items.find((item): item is Located<T> => item.bestLat != null && item.bestLon != null)
+}
+
+function pinForCard(map: MapState, pinKey: string): PinTarget | null {
   if (pinKey === 'phone') {
     if (map.phone.lat == null || map.phone.lon == null) return null
     return {
+      pinKey,
       lat: map.phone.lat,
       lon: map.phone.lon,
       place: null,
       level: levelLabel(map, null),
-      network: null,
       codes: map.postalCodes ?? [],
+      ssids: [],
+      bestRssi: null,
+      lastSeen: null,
     }
   }
-  const network = map.networks.find((item) => item.bssid === pinKey)
-  if (!network || network.bestLat == null || network.bestLon == null) return null
+  const ap = map.accessPoints.find((item) => item.id === pinKey)
+  const radio = ap && located(ap.networks)
+  if (!ap || !radio) return null
   return {
-    lat: network.bestLat,
-    lon: network.bestLon,
-    bssid: network.bssid,
-    place: network.place,
-    level: levelLabel(map, network),
-    network,
-    codes: network.postalCodes ?? [],
+    pinKey,
+    lat: radio.bestLat,
+    lon: radio.bestLon,
+    bssid: radio.bssid,
+    place: radio.place,
+    level: levelLabel(map, radio),
+    codes: unionPostalCodes(ap.networks.map((network) => network.postalCodes)),
+    ssids: ap.ssids.length > 0 ? ap.ssids : ['Hidden'],
+    bestRssi: ap.best.bestRssi,
+    lastSeen: ap.networks.map((network) => network.lastSeen).sort().at(-1) ?? null,
   }
+}
+
+function withRooms(signals: SignalRow[], rooms: Room[]): SignalRow[] {
+  const merged = [...signals]
+  for (const signal of rooms.flatMap(roomSignals)) {
+    if (signal.kind === 'gps' && merged.some((row) => row.kind === 'gps')) continue
+    if (merged.some((row) => row.kind === signal.kind && row.title === signal.title && row.detail === signal.detail)) continue
+    merged.push(signal)
+  }
+  return merged
 }
 
 function markerColor(marker: L.CircleMarker): string {
@@ -188,6 +217,7 @@ export function DriveMap({
   focus,
   onPlaceSaved,
   nameFor,
+  nameForGroup,
   draftFor,
   rename,
 }: {
@@ -195,6 +225,7 @@ export function DriveMap({
   focus: { lat: number; lon: number; label: string } | null
   onPlaceSaved?: () => void
   nameFor: (id: string, fallback: string) => string
+  nameForGroup: (ids: string[], fallback: string) => string
   draftFor: (id: string, fallback: string) => string
   rename: (id: string, value: string) => void
 }) {
@@ -212,9 +243,29 @@ export function DriveMap({
   const remembered = useRef(new Map<string, PlaceInfo>())
   const viewed = useRef(false)
   const stacks = useMemo(
-    () => (map ? stackSignals({ networks: map.networks, devices: map.devices, cells: map.cells, movers: map.movers, phone: map.phone }) : []),
+    () => (map
+      ? stackSignals({
+        networks: map.networks,
+        devices: map.devices,
+        cells: map.cells,
+        movers: map.movers,
+        phone: map.phone,
+        accessPoints: map.accessPoints,
+        advertisers: map.advertisers,
+      })
+      : []),
     [map],
   )
+  const roomsByAp = useMemo(() => {
+    const byAp = new Map<string, Room[]>()
+    if (!map) return byAp
+    const apByBssid = new Map(map.accessPoints.flatMap((ap) => ap.networks.map((network) => [network.bssid, ap.id] as const)))
+    for (const room of map.rooms) {
+      const apId = room.originBssid ? apByBssid.get(room.originBssid) : undefined
+      if (apId) byAp.set(apId, [...(byAp.get(apId) ?? []), room])
+    }
+    return byAp
+  }, [map])
 
   useLayoutEffect(() => {
     if (!host.current || leaflet.current) return
@@ -260,41 +311,47 @@ export function DriveMap({
         fillColor: SIGNAL_COLORS.gps,
         fillOpacity: 1,
       }).addTo(group)
-      track(phone, nameFor('phone', 'This device'), 'phone')
+      const title = nameFor('phone', 'This device')
+      track(phone, title, 'phone')
       phone.on('click', () => {
         setPickedKey('phone')
-        void openCard(nameFor('phone', 'This device'), map.phone.lat!, map.phone.lon!, undefined, undefined, levelLabel(map, null), null, map.postalCodes ?? [])
+        const target = pinForCard(map, 'phone')
+        if (target) void openCard(title, target)
       })
     }
-    for (const network of map.networks) {
-      if (network.bestLat == null || network.bestLon == null) continue
-      const marker = L.circleMarker([network.bestLat, network.bestLon], {
-        radius: circleBssids.has(network.bssid) ? 7 : 5,
+    for (const ap of map.accessPoints) {
+      const spot = located(ap.networks)
+      if (!spot) continue
+      const marker = L.circleMarker([spot.bestLat, spot.bestLon], {
+        radius: ap.networks.some((network) => circleBssids.has(network.bssid)) ? 7 : 5,
         color: '#f1f1f2',
         fillColor: SIGNAL_COLORS.wifi,
         fillOpacity: 0.9,
       }).addTo(group)
-      const title = network.hidden || !network.ssid ? network.bssid : network.ssid
-      track(marker, nameFor(network.bssid, title), network.bssid)
+      const title = nameForGroup(labelIds(ap), ap.label)
+      track(marker, title, ap.id)
       marker.on('click', () => {
-        setPickedKey(network.bssid)
-        void openCard(nameFor(network.bssid, title), network.bestLat!, network.bestLon!, network.bssid, network.place, levelLabel(map, network), network, network.postalCodes ?? [])
+        setPickedKey(ap.id)
+        const target = pinForCard(map, ap.id)
+        if (target) void openCard(title, target)
       })
     }
-    for (const device of map.devices ?? []) {
-      if (device.bestLat == null || device.bestLon == null) continue
-      const marker = L.circleMarker([device.bestLat, device.bestLon], {
+    for (const advertiser of map.advertisers) {
+      const spot = located(advertiser.devices)
+      if (!spot) continue
+      const marker = L.circleMarker([spot.bestLat, spot.bestLon], {
         radius: 5,
         color: SIGNAL_COLORS.bluetooth,
         fillColor: SIGNAL_COLORS.bluetooth,
         fillOpacity: 0.95,
       }).addTo(group)
-      const title = device.name || device.address
-      track(marker, nameFor(device.address, title), device.address)
-      marker.on('click', () => setPickedKey(device.address))
+      const name = nameForGroup(labelIds(advertiser), advertiser.label)
+      track(marker, advertiser.named ? name : `${name} · ${advertiser.devices.length}`, advertiser.id)
+      marker.on('click', () => setPickedKey(advertiser.id))
     }
+    const folded = new Set([...roomsByAp.values()].flat())
     for (const room of map.rooms) {
-      if (room.lat == null || room.lon == null) continue
+      if (room.lat == null || room.lon == null || folded.has(room)) continue
       const marker = L.circleMarker([room.lat, room.lon], {
         radius: 6,
         color: SIGNAL_COLORS[room.originKind],
@@ -359,7 +416,7 @@ export function DriveMap({
       mapView.off('resize', layout)
       pins.current = []
     }
-  }, [map, nameFor])
+  }, [map, roomsByAp, nameFor, nameForGroup])
 
   useEffect(() => {
     for (const pin of pins.current) {
@@ -374,51 +431,42 @@ export function DriveMap({
     leaflet.current.flyTo([focus.lat, focus.lon], 17)
   }, [focus])
 
-  async function openCard(
-    title: string,
-    lat: number,
-    lon: number,
-    bssid?: string,
-    cached?: PlaceInfo | null,
-    level?: string | null,
-    network?: NetworkRecord | null,
-    codes: string[] = [],
-  ) {
+  async function openCard(title: string, target: PinTarget) {
     const generation = ++lookupGeneration.current
-    const pinKey = bssid ?? 'phone'
-    const known = [cached, remembered.current.get(pinKey)].find((place) => place && placeCovers(place, lat, lon)) ?? null
+    const { pinKey, lat, lon, bssid, level, codes } = target
+    const known = [target.place, remembered.current.get(pinKey)].find((place) => place && placeCovers(place, lat, lon)) ?? null
     const ready = known && 'elevationM' in known ? known : null
     const facts = {
-      ssid: network ? (network.ssid || 'Hidden') : null,
-      bestRssi: network?.bestRssi ?? null,
-      lastSeen: network?.lastSeen ?? null,
+      ssids: target.ssids,
+      bestRssi: target.bestRssi,
+      lastSeen: target.lastSeen,
       postalCodes: codes,
       pinKey,
       lat,
       lon,
     }
     if (ready) {
-      setCard({ title, place: ready, floor: level ?? null, ...facts, error: ready.crossStreets.length === 0 ? 'Cross streets were not available.' : '' })
+      setCard({ title, place: ready, floor: level, ...facts, error: ready.crossStreets.length === 0 ? 'Cross streets were not available.' : '' })
       return
     }
     if (!navigator.onLine) {
       setCard({
         title,
         place: null,
-        floor: level ?? null,
+        floor: level,
         ...facts,
         error: 'The address will be looked up when the device is online.',
       })
       return
     }
     setBusy(true)
-    setCard({ title, place: null, floor: level ?? null, ...facts, error: '' })
+    setCard({ title, place: null, floor: level, ...facts, error: '' })
     try {
       const result = await api.place({ bssid, lat, lon })
       if (generation !== lookupGeneration.current) return
       remembered.current.set(pinKey, result.place)
       const postalCodes = unionPostalCodes([codes, result.postalCodes, result.network?.postalCodes])
-      setCard({ title, place: result.place, floor: level ?? null, ...facts, postalCodes, error: result.place.crossStreets.length === 0 ? 'Cross streets were not available.' : '' })
+      setCard({ title, place: result.place, floor: level, ...facts, postalCodes, error: result.place.crossStreets.length === 0 ? 'Cross streets were not available.' : '' })
       onPlaceSaved?.()
     } catch (error) {
       if (generation !== lookupGeneration.current) return
@@ -426,7 +474,7 @@ export function DriveMap({
       setCard({
         title,
         place: null,
-        floor: level ?? null,
+        floor: level,
         ...facts,
         error: offline ? 'The address will be looked up when the device is online.' : error instanceof Error ? error.message : 'Lookup failed',
       })
@@ -443,7 +491,7 @@ export function DriveMap({
       const key = `${card.pinKey}:${postalCellKey(pin.lat, pin.lon)}`
       if (refreshKey.current === key) return
       refreshKey.current = key
-      void openCard(card.title, pin.lat, pin.lon, pin.bssid, pin.place, pin.level, pin.network, pin.codes)
+      void openCard(card.title, pin)
       return
     }
     refreshKey.current = null
@@ -454,9 +502,14 @@ export function DriveMap({
 
   const pickedRoom = map?.rooms.find((room) => room.id === pickedKey) ?? null
   const pickedStack = pickedKey ? stackFor(stacks, pickedKey) : null
-  const pickedSignals: SignalRow[] = pickedRoom ? roomSignals(pickedRoom) : pickedStack?.signals ?? []
+  const pickedSignals: SignalRow[] = pickedRoom
+    ? roomSignals(pickedRoom)
+    : withRooms(pickedStack?.signals ?? [], pickedStack?.keys.flatMap((key) => roomsByAp.get(key) ?? []) ?? [])
   const pickedId = pickedRoom?.id ?? pickedStack?.id ?? pickedKey ?? ''
-  const pickedFallback = pickedRoom?.originLabel ?? pickedStack?.label ?? card?.title ?? 'Selection'
+  const pickedFallback = pickedRoom?.originLabel
+    ?? (pickedStack ? nameForGroup(pickedStack.labelIds, pickedStack.label) : null)
+    ?? card?.title
+    ?? 'Selection'
 
   return (
     <div className="panel">
@@ -470,7 +523,7 @@ export function DriveMap({
       {card && (
         <article className="card">
           <h2>{nameFor(pickedId || 'place', card.title)}</h2>
-          {card.ssid && <p>SSID {card.ssid}</p>}
+          {card.ssids.length > 0 && <p>{card.ssids.length === 1 ? 'SSID' : 'SSIDs'} {card.ssids.join(', ')}</p>}
           {card.bestRssi != null && <p>Best signal {card.bestRssi} dBm</p>}
           {card.lastSeen && <p>Last seen {new Date(card.lastSeen).toLocaleString()}</p>}
           {busy && <p>Looking up the address.</p>}

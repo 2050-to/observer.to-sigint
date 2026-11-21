@@ -49,7 +49,7 @@ export const api = {
       return body.url
     }),
   range: async (): Promise<RangeSnapshot> => request('/api/range').then((response) => response.json()),
-  map: async (): Promise<MapState> => request('/api/map').then((response) => response.json()),
+  map: async (): Promise<Omit<MapState, 'accessPoints' | 'advertisers'>> => request('/api/map').then((response) => response.json()),
   open: async (): Promise<OpenRow[]> => request('/api/open').then(async (response) => {
     const body = await response.json() as { networks: OpenRow[] }
     return body.networks

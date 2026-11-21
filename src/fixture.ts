@@ -57,7 +57,7 @@ export function sampleScans(speedMps: number) {
   })
   const home = ap({
     ssid: 'Home',
-    bssid: 'aa:bb:cc:dd:ee:03',
+    bssid: '3c:84:6a:12:9e:40',
     rssi: -60,
     capabilities: '[WPA2-PSK-CCMP][ESS]',
     channel: 36,
@@ -67,7 +67,7 @@ export function sampleScans(speedMps: number) {
   })
   const enhanced = ap({
     ssid: 'Library Open',
-    bssid: 'aa:bb:cc:dd:ee:05',
+    bssid: '70:4f:57:c3:21:a8',
     rssi: -48,
     capabilities: '[OWE][ESS]',
     channel: 44,

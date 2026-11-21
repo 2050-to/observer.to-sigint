@@ -52,8 +52,8 @@ const digest = digestFromCatalog({
   since: '2026-11-15T00:00:00Z',
 })
 assert.equal(digest.observationCount, 3)
-assert.equal(digest.newNetworks, 0)
-assert.equal(digest.newDevices, 0)
+assert.equal(digest.newAccessPoints, 0)
+assert.equal(digest.newAdvertisers, 0)
 assert.equal(digest.newCells, 1)
 assert.equal(digest.openNetworks[0]?.place, '100 Main St')
 assert.equal(digest.highRisk[0]?.name, 'Cafe WiFi')

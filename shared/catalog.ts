@@ -1,3 +1,4 @@
+import { groupAccessPoints, groupAdvertisers, type AccessPoint, type AdvertiserGroup } from './accessPoints.js'
 import { collapseScan, mergeRecord, normalizeBssid } from './merge.js'
 import { addPostalCode, cleanPostalCode, samePostalCell } from './postal.js'
 import { circleFor, snapshotFrom } from './range.js'
@@ -42,6 +43,8 @@ export interface PresentedCatalog {
   range: RangeSnapshot
   circle: NetworkRecord[]
   networks: NetworkRecord[]
+  accessPoints: AccessPoint[]
+  advertisers: AdvertiserGroup[]
   openRows: OpenRow[]
   count: number
 }
@@ -225,6 +228,8 @@ export function presentCatalog(catalog: LocalCatalog): PresentedCatalog {
     range,
     circle,
     networks: catalog.networks,
+    accessPoints: groupAccessPoints(catalog.networks),
+    advertisers: groupAdvertisers(catalog.devices ?? []),
     openRows: openRows(catalog.networks),
     count: catalog.networks.length,
   }

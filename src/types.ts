@@ -1,5 +1,7 @@
+import type { AccessPoint, AdvertiserGroup } from '../shared/accessPoints'
 import type { CellRecord, DeviceRecord, MotionTrack, NetworkRecord, RangeSnapshot, Room, SecurityLabel } from '../shared/types'
 
+export type { AccessPoint, AdvertiserGroup } from '../shared/accessPoints'
 export type {
   AffiliatedLink,
   CellRecord,
@@ -32,7 +34,9 @@ export interface MapState {
   scanPeriodSeconds: number
   circle: NetworkRecord[]
   networks: NetworkRecord[]
+  accessPoints: AccessPoint[]
   devices: DeviceRecord[]
+  advertisers: AdvertiserGroup[]
   cells: CellRecord[]
   rooms: Room[]
   movers: MotionTrack[]

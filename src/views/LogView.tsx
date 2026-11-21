@@ -6,32 +6,59 @@ import { findRotatingAddresses, type RotationGroup } from '../../shared/rotation
 import { SIGNAL_COLORS, SIGNAL_KINDS, SIGNAL_NAMES, stackSignals, type SignalKind, type StackedDevice } from '../../shared/sources'
 import { api } from '../api'
 import { SignalStack } from '../SignalStack'
-import type { CellRecord, DeviceRecord, EnrichmentQueueStatus, Fix, MotionTrack, NetworkRecord, Room, ScenePing } from '../types'
+import type {
+  AccessPoint,
+  AdvertiserGroup,
+  CellRecord,
+  DeviceRecord,
+  EnrichmentQueueStatus,
+  Fix,
+  MotionTrack,
+  NetworkRecord,
+  Room,
+  ScenePing,
+} from '../types'
+
+function rotationNote(chains: RotationGroup[]): string {
+  if (chains.length === 0) return ''
+  if (chains.length === 1) {
+    const [chain] = chains
+    return `Rotating address · signal within ${chain.rssiDelta} dB · heard ${chain.separationM} m apart · ${chain.addresses.length} addresses`
+  }
+  const addresses = new Set(chains.flatMap((chain) => chain.addresses)).size
+  return `Rotating addresses · ${chains.length} chains · ${addresses} addresses`
+}
 
 export function LogView({
   count,
   openCount,
   networks,
+  accessPoints,
   devices,
+  advertisers,
   cells,
   rooms,
   movers,
   phone,
   history,
   enrichmentStatus,
+  nameForGroup,
   draftFor,
   rename,
 }: {
   count: number
   openCount: number
   networks: NetworkRecord[]
+  accessPoints: AccessPoint[]
   devices: DeviceRecord[]
+  advertisers: AdvertiserGroup[]
   cells: CellRecord[]
   rooms: Room[]
   movers: MotionTrack[]
   phone: Fix | null
   history: ScenePing[]
   enrichmentStatus: EnrichmentQueueStatus | null
+  nameForGroup: (ids: string[], fallback: string) => string
   draftFor: (id: string, fallback: string) => string
   rename: (id: string, value: string) => void
 }) {
@@ -49,8 +76,8 @@ export function LogView({
     return map
   }, [rotations])
   const sources = useMemo(
-    () => stackSignals({ networks, devices, cells, movers, phone }),
-    [networks, devices, cells, movers, phone],
+    () => stackSignals({ networks, devices, cells, movers, phone, accessPoints, advertisers }),
+    [networks, devices, cells, movers, phone, accessPoints, advertisers],
   )
   const counts = useMemo(() => {
     const tally = Object.fromEntries(SIGNAL_KINDS.map((kind) => [kind, 0])) as Record<SignalKind, number>
@@ -61,41 +88,42 @@ export function LogView({
     }
     return tally
   }, [sources])
-  function rotationFor(source: StackedDevice): RotationGroup | null {
+  function rotationsFor(source: StackedDevice): RotationGroup[] {
+    const chains = new Set<RotationGroup>()
     for (const key of source.keys) {
       const match = rotationByAddress.get(`wifi:${key}`) ?? rotationByAddress.get(`bluetooth:${key}`)
-      if (match) return match
+      if (match) chains.add(match)
     }
-    return null
+    return [...chains]
   }
 
-  const rotatingCount = sources.filter((source) => rotationFor(source)).length
+  const rotatingCount = sources.filter((source) => rotationsFor(source).length > 0).length
   const highRiskCount = sources.filter((source) => source.enrichments.some((item) => item.risk.level === 'high')).length
   const knownExploitedCount = sources.filter((source) =>
     source.enrichments.some((item) => item.vulnerabilities.some((vulnerability) => vulnerability.cisaKev || vulnerability.knownExploited)),
   ).length
   const needle = query.trim().toLowerCase()
   const shown = sources.flatMap((source) => {
-    const group = rotationFor(source)
-    if (rotatingOnly && !group) return []
+    const chains = rotationsFor(source)
+    if (rotatingOnly && chains.length === 0) return []
     if (highRiskOnly && !source.enrichments.some((item) => item.risk.level === 'high')) return []
     if (knownExploitedOnly && !source.enrichments.some((item) =>
       item.vulnerabilities.some((vulnerability) => vulnerability.cisaKev || vulnerability.knownExploited))) return []
     const signals = source.signals.filter((signal) => kinds.has(signal.kind))
     if (signals.length === 0) return []
-    const note = group
-      ? `Rotating address · signal within ${group.rssiDelta} dB · heard ${group.separationM} m apart · ${group.addresses.length} addresses`
-      : ''
+    const note = rotationNote(chains)
+    const title = nameForGroup(source.labelIds, source.label)
     const haystack = [
+      title,
       source.label,
       ...source.keys,
       note,
-      ...(group?.addresses ?? []),
+      ...chains.flatMap((chain) => chain.addresses),
       ...signals.flatMap((signal) => [signal.title, signal.detail]),
       ...source.enrichments.map(enrichmentSearchText),
     ].join(' ').toLowerCase()
     if (needle && !haystack.includes(needle)) return []
-    return [{ ...source, signals, note }]
+    return [{ ...source, signals, note, title }]
   })
   const allKinds = kinds.size === SIGNAL_KINDS.length
 
@@ -144,7 +172,10 @@ export function LogView({
       <div className="log-head">
         <div>
           <h2>Catalog</h2>
-          <p>{count} unique access points. {openCount} open names. {devices.length} Bluetooth advertisements. {cells.length} towers. {rooms.length} rooms.</p>
+          <p>
+            {accessPoints.length} access points from {count} Wi-Fi radios. {openCount} open names.
+            {' '}{advertisers.length} Bluetooth advertisers from {devices.length} addresses. {cells.length} towers. {rooms.length} rooms.
+          </p>
           {enrichmentStatus && (
             <p>
               Enrichment {enrichmentStatus.enabled ? 'active' : 'disabled'} · {enrichmentStatus.complete} complete · {enrichmentStatus.pending + enrichmentStatus.processing} pending
@@ -237,7 +268,7 @@ export function LogView({
             <li key={source.id}>
               <SignalStack
                 id={source.id}
-                fallback={source.label}
+                fallback={source.title}
                 signals={source.signals}
                 enrichments={source.enrichments}
                 note={source.note}
