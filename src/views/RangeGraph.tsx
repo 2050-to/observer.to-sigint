@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import cytoscape, { type Core } from 'cytoscape'
 import { SIGNAL_COLORS, type SignalRow } from '../../shared/sources'
 import { SignalLegend, SignalStack } from '../SignalStack'
-import { SECURITY_COLORS, type NetworkRecord, type SecurityLabel } from '../types'
+import { SECURITY_COLORS, type DeviceRecord, type NetworkRecord, type SecurityLabel } from '../types'
 
 export interface SsidGroup {
   id: string
@@ -11,6 +11,10 @@ export interface SsidGroup {
   bestRssi: number
   networks: NetworkRecord[]
 }
+
+type Selection =
+  | { kind: 'wifi'; group: SsidGroup }
+  | { kind: 'bluetooth'; device: DeviceRecord }
 
 function ring(rssi: number): number {
   if (rssi >= -50) return 4
@@ -49,47 +53,93 @@ function networkSignals(network: NetworkRecord): SignalRow[] {
   return signals
 }
 
+function deviceTitle(device: DeviceRecord): string {
+  return device.name?.trim() || device.address
+}
+
+function deviceSignals(device: DeviceRecord): SignalRow[] {
+  const signals: SignalRow[] = [{
+    kind: 'bluetooth',
+    title: deviceTitle(device),
+    detail: `${device.lastRssi} dBm · ${device.address}`,
+  }]
+  if (device.bestLat != null && device.bestLon != null) {
+    signals.push({ kind: 'gps', title: 'Fix', detail: `${device.bestLat.toFixed(5)}, ${device.bestLon.toFixed(5)}` })
+  }
+  return signals
+}
+
+function addressTypeLabel(addressType: DeviceRecord['addressType']): string {
+  return addressType === 'public' ? 'Public' : 'Random'
+}
+
 export function RangeGraph({
   heard,
+  devices,
   nameFor,
   draftFor,
   rename,
 }: {
   heard: NetworkRecord[]
+  devices: DeviceRecord[]
   nameFor: (id: string, fallback: string) => string
   draftFor: (id: string, fallback: string) => string
   rename: (id: string, value: string) => void
 }) {
   const host = useRef<HTMLDivElement>(null)
   const graph = useRef<Core | null>(null)
-  const [selected, setSelected] = useState<SsidGroup | null>(null)
+  const [selected, setSelected] = useState<Selection | null>(null)
   const groups = groupHeard(heard)
 
   useEffect(() => {
-    setSelected((current) => (current ? groups.find((group) => group.id === current.id) ?? null : null))
-  }, [heard])
+    setSelected((current) => {
+      if (!current) return null
+      if (current.kind === 'wifi') {
+        const group = groupHeard(heard).find((item) => item.id === current.group.id)
+        return group ? { kind: 'wifi', group } : null
+      }
+      const device = devices.find((item) => item.address === current.device.address)
+      return device ? { kind: 'bluetooth', device } : null
+    })
+  }, [heard, devices])
 
   useEffect(() => {
     if (!host.current) return
     graph.current?.destroy()
+    const spots = [
+      ...groups.map((group) => ({
+        id: group.id,
+        label: nameFor(group.id, group.label),
+        color: SIGNAL_COLORS.wifi,
+        size: 28 + Math.min(group.networks.length, 6) * 8,
+        rssi: group.bestRssi,
+      })),
+      ...devices.map((device) => ({
+        id: `bluetooth:${device.address}`,
+        label: nameFor(device.address, deviceTitle(device)),
+        color: SIGNAL_COLORS.bluetooth,
+        size: 28,
+        rssi: device.bestRssi,
+      })),
+    ]
     const cy = cytoscape({
       container: host.current,
       elements: [
         { data: { id: 'phone', label: nameFor('phone', 'This device'), color: SIGNAL_COLORS.gps, size: 36 }, position: { x: 0, y: 0 } },
-        ...groups.flatMap((group, index) => {
-          const distance = (5 - ring(group.bestRssi)) * 130 + 110
-          const angle = (index / Math.max(groups.length, 1)) * Math.PI * 2 - Math.PI / 2
+        ...spots.flatMap((spot, index) => {
+          const distance = (5 - ring(spot.rssi)) * 130 + 110
+          const angle = (index / Math.max(spots.length, 1)) * Math.PI * 2 - Math.PI / 2
           return [
             {
               data: {
-                id: group.id,
-                label: nameFor(group.id, group.label),
-                color: SIGNAL_COLORS.wifi,
-                size: 28 + Math.min(group.networks.length, 6) * 8,
+                id: spot.id,
+                label: spot.label,
+                color: spot.color,
+                size: spot.size,
               },
               position: { x: Math.cos(angle) * distance, y: Math.sin(angle) * distance },
             },
-            { data: { id: `edge-${group.id}`, source: 'phone', target: group.id } },
+            { data: { id: `edge-${spot.id}`, source: 'phone', target: spot.id } },
           ]
         }),
       ],
@@ -123,7 +173,13 @@ export function RangeGraph({
     })
     cy.on('tap', 'node', (event) => {
       const id = event.target.id() as string
-      setSelected(groups.find((group) => group.id === id) ?? null)
+      const group = groups.find((item) => item.id === id)
+      if (group) {
+        setSelected({ kind: 'wifi', group })
+        return
+      }
+      const device = devices.find((item) => `bluetooth:${item.address}` === id)
+      setSelected(device ? { kind: 'bluetooth', device } : null)
     })
     const fit = () => {
       cy.resize()
@@ -135,23 +191,26 @@ export function RangeGraph({
       cy.destroy()
       graph.current = null
     }
-  }, [heard, nameFor])
+  }, [heard, devices, nameFor])
+
+  const wifi = selected?.kind === 'wifi' ? selected.group : null
+  const bluetooth = selected?.kind === 'bluetooth' ? selected.device : null
 
   return (
     <div className="panel">
       <div ref={host} className="graph" />
-      {groups.length === 0 && <p className="empty">No networks in the latest scan.</p>}
+      {groups.length === 0 && devices.length === 0 && <p className="empty">Nothing heard in the latest scan.</p>}
       <SignalLegend />
       <ul className="legend">
         {(Object.keys(SECURITY_COLORS) as SecurityLabel[]).map((label) => (
           <li key={label}><i style={{ background: SECURITY_COLORS[label] }} />{label}</li>
         ))}
       </ul>
-      {selected && (
+      {wifi && (
         <article className="card">
-          <SignalStack id={selected.id} fallback={selected.label} signals={[{ kind: 'wifi', title: selected.label, detail: `${selected.security} · best ${selected.bestRssi} dBm` }]} draftFor={draftFor} rename={rename} />
-          <p>{selected.networks.length} BSSID{selected.networks.length === 1 ? '' : 's'}</p>
-          {selected.networks.map((network) => (
+          <SignalStack id={wifi.id} fallback={wifi.label} signals={[{ kind: 'wifi', title: wifi.label, detail: `${wifi.security} · best ${wifi.bestRssi} dBm` }]} draftFor={draftFor} rename={rename} />
+          <p>{wifi.networks.length} BSSID{wifi.networks.length === 1 ? '' : 's'}</p>
+          {wifi.networks.map((network) => (
             <SignalStack key={network.bssid} id={network.bssid} fallback={network.hidden || !network.ssid ? network.bssid : network.ssid} signals={networkSignals(network)} draftFor={draftFor} rename={rename} />
           ))}
           <table>
@@ -159,7 +218,7 @@ export function RangeGraph({
               <tr><th>BSSID</th><th>Channel</th><th>RSSI</th><th>Seen</th></tr>
             </thead>
             <tbody>
-              {selected.networks.map((network) => (
+              {wifi.networks.map((network) => (
                 <tr key={network.bssid}>
                   <td>{nameFor(network.bssid, network.hidden || !network.ssid ? network.bssid : network.ssid)}</td>
                   <td>{network.channel} {network.band} GHz</td>
@@ -170,11 +229,31 @@ export function RangeGraph({
             </tbody>
           </table>
           <dl className="meta">
-            <div><dt>Standard</dt><dd>{selected.networks[0].wifiStandard}</dd></div>
-            <div><dt>Width</dt><dd>{selected.networks[0].channelWidthMhz} MHz</dd></div>
-            <div><dt>Country</dt><dd>{selected.networks[0].countryCode ?? 'Unknown'}</dd></div>
-            <div><dt>Max rate</dt><dd>{selected.networks[0].maxRateMbps ?? 'Unknown'} Mbps</dd></div>
-            <div><dt>Capabilities</dt><dd>{selected.networks[0].capabilities || 'Open beacon'}</dd></div>
+            <div><dt>Standard</dt><dd>{wifi.networks[0].wifiStandard}</dd></div>
+            <div><dt>Width</dt><dd>{wifi.networks[0].channelWidthMhz} MHz</dd></div>
+            <div><dt>Country</dt><dd>{wifi.networks[0].countryCode ?? 'Unknown'}</dd></div>
+            <div><dt>Max rate</dt><dd>{wifi.networks[0].maxRateMbps ?? 'Unknown'} Mbps</dd></div>
+            <div><dt>Capabilities</dt><dd>{wifi.networks[0].capabilities || 'Open beacon'}</dd></div>
+          </dl>
+        </article>
+      )}
+      {bluetooth && (
+        <article className="card">
+          <SignalStack
+            id={bluetooth.address}
+            fallback={deviceTitle(bluetooth)}
+            signals={deviceSignals(bluetooth)}
+            enrichments={bluetooth.enrichment ? [bluetooth.enrichment] : []}
+            draftFor={draftFor}
+            rename={rename}
+          />
+          <dl className="meta">
+            <div><dt>Address</dt><dd>{bluetooth.address}</dd></div>
+            <div><dt>Address type</dt><dd>{addressTypeLabel(bluetooth.addressType)}</dd></div>
+            <div><dt>RSSI</dt><dd>{bluetooth.lastRssi} dBm</dd></div>
+            <div><dt>Transmit power</dt><dd>{bluetooth.txPower == null ? 'Unknown' : `${bluetooth.txPower} dBm`}</dd></div>
+            <div><dt>Seen</dt><dd>{bluetooth.seenCount}</dd></div>
+            <div><dt>Services</dt><dd>{bluetooth.serviceUuids.length ? bluetooth.serviceUuids.join(', ') : 'None'}</dd></div>
           </dl>
         </article>
       )}

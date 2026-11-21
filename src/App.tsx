@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLabels } from './labels'
 import { api } from './api'
-import { AccountBar, alertLabel, useAccount } from './AccountBar'
+import { AccountBar, UpgradeBanner, alertLabel, useAccount } from './AccountBar'
 import { sessionToken } from './session'
 import { sampleScans } from './fixture'
 import { loadView, type RefreshMode } from './localCatalog'
@@ -23,6 +23,7 @@ const SPEEDS = [
 ]
 
 const NO_HEARD: RangeSnapshot['heard'] = []
+const NO_DEVICES: RangeSnapshot['heardDevices'] = []
 
 function deviceLabel(): string {
   if (typeof window !== 'undefined' && window.wifiMapping) return 'Mac'
@@ -41,6 +42,11 @@ function syncedText(count: number): string {
 
 function serverUnreachable(message: string): boolean {
   return /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ETIMEDOUT|ECONNRESET|Failed to fetch|NetworkError|socket hang up|fetch failed|Internal Server Error/i.test(message)
+}
+
+function driveError(reason: unknown): string {
+  const raw = reason instanceof Error ? reason.message : 'The drive could not start'
+  return raw.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, '')
 }
 
 export function App() {
@@ -76,6 +82,10 @@ export function App() {
       setWaiting(view.waiting)
       if (view.syncedNow > 0) setSyncedCount(view.syncedNow)
       setError('')
+      if (!sessionToken()) {
+        setEnrichmentStatus(null)
+        return
+      }
       void api.enrichmentStatus()
         .then(setEnrichmentStatus)
         .catch(() => setEnrichmentStatus(null))
@@ -181,7 +191,7 @@ export function App() {
     try {
       await Wardrive.startDrive({ apiUrl, token })
     } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : 'The drive could not start')
+      setError(driveError(reason))
       return
     }
     const status = await Wardrive.getStatus()
@@ -199,6 +209,7 @@ export function App() {
         const status = await Wardrive.getStatus()
         if (status.running) await Wardrive.stopDrive()
         await Wardrive.clearLocal()
+        if (!sessionToken()) return true
         try {
           await api.reset()
           return false
@@ -231,7 +242,9 @@ export function App() {
     setSyncedCount(0)
     setEraseStep(0)
     setNote(serverMissed
-      ? 'Saved data on this device was deleted. The server was not running, so any copy there is still stored.'
+      ? sessionToken()
+        ? 'Saved data on this device was deleted. The server was not running, so any copy there is still stored.'
+        : 'Saved data on this device was deleted.'
       : 'All saved data was deleted.')
     await refresh(serverMissed ? 'local' : 'pull').catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.message : 'The catalog is unavailable')
@@ -240,6 +253,7 @@ export function App() {
 
   return (
     <main>
+      <UpgradeBanner account={account} />
       <header>
         <div>
           <p className="eyebrow">Omnidirectional range</p>
@@ -300,7 +314,7 @@ export function App() {
       {billing === 'success' && account && account.alerts.status !== 'active' && (
         <p className="note">Stripe has not confirmed the subscription yet. Alerts turn on after that confirmation, not from this page.</p>
       )}
-      {billing === 'cancel' && <p className="note">Checkout was canceled. {account ? alertLabel(account.alerts.status) : 'Monthly alerts stay off.'}</p>}
+      {billing === 'cancel' && <p className="note">Checkout was canceled. {account ? alertLabel(account.alerts.status) : 'Weekly alerts stay off.'}</p>}
       {note && <p className="note">{note}</p>}
       {error && <p className="warn">{error}</p>}
       <nav>
@@ -311,7 +325,7 @@ export function App() {
         ))}
       </nav>
       {tab === 'range' && (
-        <RangeGraph heard={range?.heard ?? NO_HEARD} nameFor={nameFor} draftFor={draftFor} rename={rename} />
+        <RangeGraph heard={range?.heard ?? NO_HEARD} devices={range?.heardDevices ?? NO_DEVICES} nameFor={nameFor} draftFor={draftFor} rename={rename} />
       )}
       {tab === 'map' && (
         <DriveMap

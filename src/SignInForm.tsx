@@ -1,6 +1,10 @@
 import { FormEvent, useState } from 'react'
 import { api } from './api'
 
+function macApp(): boolean {
+  return typeof window !== 'undefined' && window.wifiMapping != null
+}
+
 export function SignInForm({ action = 'Start free' }: { action?: string }) {
   const [email, setEmail] = useState('')
   const [sent, setSent] = useState(false)
@@ -12,7 +16,7 @@ export function SignInForm({ action = 'Start free' }: { action?: string }) {
     setBusy(true)
     setError('')
     try {
-      await api.requestLink(email)
+      await api.requestLink(email, macApp() ? 'mac' : undefined)
       setSent(true)
     } catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : 'The sign-in email could not be sent')
@@ -22,7 +26,12 @@ export function SignInForm({ action = 'Start free' }: { action?: string }) {
   }
 
   if (sent) {
-    return <p className="note">Check your email for a sign-in link. It expires in 15 minutes and works once.</p>
+    return (
+      <p className="note">
+        Check your email for a sign-in link. It expires in 15 minutes and works once.
+        {macApp() ? ' On this Mac, the link opens Observer.to.' : ''}
+      </p>
+    )
   }
 
   return (

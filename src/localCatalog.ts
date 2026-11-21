@@ -1,5 +1,6 @@
 import { api } from './api'
 import { Wardrive } from './native/drive'
+import { sessionToken } from './session'
 import {
   emptyCatalog,
   foldScans,
@@ -124,26 +125,28 @@ export async function loadView(mode: RefreshMode): Promise<LocalView> {
   let syncedNow = 0
   let nextMode = mode
   if (nextMode === 'sync' && (await Wardrive.getStatus()).running) nextMode = 'local'
-  if (nextMode === 'sync') {
-    const uploaded = await uploadPending(journal)
-    journal = uploaded.journal
-    syncedNow = uploaded.uploadedCount
-    catalog = {
-      ...catalog,
-      syncedBssids: normalizeBssids([...catalog.syncedBssids, ...uploaded.bssids]),
+  if (sessionToken()) {
+    if (nextMode === 'sync') {
+      const uploaded = await uploadPending(journal)
+      journal = uploaded.journal
+      syncedNow = uploaded.uploadedCount
+      catalog = {
+        ...catalog,
+        syncedBssids: normalizeBssids([...catalog.syncedBssids, ...uploaded.bssids]),
+      }
     }
+    if (nextMode === 'sync' || nextMode === 'pull') {
+      const remote = await fetchServer()
+      const latest = await readState()
+      catalog = reconcileCatalog(
+        { ...catalog, syncedBssids: normalizeBssids([...catalog.syncedBssids, ...latest.catalog.syncedBssids]) },
+        latest.journal,
+        remote,
+      )
+      journal = latest.journal
+    }
+    catalog = await stampPhonePostalCode(catalog)
   }
-  if (nextMode === 'sync' || nextMode === 'pull') {
-    const remote = await fetchServer()
-    const latest = await readState()
-    catalog = reconcileCatalog(
-      { ...catalog, syncedBssids: normalizeBssids([...catalog.syncedBssids, ...latest.catalog.syncedBssids]) },
-      latest.journal,
-      remote,
-    )
-    journal = latest.journal
-  }
-  catalog = await stampPhonePostalCode(catalog)
   await Wardrive.saveLocalCatalog({ catalog: JSON.stringify(catalog) })
   const presented = presentCatalog(catalog)
   return {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { emptyCatalog, foldScans, reconcileCatalog, scanHearsSaved, stampFixPostalCode } from '../../shared/catalog.js'
+import { emptyCatalog, foldScans, presentCatalog, reconcileCatalog, scanHearsSaved, stampFixPostalCode } from '../../shared/catalog.js'
 import { catalogBundleCsv, catalogCsv } from '../../shared/csv.js'
 import { catalogForensicsMarkdown } from '../../shared/forensics.js'
 import { haversineMeters } from '../../shared/geo.js'
@@ -188,6 +188,33 @@ assert.equal(weaker.networks[0]?.seenCount, 2)
 assert.equal(scanHearsSaved(weaker.networks, weaker.syncedBssids), false)
 assert.equal(scanHearsSaved([{ bssid: 'aa:bb:cc:dd:ee:09' }], ['aa:bb:cc:dd:ee:01']), false)
 assert.equal(scanHearsSaved([{ bssid: 'AA:BB:CC:DD:EE:01' }], ['aa:bb:cc:dd:ee:01']), true)
+const beaconScan = {
+  ...scanA,
+  scanId: '44444444-4444-4444-8444-444444444444',
+  observedAt: '2026-01-01T00:00:10.000Z',
+  networks: [ap({ ssid: 'Cafe', bssid: 'aa:bb:cc:dd:ee:01', rssi: -50, capabilities: '[ESS]' })],
+  devices: [radio('b0:00:00:00:00:01', -50, 'public', { name: 'Cafe beacon' })],
+}
+const hallScan = {
+  ...scanA,
+  scanId: '55555555-5555-4555-8555-555555555555',
+  observedAt: '2026-01-01T00:00:20.000Z',
+  networks: [ap({ ssid: 'Hall', bssid: 'aa:bb:cc:dd:ee:09', rssi: -80, capabilities: '[ESS]' })],
+  devices: [radio('b0:00:00:00:00:02', -55, 'public', { name: 'Hall speaker' })],
+}
+const withBeacons = foldScans(emptyCatalog(), [beaconScan, hallScan])
+const heardDevices = presentCatalog(withBeacons).range.heardDevices
+assert.deepEqual(heardDevices.map((device) => device.address), ['b0:00:00:00:00:02'])
+assert.equal(withBeacons.devices.some((device) => device.address === 'b0:00:00:00:00:01'), true)
+const clearedBeacons = foldScans(withBeacons, [{
+  ...scanA,
+  scanId: '66666666-6666-4666-8666-666666666666',
+  observedAt: '2026-01-01T00:00:30.000Z',
+  networks: [ap({ ssid: 'Cafe', bssid: 'aa:bb:cc:dd:ee:01', rssi: -60, capabilities: '[ESS]' })],
+  devices: [],
+}])
+assert.equal(presentCatalog(clearedBeacons).range.heardDevices.length, 0)
+assert.equal(clearedBeacons.devices.some((device) => device.address === 'b0:00:00:00:00:02'), true)
 const pending = {
   ...scanA,
   scanId: '33333333-3333-4333-8333-333333333333',
@@ -209,6 +236,7 @@ const reconciled = reconcileCatalog(
       rooms: [],
       movers: [],
       history: [],
+      heardDevices: [],
       postalCodes: ['98104'],
     },
   },

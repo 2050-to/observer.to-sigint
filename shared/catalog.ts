@@ -207,9 +207,15 @@ export function presentCatalog(catalog: LocalCatalog): PresentedCatalog {
     const network = byBssid.get(bssid)
     return network ? [network] : []
   })
+  const byAddress = new Map((catalog.devices ?? []).map((device) => [device.address, device]))
+  const latest = (catalog.history ?? []).at(-1)
+  const heardDevices = (latest?.devices ?? []).flatMap((device) => {
+    const record = byAddress.get(device.address)
+    return record ? [record] : []
+  })
   const scene = inferScene(catalog.history ?? [])
   const range = {
-    ...snapshotFrom(heard, catalog.phone, catalog.speedMps, catalog.postalCodes ?? []),
+    ...snapshotFrom(heard, catalog.phone, catalog.speedMps, catalog.postalCodes ?? [], heardDevices),
     rooms: scene.rooms,
     movers: scene.movers,
     history: catalog.history ?? [],

@@ -15,6 +15,12 @@
   "build": {
     "appId": "com.wifimapping.app",
     "productName": "Observer.to",
+    "protocols": [
+      {
+        "name": "Observer.to",
+        "schemes": ["observer"]
+      }
+    ],
     "directories": {
       "output": "release"
     },

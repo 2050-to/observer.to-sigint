@@ -89,7 +89,7 @@ class WardriveService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         apiUrl = intent?.getStringExtra(EXTRA_API_URL) ?: apiUrl
         token = intent?.getStringExtra(EXTRA_TOKEN) ?: token
-        if (apiUrl.isBlank() || token.isBlank()) {
+        if (apiUrl.isBlank() || !apiUrl.startsWith("https://")) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -341,6 +341,7 @@ class WardriveService : Service() {
     }
 
     private fun postScan(body: JSONObject): JSONObject? {
+        if (token.isBlank()) return null
         val connection = (URL("${apiUrl.trimEnd('/')}/api/scans").openConnection() as HttpsURLConnection)
         return try {
             connection.requestMethod = "POST"

@@ -381,6 +381,7 @@ export interface ScenePing {
 
 export interface RangeSnapshot {
   heard: NetworkRecord[]
+  heardDevices: DeviceRecord[]
   radiusM: number
   phone: Fix
   speedMps: number | null

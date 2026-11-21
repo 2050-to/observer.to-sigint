@@ -187,14 +187,10 @@ class WardrivePlugin : Plugin() {
             call.reject("apiUrl must be https")
             return
         }
-        if (token.isNullOrBlank()) {
-            call.reject("token is required")
-            return
-        }
         WardriveService.uploadsOpen = true
         val intent = Intent(context, WardriveService::class.java)
         intent.putExtra(WardriveService.EXTRA_API_URL, apiUrl)
-        intent.putExtra(WardriveService.EXTRA_TOKEN, token)
+        intent.putExtra(WardriveService.EXTRA_TOKEN, token ?: "")
         ContextCompat.startForegroundService(context, intent)
         call.resolve()
     }

@@ -102,6 +102,21 @@ button:disabled { opacity: 0.6; }
   padding: 8px 12px;
   font: inherit;
 }
+.upgrade {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border-radius: 16px;
+}
+.upgrade p { margin: 0; max-width: 42rem; }
+.upgrade-side { display: grid; gap: 8px; justify-items: end; }
+.upgrade .note, .upgrade .warn { margin: 0; }
+
 .account {
   display: flex;
   gap: 8px;
@@ -155,7 +170,7 @@ table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #303237; }
 .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
 .meta dt { color: var(--text-muted); font-size: 12px; }
-.meta dd { margin: 0; }
+.meta dd { margin: 0; overflow-wrap: anywhere; }
 
 .map.leaflet-container { background: var(--surface); height: 520px; width: 100%; font: inherit; }
 

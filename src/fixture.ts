@@ -178,6 +178,6 @@ export function sampleScans(speedMps: number) {
     place(301, 47.62, -122.35, 0, [hotspot(15)], [mover(15, 1, true)]),
     place(400, 47.62, -122.35, 0, [], [], [serving(100), neighbor]),
     place(410, north, -122.35, 0, [], [], [serving(100), neighbor]),
-    place(500, 47.621, -122.349, Math.max(speedMps, 15), [{ ...cafe, rssi: -60 }], [], [], { wifiOn: true, bluetoothOn: true, cellOn: true }),
+    place(500, 47.621, -122.349, Math.max(speedMps, 15), [{ ...cafe, rssi: -60 }], [beacon('b0:00:00:00:00:01', -50, 'Cafe beacon')], [], { wifiOn: true, bluetoothOn: true, cellOn: true }),
   ]
 }

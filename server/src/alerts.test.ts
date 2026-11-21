@@ -60,6 +60,7 @@ assert.equal(digest.highRisk[0]?.name, 'Cafe WiFi')
 assert.equal(digest.highRisk[0]?.reason, 'End of support in public records')
 
 const text = alertText(digest)
+assert.match(text, /Observer\.to weekly review/)
 assert.match(text, /Cafe WiFi/)
 assert.match(text, /does not intercept protected Wi-Fi/)
 assert.equal(text.includes('aa:bb:cc:dd:ee:01'), false)

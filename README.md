@@ -4,7 +4,7 @@ Local app for collecting and reviewing wireless presence around a place you are 
 
 The browser cannot scan Wi-Fi. Use **Load sample drive** there after you sign in. Real scans run in the Android app.
 
-Sign-in is a magic link that returns a JWT. The homepage is public. The observer and every catalog API route require that JWT. The observer stays free. A $5/month Stripe subscription sends one purple-team alert email per month. Alerts run only while the API process is up.
+Sign-in is a magic link that returns a JWT. The homepage is public. The observer and every catalog API route require that JWT. The observer stays free. A $5/month Stripe subscription sends one purple-team alert email per week. Alerts run only while the API process is up.
 
 ## Prerequisites
 

@@ -91,6 +91,7 @@ function asEnrichment(row: { payload: Buffer; nonce: Buffer }): DeviceEnrichment
 function completeSnapshot(snapshot: RangeSnapshot): RangeSnapshot {
   return {
     ...snapshot,
+    heardDevices: snapshot.heardDevices ?? [],
     rooms: snapshot.rooms ?? [],
     movers: snapshot.movers ?? [],
     history: snapshot.history ?? [],
@@ -298,6 +299,7 @@ export class Store {
       }
       const snapshot = {
         ...snapshotFrom(heard, fix, scan.speedMps, addPostalCode(previous.postalCodes, postalCode)),
+        heardDevices: observedDevices,
         rooms: scene.rooms,
         movers: scene.movers,
         history,
@@ -808,7 +810,7 @@ export class Store {
        FROM users
        JOIN subscriptions ON subscriptions.user_id = users.id
        WHERE subscriptions.status = 'active'
-         AND (users.last_alert_at IS NULL OR users.last_alert_at < now() - interval '30 days')
+         AND (users.last_alert_at IS NULL OR users.last_alert_at < now() - interval '7 days')
        ORDER BY users.last_alert_at NULLS FIRST
        LIMIT 50`,
     )
@@ -824,7 +826,7 @@ export class Store {
       `UPDATE users
        SET last_alert_at = now()
        WHERE id = $1
-         AND (last_alert_at IS NULL OR last_alert_at < now() - interval '30 days')`,
+         AND (last_alert_at IS NULL OR last_alert_at < now() - interval '7 days')`,
       [userId],
     )
     return (result.rowCount ?? 0) > 0
@@ -908,6 +910,7 @@ export class Store {
       const timing = timingFor(DEFAULT_RADIUS_M, null)
       return {
         heard: [],
+        heardDevices: [],
         radiusM: DEFAULT_RADIUS_M,
         phone: { lat: null, lon: null, accuracy: null, altitudeM: null, verticalAccuracyM: null, relativeM: null },
         speedMps: null,

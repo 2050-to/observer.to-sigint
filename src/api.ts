@@ -15,7 +15,6 @@ async function request(path: string, init?: RequestInit): Promise<Response> {
   const response = await fetch(path, { ...init, headers })
   if (response.status === 401 && token && !path.startsWith('/api/auth/')) {
     clearSession()
-    if (window.location.pathname.startsWith('/app')) window.location.assign('/')
   }
   if (!response.ok) {
     let message = response.statusText
@@ -32,8 +31,11 @@ async function request(path: string, init?: RequestInit): Promise<Response> {
 
 export const api = {
   me: async (): Promise<Account> => request('/api/me').then((response) => response.json()),
-  requestLink: (email: string): Promise<void> =>
-    request('/api/auth/request', { method: 'POST', body: JSON.stringify({ email }) }).then(() => undefined),
+  requestLink: (email: string, client?: 'mac'): Promise<void> =>
+    request('/api/auth/request', {
+      method: 'POST',
+      body: JSON.stringify(client ? { email, client } : { email }),
+    }).then(() => undefined),
   verify: async (token: string): Promise<{ token: string; email: string }> =>
     request('/api/auth/verify', { method: 'POST', body: JSON.stringify({ token }) }).then((response) => response.json()),
   checkout: async (): Promise<string> =>

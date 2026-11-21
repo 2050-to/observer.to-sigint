@@ -214,18 +214,20 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
   }
   if (req.method === 'POST' && url.pathname === '/api/auth/request') {
     let email: string | null = null
+    let client: unknown
     try {
-      const body = JSON.parse(await readBody(req)) as { email?: unknown }
+      const body = JSON.parse(await readBody(req)) as { email?: unknown; client?: unknown }
       email = normalizeEmail(body.email)
+      client = body.client
     } catch {
       email = null
     }
     if (email) {
       try {
-        await requestLogin(store, email)
+        await requestLogin(store, email, client)
       } catch (error) {
         if (error instanceof ApiError) throw error
-        console.error('sign-in email failed')
+        console.error('sign-in email failed', error instanceof Error ? error.message : error)
         throw new ApiError(500, 'email could not be sent')
       }
     }

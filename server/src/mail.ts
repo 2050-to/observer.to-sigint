@@ -19,6 +19,9 @@ export async function sendEmail(input: { to: string; subject: string; text: stri
       text: input.text,
     }),
   })
-  if (!response.ok) throw new Error(`email failed (${response.status})`)
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 500)
+    throw new Error(`email failed (${response.status}) ${detail}`)
+  }
   return 'sent'
 }

@@ -1,9 +1,6 @@
 import { AccountBar, useAccount } from './AccountBar'
-import { SignInForm } from './SignInForm'
-import { sessionToken } from './session'
 
 export function Home() {
-  const signedIn = Boolean(sessionToken())
   const account = useAccount()
   return (
     <main className="home">
@@ -24,7 +21,7 @@ export function Home() {
           <li>Listing those networks by joining them or capturing traffic is the wrong tool, and often unlawful. Observer.to records public beacons only.</li>
           <li>A device name does not say whether the product is still supported or listed in public advisories and CISA KEV. Enrichment ties that public research to names you observed. It does not download exploit code.</li>
           <li>Cameras and recorders on a network you own are easy to miss. The owned-network check lists addresses and announced names. It does not open video, try passwords, or record traffic.</li>
-          <li>Purple-team evidence goes stale. The paid plan emails one review a month.</li>
+          <li>Purple-team evidence goes stale. The paid plan emails one review a week.</li>
         </ul>
       </section>
       <section>
@@ -43,33 +40,13 @@ export function Home() {
         </article>
         <article>
           <h2>$5 per month</h2>
-          <p>One purple-team alert email each month. Open networks, high-risk public research, and what is new since the last review.</p>
+          <p>One purple-team alert email each week. Open networks, high-risk public research, and what is new since the last review.</p>
         </article>
       </section>
       <section>
-        <h2>{signedIn ? 'Your observer' : 'Start free'}</h2>
-        {signedIn ? (
-          <p><a href="/app">Open the observer</a></p>
-        ) : (
-          <SignInForm />
-        )}
+        <h2>Your observer</h2>
+        <p><a href="/app">Open the observer</a></p>
       </section>
-    </main>
-  )
-}
-
-export function SignInWall() {
-  return (
-    <main className="home">
-      <header>
-        <div>
-          <p className="eyebrow">Legal purple team</p>
-          <h1>Observer.to</h1>
-        </div>
-      </header>
-      <p className="lede">The observer is behind sign-in. The homepage stays public.</p>
-      <SignInForm action="Email me a sign-in link" />
-      <p><a href="/">Back to the homepage</a></p>
     </main>
   )
 }

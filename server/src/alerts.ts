@@ -3,7 +3,7 @@ import { sendEmail } from './mail.js'
 import type { Store } from './store.js'
 import type { CellRecord, DeviceRecord, NetworkRecord, OpenRow } from './types.js'
 
-export const ALERT_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000
+export const ALERT_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000
 
 export interface AlertDigest {
   openNetworks: { name: string; security: string; lastSeen: string; place: string | null }[]
@@ -86,7 +86,7 @@ export function alertText(digest: AlertDigest): string {
     ? digest.highRisk.map((row) => `- ${row.name}: ${row.reason}`).join('\n')
     : '- None in the saved catalog'
   return [
-    'Observer.to monthly review',
+    'Observer.to weekly review',
     '',
     'Open networks',
     open,
@@ -134,13 +134,13 @@ export async function deliverDueAlerts(
     try {
       await send({
         to: user.email,
-        subject: 'Observer.to monthly review',
+        subject: 'Observer.to weekly review',
         text: alertText(digest),
       })
       sent += 1
     } catch {
       await store.restoreAlert(user.id, user.lastAlertAt)
-      console.error('monthly alert failed')
+      console.error('weekly alert failed')
     }
   }
   return sent
@@ -168,7 +168,7 @@ export class AlertWorker {
     try {
       await deliverDueAlerts(this.store)
     } catch {
-      console.error('monthly alert pass failed')
+      console.error('weekly alert pass failed')
     }
   }
 }

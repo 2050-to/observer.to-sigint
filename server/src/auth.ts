@@ -64,12 +64,32 @@ function linkLimited(email: string): boolean {
   return false
 }
 
-export async function requestLogin(store: Store, email: string): Promise<void> {
+function signInBase(client: unknown): string {
+  if (client == null || client === '' || client === 'web') return `${appOrigin()}/auth/verify`
+  if (client === 'mac') return 'observer://auth/verify'
+  throw new ApiError(400, 'invalid client')
+}
+
+export function signInUrl(client: unknown, token: string): string {
+  return `${signInBase(client)}?token=${encodeURIComponent(token)}`
+}
+
+export async function requestLogin(store: Store, email: string, client?: unknown): Promise<void> {
+  const base = signInBase(client)
   if (linkLimited(email)) return
+  try {
+    await issueLogin(store, email, base)
+  } catch (error) {
+    recentLinks.delete(email)
+    throw error
+  }
+}
+
+async function issueLogin(store: Store, email: string, base: string): Promise<void> {
   const user = await store.upsertUser(email)
   const token = loginToken()
   await store.saveLoginToken(user.id, token.hmac, new Date(Date.now() + LINK_TTL_MS))
-  const url = `${appOrigin()}/auth/verify?token=${encodeURIComponent(token.raw)}`
+  const url = `${base}?token=${encodeURIComponent(token.raw)}`
   await sendEmail({
     to: email,
     subject: 'Sign in to Observer.to',

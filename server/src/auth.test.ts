@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { signSession, verifySession } from './auth.js'
+import { appOrigin, signInUrl, signSession, verifySession } from './auth.js'
 
 process.env.JWT_SECRET ??= 'test-jwt-secret'
 
@@ -17,5 +17,15 @@ assert.equal(await verifySession(`Bearer ${expired}`), null)
 const [header, body, signature] = token.split('.')
 const flipped = signature.endsWith('a') ? `${signature.slice(0, -1)}b` : `${signature.slice(0, -1)}a`
 assert.equal(await verifySession(`Bearer ${header}.${body}.${flipped}`), null)
+
+const webLink = `${appOrigin()}/auth/verify?token=abc`
+assert.equal(signInUrl(undefined, 'abc'), webLink)
+assert.equal(signInUrl(null, 'abc'), webLink)
+assert.equal(signInUrl('', 'abc'), webLink)
+assert.equal(signInUrl('web', 'abc'), webLink)
+assert.equal(signInUrl('mac', 'abc'), 'observer://auth/verify?token=abc')
+assert.equal(signInUrl('mac', 'a b'), 'observer://auth/verify?token=a%20b')
+assert.throws(() => signInUrl('android', 'abc'), /invalid client/)
+assert.throws(() => signInUrl('https://evil.example/auth/verify', 'abc'), /invalid client/)
 
 console.log('auth checks passed')

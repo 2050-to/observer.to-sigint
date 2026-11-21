@@ -1,6 +1,6 @@
 import { clampRadius, DEFAULT_RADIUS_M, timingFor } from './dwell.js'
 import { haversineMeters } from './geo.js'
-import type { Fix, NetworkRecord, RangeSnapshot } from './types.js'
+import type { DeviceRecord, Fix, NetworkRecord, RangeSnapshot } from './types.js'
 
 export function radiusOf(phone: Fix, heard: NetworkRecord[]): number {
   if (phone.lat == null || phone.lon == null) return DEFAULT_RADIUS_M
@@ -18,11 +18,13 @@ export function snapshotFrom(
   phone: Fix,
   speedMps: number | null,
   postalCodes: string[] = [],
+  heardDevices: DeviceRecord[] = [],
 ): RangeSnapshot {
   const radiusM = radiusOf(phone, heard)
   const timing = timingFor(radiusM, speedMps)
   return {
     heard,
+    heardDevices,
     radiusM,
     phone,
     speedMps,

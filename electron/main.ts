@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { Agent } from 'node:https'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { request as httpsRequest } from 'node:https'
 import { app, BrowserWindow, ipcMain, powerSaveBlocker } from 'electron'
 import { CatalogStore, type StoredScan } from './catalog'
@@ -43,6 +43,8 @@ interface ScanReply {
 }
 
 let window: BrowserWindow | null = null
+let uiPort = 0
+let pendingAuth: string | null = null
 let store: CatalogStore
 let scanner: ScannerModule | null = null
 let running = false
@@ -152,6 +154,10 @@ function postScan(scan: StoredScan): Promise<ScanReply | null> {
   const { uploaded, ...body } = scan
   void uploaded
   return new Promise((resolve) => {
+    if (!token) {
+      resolve(null)
+      return
+    }
     let target: URL
     try {
       target = new URL('/api/scans', apiUrl)
@@ -286,12 +292,43 @@ async function onNativeScan(json: string): Promise<void> {
   if (saved) await flush()
 }
 
+function registerObserverProtocol(): void {
+  if (process.defaultApp && process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('observer', process.execPath, [resolve(process.argv[1])])
+    return
+  }
+  app.setAsDefaultProtocolClient('observer')
+}
+
+function authToken(raw: string): string | null {
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    return null
+  }
+  if (parsed.protocol !== 'observer:') return null
+  if (parsed.hostname !== 'auth' || parsed.pathname !== '/verify') return null
+  return parsed.searchParams.get('token') || null
+}
+
+function deliverAuth(raw: string): void {
+  const token = authToken(raw)
+  if (!token) return
+  if (!window || !uiPort) {
+    pendingAuth = raw
+    return
+  }
+  pendingAuth = null
+  window.show()
+  void window.loadURL(`http://127.0.0.1:${uiPort}/auth/verify?token=${encodeURIComponent(token)}`)
+}
+
 function registerIpc(): void {
   ipcMain.handle('wardrive:start', async (_event, options: { apiUrl?: string; token?: string }) => {
     const nextUrl = options?.apiUrl ?? ''
     const nextToken = options?.token ?? ''
     if (!nextUrl.startsWith('https://')) throw new Error('apiUrl must be https')
-    if (!nextToken) throw new Error('token is required')
     if (!scanner) throw new Error('The Wi-Fi scanner is unavailable')
     apiUrl = nextUrl
     token = nextToken
@@ -375,6 +412,7 @@ async function openWindow(): Promise<void> {
   })
   const ui = await listen(join(app.getAppPath(), 'dist'), API_ORIGIN, agent)
   serverClose = ui.close
+  uiPort = ui.port
   window = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -393,8 +431,20 @@ async function openWindow(): Promise<void> {
       window?.hide()
     }
   })
-  await window.loadURL(`http://127.0.0.1:${ui.port}/`)
+  const opening = pendingAuth
+  pendingAuth = null
+  const token = opening ? authToken(opening) : null
+  await window.loadURL(token
+    ? `http://127.0.0.1:${ui.port}/auth/verify?token=${encodeURIComponent(token)}`
+    : `http://127.0.0.1:${ui.port}/`)
 }
+
+registerObserverProtocol()
+
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  deliverAuth(url)
+})
 
 app.whenReady().then(() => {
   registerIpc()
