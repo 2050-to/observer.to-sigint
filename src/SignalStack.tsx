@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { SIGNAL_COLORS, SIGNAL_NAMES, signalKinds, type SignalRow } from '../shared/sources'
+import type { DeviceEnrichment, EvidenceSource } from './types'
 
 export function SignalLegend() {
   return (
@@ -35,6 +37,7 @@ export function SignalStack({
   id,
   fallback,
   signals,
+  enrichments = [],
   note,
   draftFor,
   rename,
@@ -42,6 +45,7 @@ export function SignalStack({
   id: string
   fallback: string
   signals: SignalRow[]
+  enrichments?: DeviceEnrichment[]
   note?: string
   draftFor: (id: string, fallback: string) => string
   rename: (id: string, value: string) => void
@@ -61,6 +65,145 @@ export function SignalStack({
           </p>
         ))}
       </div>
+      {enrichments.map((enrichment) => (
+        <EnrichmentPanel
+          key={`${enrichment.queryTitle}:${enrichment.manufacturer}:${enrichment.model}:${enrichment.lookedUpAt}`}
+          enrichment={enrichment}
+        />
+      ))}
     </div>
   )
+}
+
+function EnrichmentPanel({ enrichment }: { enrichment: DeviceEnrichment }) {
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const links = uniqueSources(enrichment)
+  const knownExploited = enrichment.vulnerabilities.some((item) => item.cisaKev || item.knownExploited)
+
+  async function copyPrompt() {
+    try {
+      await copyText(enrichment.remediationPrompt)
+      setCopyState('copied')
+    } catch {
+      setCopyState('failed')
+    }
+    window.setTimeout(() => setCopyState('idle'), 2500)
+  }
+
+  return (
+    <section className={`enrichment-card risk-${enrichment.risk.level}`}>
+      <div className="enrichment-heading">
+        <strong>{[enrichment.manufacturer, enrichment.model].filter(Boolean).join(' ') || enrichment.category}</strong>
+        <span>{enrichment.confidence} confidence</span>
+      </div>
+      <div className="enrichment-tags">
+        {enrichment.tags.map((tag) => <span key={tag} className={tag === 'High Risk' ? 'risk-tag' : ''}>{tag}</span>)}
+        {knownExploited && !enrichment.tags.includes('Known Exploited') && <span className="risk-tag">Known Exploited</span>}
+        {enrichment.status === 'inconclusive' && <span>Inconclusive</span>}
+      </div>
+      {enrichment.summary && <p className="enrichment-summary">{enrichment.summary}</p>}
+      <dl className="enrichment-meta">
+        <div><dt>Category</dt><dd>{enrichment.category}</dd></div>
+        <div><dt>Support</dt><dd>{supportLabel(enrichment.supportStatus)}</dd></div>
+        <div><dt>Risk</dt><dd>{enrichment.risk.level}</dd></div>
+        <div>
+          <dt>Latest published release</dt>
+          <dd>{enrichment.newestRelease
+            ? `${enrichment.newestRelease.kind}${enrichment.newestRelease.version ? ` ${enrichment.newestRelease.version}` : ''} · ${enrichment.newestRelease.publishedAt} · ${enrichment.newestRelease.ageBand}`
+            : 'Not verified'}</dd>
+        </div>
+      </dl>
+      {enrichment.risk.reasons.length > 0 && (
+        <ul className="enrichment-reasons">
+          {enrichment.risk.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+        </ul>
+      )}
+      {enrichment.vulnerabilities.length > 0 && (
+        <div className="vulnerability-list">
+          <strong>Potentially applicable vulnerabilities</strong>
+          <p className="enrichment-caveat">Installed firmware is unknown. Verify the exact model and version before treating these as applicable.</p>
+          <ul>
+            {enrichment.vulnerabilities.map((item) => (
+              <li key={item.id}>
+                <div>
+                  <strong>{item.id}</strong>
+                  <span>{item.severity}{item.cvss == null ? '' : ` · CVSS ${item.cvss.toFixed(1)}`}</span>
+                  {(item.cisaKev || item.knownExploited) && <span className="risk-tag">Known Exploited</span>}
+                  {item.publicExploit && <span>Public exploit reference</span>}
+                </div>
+                <p>{item.title}</p>
+                {item.fixedVersion && <p>Fixed version: {item.fixedVersion}</p>}
+                {item.mitigation && <p>Mitigation: {item.mitigation}</p>}
+                <div className="artifact-links">
+                  {item.links.map((link) => <SourceLink key={`${item.id}:${link.kind}:${link.url}`} source={link} />)}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div className="enrichment-links">
+        {enrichment.officialSupportUrl && (
+          <a href={enrichment.officialSupportUrl} target="_blank" rel="noreferrer">Official support</a>
+        )}
+        {links.map((source) => <SourceLink key={`${source.kind}:${source.url}`} source={source} />)}
+      </div>
+      <div className="remediation-actions">
+        <button type="button" onClick={() => void copyPrompt()}>Copy remediation prompt</button>
+        <span role="status">
+          {copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : ''}
+        </span>
+      </div>
+      <p className="enrichment-caveat">Verify the exact model and installed firmware before applying any change.</p>
+    </section>
+  )
+}
+
+function SourceLink({ source }: { source: EvidenceSource }) {
+  return (
+    <a href={source.url} target="_blank" rel="noreferrer">
+      {evidenceLabel(source)}
+    </a>
+  )
+}
+
+function evidenceLabel(source: EvidenceSource): string {
+  if (source.kind === 'cisa_kev') return 'CISA KEV'
+  if (source.kind === 'nvd') return 'NVD'
+  if (source.kind === 'public_exploit' || source.kind === 'poc') return 'Public exploit reference'
+  if (source.kind === 'vendor_advisory') return 'Vendor advisory'
+  if (source.kind === 'patch_notes') return 'Patch notes'
+  return source.title || source.kind.replaceAll('_', ' ')
+}
+
+function supportLabel(value: DeviceEnrichment['supportStatus']): string {
+  if (value === 'end_of_support') return 'End of support'
+  if (value === 'supported') return 'Supported'
+  return 'Unknown'
+}
+
+function uniqueSources(enrichment: DeviceEnrichment): EvidenceSource[] {
+  const artifactUrls = new Set(enrichment.vulnerabilities.flatMap((item) => item.links.map((link) => link.url)))
+  const seen = new Set<string>()
+  return enrichment.sources.filter((source) => {
+    if (source.url === enrichment.officialSupportUrl || artifactUrls.has(source.url) || seen.has(source.url)) return false
+    seen.add(source.url)
+    return true
+  })
+}
+
+async function copyText(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value)
+    return
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  const copied = document.execCommand('copy')
+  textarea.remove()
+  if (!copied) throw new Error('clipboard unavailable')
 }

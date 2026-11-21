@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
 import { catalogBundleCsv } from '../../shared/csv'
+import { enrichmentSearchText } from '../../shared/enrichment'
 import { findRotatingAddresses, type RotationGroup } from '../../shared/rotation'
 import { SIGNAL_COLORS, SIGNAL_KINDS, SIGNAL_NAMES, stackSignals, type SignalKind, type StackedDevice } from '../../shared/sources'
 import { api } from '../api'
 import { SignalStack } from '../SignalStack'
-import type { CellRecord, DeviceRecord, Fix, MotionTrack, NetworkRecord, Room, ScenePing } from '../types'
+import type { CellRecord, DeviceRecord, EnrichmentQueueStatus, Fix, MotionTrack, NetworkRecord, Room, ScenePing } from '../types'
 
 export function LogView({
   count,
@@ -16,6 +17,7 @@ export function LogView({
   movers,
   phone,
   history,
+  enrichmentStatus,
   draftFor,
   rename,
 }: {
@@ -28,12 +30,15 @@ export function LogView({
   movers: MotionTrack[]
   phone: Fix | null
   history: ScenePing[]
+  enrichmentStatus: EnrichmentQueueStatus | null
   draftFor: (id: string, fallback: string) => string
   rename: (id: string, value: string) => void
 }) {
   const [query, setQuery] = useState('')
   const [kinds, setKinds] = useState<Set<SignalKind>>(() => new Set(SIGNAL_KINDS))
   const [rotatingOnly, setRotatingOnly] = useState(false)
+  const [highRiskOnly, setHighRiskOnly] = useState(false)
+  const [knownExploitedOnly, setKnownExploitedOnly] = useState(false)
   const rotations = useMemo(() => findRotatingAddresses(history), [history])
   const rotationByAddress = useMemo(() => {
     const map = new Map<string, RotationGroup>()
@@ -64,16 +69,30 @@ export function LogView({
   }
 
   const rotatingCount = sources.filter((source) => rotationFor(source)).length
+  const highRiskCount = sources.filter((source) => source.enrichments.some((item) => item.risk.level === 'high')).length
+  const knownExploitedCount = sources.filter((source) =>
+    source.enrichments.some((item) => item.vulnerabilities.some((vulnerability) => vulnerability.cisaKev || vulnerability.knownExploited)),
+  ).length
   const needle = query.trim().toLowerCase()
   const shown = sources.flatMap((source) => {
     const group = rotationFor(source)
     if (rotatingOnly && !group) return []
+    if (highRiskOnly && !source.enrichments.some((item) => item.risk.level === 'high')) return []
+    if (knownExploitedOnly && !source.enrichments.some((item) =>
+      item.vulnerabilities.some((vulnerability) => vulnerability.cisaKev || vulnerability.knownExploited))) return []
     const signals = source.signals.filter((signal) => kinds.has(signal.kind))
     if (signals.length === 0) return []
     const note = group
       ? `Rotating address · signal within ${group.rssiDelta} dB · heard ${group.separationM} m apart · ${group.addresses.length} addresses`
       : ''
-    const haystack = [source.label, ...source.keys, note, ...(group?.addresses ?? []), ...signals.flatMap((signal) => [signal.title, signal.detail])].join(' ').toLowerCase()
+    const haystack = [
+      source.label,
+      ...source.keys,
+      note,
+      ...(group?.addresses ?? []),
+      ...signals.flatMap((signal) => [signal.title, signal.detail]),
+      ...source.enrichments.map(enrichmentSearchText),
+    ].join(' ').toLowerCase()
     if (needle && !haystack.includes(needle)) return []
     return [{ ...source, signals, note }]
   })
@@ -109,6 +128,12 @@ export function LogView({
         <div>
           <h2>Catalog</h2>
           <p>{count} unique access points. {openCount} open names. {devices.length} Bluetooth advertisements. {cells.length} towers. {rooms.length} rooms.</p>
+          {enrichmentStatus && (
+            <p>
+              Enrichment {enrichmentStatus.enabled ? 'active' : 'disabled'} · {enrichmentStatus.complete} complete · {enrichmentStatus.pending + enrichmentStatus.processing} pending
+              {enrichmentStatus.failed > 0 ? ` · ${enrichmentStatus.failed} failed` : ''}
+            </p>
+          )}
         </div>
         <button type="button" onClick={() => void download()}>Download CSV</button>
       </div>
@@ -148,6 +173,24 @@ export function LogView({
             Rotating
             <span>{rotatingCount}</span>
           </button>
+          <button
+            type="button"
+            className={highRiskOnly ? 'filter-chip active' : 'filter-chip'}
+            aria-pressed={highRiskOnly}
+            onClick={() => setHighRiskOnly((current) => !current)}
+          >
+            High Risk
+            <span>{highRiskCount}</span>
+          </button>
+          <button
+            type="button"
+            className={knownExploitedOnly ? 'filter-chip active' : 'filter-chip'}
+            aria-pressed={knownExploitedOnly}
+            onClick={() => setKnownExploitedOnly((current) => !current)}
+          >
+            Known Exploited
+            <span>{knownExploitedCount}</span>
+          </button>
         </div>
         {sources.length > 0 && (
           <div className="rotations">
@@ -172,7 +215,15 @@ export function LogView({
         <ul className="datasource-grid">
           {shown.map((source) => (
             <li key={source.id}>
-              <SignalStack id={source.id} fallback={source.label} signals={source.signals} note={source.note} draftFor={draftFor} rename={rename} />
+              <SignalStack
+                id={source.id}
+                fallback={source.label}
+                signals={source.signals}
+                enrichments={source.enrichments}
+                note={source.note}
+                draftFor={draftFor}
+                rename={rename}
+              />
             </li>
           ))}
         </ul>

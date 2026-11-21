@@ -97,6 +97,32 @@ class WardrivePlugin : Plugin() {
     }
 
     @PluginMethod
+    fun catalogSubnet(call: PluginCall) {
+        if (call.getBoolean("consent", false) != true) {
+            call.reject("Cataloging IP addresses stays off until you allow it for a network you own")
+            return
+        }
+        try {
+            call.resolve(SubnetCataloger(context).catalog())
+        } catch (error: Exception) {
+            call.reject(error.message ?: "The subnet could not be cataloged")
+        }
+    }
+
+    @PluginMethod
+    fun deviceDetails(call: PluginCall) {
+        if (call.getBoolean("consent", false) != true) {
+            call.reject("Device details stay off until you allow them for a network you own")
+            return
+        }
+        try {
+            call.resolve(SubnetCataloger(context).details(call.getString("browser") ?: ""))
+        } catch (error: Exception) {
+            call.reject(error.message ?: "Device details could not be read")
+        }
+    }
+
+    @PluginMethod
     fun getStatus(call: PluginCall) {
         val status = JSObject()
         status.put("running", WardriveService.running)

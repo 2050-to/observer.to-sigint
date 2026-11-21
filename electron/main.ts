@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { request as httpsRequest } from 'node:https'
 import { app, BrowserWindow, ipcMain, powerSaveBlocker } from 'electron'
 import { CatalogStore, type StoredScan } from './catalog'
+import { catalogLocalSubnet, localDeviceDetails } from './ownedNetwork'
 import { listen } from './server'
 
 const require = createRequire(__filename)
@@ -335,6 +336,14 @@ function registerIpc(): void {
       discarding = false
     }
   })
+  ipcMain.handle('wardrive:subnet', async (_event, options: { consent?: boolean }) => {
+    if (options?.consent !== true) throw new Error('Cataloging IP addresses stays off until you allow it for a network you own.')
+    return catalogLocalSubnet()
+  })
+  ipcMain.handle('wardrive:details', async (_event, options: { consent?: boolean; browser?: string }) => {
+    if (options?.consent !== true) throw new Error('Device details stay off until you allow them for a network you own.')
+    return localDeviceDetails(options?.browser ?? '')
+  })
   ipcMain.handle('wardrive:clear', async () => {
     running = false
     message = 'Drive is stopped.'
@@ -370,7 +379,7 @@ async function openWindow(): Promise<void> {
     width: 1200,
     height: 800,
     title: 'Wi-Fi Mapping',
-    backgroundColor: '#121714',
+    backgroundColor: '#111214',
     webPreferences: {
       preload: join(__dirname, 'preload.cjs'),
       contextIsolation: true,

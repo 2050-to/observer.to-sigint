@@ -30,6 +30,7 @@ PGSSLROOTCERT=certs/ca.crt
 REDIS_CA=certs/ca.crt
 TLS_CERT=certs/server.crt
 TLS_KEY=certs/server.key
+DEEPSEEK_API_KEY=
 VITE_API_TOKEN=${API_TOKEN}
 EOF
   chmod 600 .env

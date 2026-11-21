@@ -115,6 +115,8 @@ export function mergeDevice(existing: DeviceRecord | null, incoming: ScanDevice,
     bestRelativeM: takeHeight ? fix.relativeM : existing?.bestRelativeM ?? null,
     seenCount: (existing?.seenCount ?? 0) + 1,
     observations: rememberObservation(existing?.observations ?? [], observation),
+    postalCodes: existing?.postalCodes ?? [],
+    enrichment: existing?.enrichment ?? null,
   }
 }
 

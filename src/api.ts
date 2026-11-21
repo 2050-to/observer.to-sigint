@@ -1,4 +1,4 @@
-import type { MapState, NetworkRecord, OpenRow, PlaceInfo, RangeSnapshot } from './types'
+import type { EnrichmentQueueStatus, MapState, NetworkRecord, OpenRow, PlaceInfo, RangeSnapshot } from './types'
 
 const token = import.meta.env.VITE_API_TOKEN
 
@@ -29,9 +29,11 @@ export const api = {
   }),
   summary: async (): Promise<{ count: number; openCount: number; snapshot: RangeSnapshot }> =>
     request('/api/summary').then((response) => response.json()),
+  enrichmentStatus: async (): Promise<EnrichmentQueueStatus> =>
+    request('/api/enrichment/status').then((response) => response.json()),
   scan: async (body: unknown): Promise<RangeSnapshot & { applied: boolean }> =>
     request('/api/scans', { method: 'POST', body: JSON.stringify(body) }).then((response) => response.json()),
-  place: async (body: { bssid?: string; lat: number; lon: number }): Promise<{ place: PlaceInfo; network?: NetworkRecord }> =>
+  place: async (body: { bssid?: string; lat: number; lon: number }): Promise<{ place: PlaceInfo; network?: NetworkRecord; postalCodes?: string[] }> =>
     request('/api/place', { method: 'POST', body: JSON.stringify(body) }).then((response) => response.json()),
   csv: async (): Promise<Blob> => request('/api/export.csv').then((response) => response.blob()),
   reset: (): Promise<void> => request('/api/reset', { method: 'POST' }).then(() => undefined),

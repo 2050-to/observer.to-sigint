@@ -4,10 +4,12 @@ import { fileURLToPath } from 'node:url'
 import { createServer } from 'node:https'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { catalogBundleCsv } from '../../shared/csv.js'
+import { DeepSeekEnrichmentClient } from './enrichment/deepseek.js'
+import { EnrichmentWorker } from './enrichment/worker.js'
 import { lookupPlace } from './geocode.js'
 import { Store, type ScanInput } from './store.js'
 import { bearerOk } from './crypto.js'
-import type { ScanAp, ScanCell, ScanDevice } from './types.js'
+import type { PlaceInfo, ScanAp, ScanCell, ScanDevice } from './types.js'
 
 function loadEnv(path: string): void {
   if (!existsSync(path)) return
@@ -189,7 +191,7 @@ function send(res: ServerResponse, status: number, body: unknown, type = 'applic
   res.end(payload)
 }
 
-async function handle(store: Store, req: IncomingMessage, res: ServerResponse): Promise<void> {
+async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMessage, res: ServerResponse): Promise<void> {
   const origin = req.headers.origin
   if (origin && ORIGINS.has(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin)
@@ -230,14 +232,21 @@ async function handle(store: Store, req: IncomingMessage, res: ServerResponse): 
     const lon = numberOrNull(body.lon)
     if (lat == null || lon == null) throw new HttpError(400, 'lat and lon are required')
     const lookedUp = await lookupPlace(lat, lon)
-    const place = { ...lookedUp, fetchedAt: new Date().toISOString() }
+    await store.rememberPostalCode(lat, lon, lookedUp.postalCode)
+    const place: PlaceInfo = {
+      address: lookedUp.address,
+      crossStreets: lookedUp.crossStreets,
+      elevationM: lookedUp.elevationM,
+      fetchedAt: new Date().toISOString(),
+    }
     if (body.bssid) {
-      const record = await store.saveNetworkPlace(body.bssid, place)
-      send(res, 200, { place, network: record })
+      const codes = await store.appearanceCodes(body.bssid, lat, lon, lookedUp.postalCode)
+      const record = await store.saveNetworkPlace(body.bssid, place, codes)
+      send(res, 200, { place, network: record, postalCodes: record.postalCodes ?? [] })
       return
     }
-    await store.savePhonePlace(place)
-    send(res, 200, { place })
+    const postalCodes = await store.savePhonePlace(place, lookedUp.postalCode)
+    send(res, 200, { place, postalCodes })
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/range') {
@@ -248,6 +257,7 @@ async function handle(store: Store, req: IncomingMessage, res: ServerResponse): 
     const map = await store.map()
     send(res, 200, {
       phone: map.snapshot.phone,
+      postalCodes: map.snapshot.postalCodes ?? [],
       radiusM: map.snapshot.radiusM,
       dwellSeconds: map.snapshot.dwellSeconds,
       scanPeriodSeconds: map.snapshot.scanPeriodSeconds,
@@ -268,6 +278,10 @@ async function handle(store: Store, req: IncomingMessage, res: ServerResponse): 
     send(res, 200, await store.summary())
     return
   }
+  if (req.method === 'GET' && url.pathname === '/api/enrichment/status') {
+    send(res, 200, await store.enrichmentStatus(enrichmentEnabled))
+    return
+  }
   if (req.method === 'GET' && url.pathname === '/api/export.csv') {
     const snapshot = await store.range()
     send(res, 200, catalogBundleCsv(await store.catalog(), {
@@ -286,11 +300,24 @@ async function main(): Promise<void> {
   if (!cert || !key) throw new Error('TLS_CERT and TLS_KEY are required')
   const store = await Store.connect()
   await store.migrate()
+  const deepSeekKey = process.env.DEEPSEEK_API_KEY?.trim()
+  const enrichmentWorker = deepSeekKey
+    ? new EnrichmentWorker(
+      store,
+      new DeepSeekEnrichmentClient({
+        apiKey: deepSeekKey,
+        model: process.env.DEEPSEEK_MODEL,
+      }),
+      {
+        refreshDays: Number(process.env.ENRICHMENT_REFRESH_DAYS ?? 30),
+      },
+    )
+    : null
   const port = Number(process.env.PORT ?? 8443)
   const server = createServer(
     { cert: readFileSync(cert), key: readFileSync(key), minVersion: 'TLSv1.2' },
     (req, res) => {
-      handle(store, req, res).catch((error: unknown) => {
+      handle(store, Boolean(enrichmentWorker), req, res).catch((error: unknown) => {
         const status = error instanceof HttpError ? error.status : 500
         const message = error instanceof Error ? error.message : 'request failed'
         if (status === 500) console.error('request failed')
@@ -301,7 +328,18 @@ async function main(): Promise<void> {
   )
   server.listen(port, '0.0.0.0', () => {
     console.log(`listening on ${port}`)
+    enrichmentWorker?.start()
   })
+  let closing = false
+  const close = async () => {
+    if (closing) return
+    closing = true
+    await enrichmentWorker?.stop()
+    await new Promise<void>((resolveClose) => server.close(() => resolveClose()))
+    await store.close()
+  }
+  process.once('SIGINT', () => void close())
+  process.once('SIGTERM', () => void close())
 }
 
 main().catch((error: unknown) => {

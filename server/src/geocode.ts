@@ -1,8 +1,11 @@
+import { cleanPostalCode } from '../../shared/postal.js'
 import { haversineMeters } from './geo.js'
 
 export interface PlaceLookup {
   address: string
   crossStreets: string[]
+  elevationM: number | null
+  postalCode: string | null
 }
 
 const USER_AGENT = 'wifi-mapping/0.1 (local wardrive)'
@@ -16,7 +19,23 @@ interface NominatimResponse {
     town?: string
     village?: string
     hamlet?: string
+    postcode?: string
   }
+}
+
+export function elevationFrom(body: unknown): number | null {
+  if (!body || typeof body !== 'object') return null
+  const listed = (body as { elevation?: unknown }).elevation
+  const value = Array.isArray(listed) ? listed[0] : null
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  return Math.round(value * 10) / 10
+}
+
+export function postalCodeFrom(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null
+  const address = (body as { address?: { postcode?: unknown } }).address
+  if (!address || typeof address !== 'object') return null
+  return cleanPostalCode(address.postcode)
 }
 
 interface OverpassElement {
@@ -25,14 +44,49 @@ interface OverpassElement {
 }
 
 export async function lookupPlace(lat: number, lon: number): Promise<PlaceLookup> {
-  const [address, crossStreets] = await Promise.all([
+  const [located, crossStreets, elevationM] = await Promise.all([
     reverseAddress(lat, lon),
     nearestRoads(lat, lon).catch(() => [] as string[]),
+    groundElevation(lat, lon),
   ])
-  return { address, crossStreets }
+  return { address: located.address, crossStreets, elevationM, postalCode: located.postalCode }
 }
 
-async function reverseAddress(lat: number, lon: number): Promise<string> {
+export async function lookupPostalCode(lat: number, lon: number): Promise<{ code: string | null; lookedUp: boolean }> {
+  try {
+    const body = await fetchNominatim(lat, lon)
+    return { code: postalCodeFrom(body), lookedUp: true }
+  } catch {
+    return { code: null, lookedUp: false }
+  }
+}
+
+async function groundElevation(lat: number, lon: number): Promise<number | null> {
+  try {
+    const url = new URL('https://api.open-meteo.com/v1/elevation')
+    url.searchParams.set('latitude', String(lat))
+    url.searchParams.set('longitude', String(lon))
+    const response = await fetch(url, {
+      headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!response.ok) return null
+    return elevationFrom(await response.json())
+  } catch {
+    return null
+  }
+}
+
+async function reverseAddress(lat: number, lon: number): Promise<{ address: string; postalCode: string | null }> {
+  const body = await fetchNominatim(lat, lon)
+  const city = body.address?.city || body.address?.town || body.address?.village || body.address?.hamlet
+  const parts = [body.address?.house_number, body.address?.road, city].filter(Boolean)
+  const address = parts.length > 0 ? parts.join(' ') : body.display_name
+  if (!address) throw new Error('address lookup returned no place')
+  return { address, postalCode: postalCodeFrom(body) }
+}
+
+async function fetchNominatim(lat: number, lon: number): Promise<NominatimResponse> {
   const url = new URL('https://nominatim.openstreetmap.org/reverse')
   url.searchParams.set('format', 'jsonv2')
   url.searchParams.set('lat', String(lat))
@@ -43,12 +97,7 @@ async function reverseAddress(lat: number, lon: number): Promise<string> {
     signal: AbortSignal.timeout(8000),
   })
   if (!response.ok) throw new Error(`address lookup failed (${response.status})`)
-  const body = (await response.json()) as NominatimResponse
-  const city = body.address?.city || body.address?.town || body.address?.village || body.address?.hamlet
-  const parts = [body.address?.house_number, body.address?.road, city].filter(Boolean)
-  if (parts.length > 0) return parts.join(' ')
-  if (body.display_name) return body.display_name
-  throw new Error('address lookup returned no place')
+  return (await response.json()) as NominatimResponse
 }
 
 const OVERPASS_ENDPOINTS = [

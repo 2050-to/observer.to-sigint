@@ -1,5 +1,6 @@
 import { Capacitor, WebPlugin, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 import type { JournalScan, LocalCatalog } from '../../shared/catalog'
+import type { DeviceDetails, SubnetCatalog } from '../../shared/ownedNetwork'
 
 export interface DriveStatus {
   running: boolean
@@ -21,6 +22,8 @@ interface WardrivePlugin {
   enqueue(options: { scans: string }): Promise<void>
   clearLocal(): Promise<void>
   replaceLocal(options: { catalog: string; journal: string }): Promise<void>
+  catalogSubnet(options: { consent: boolean }): Promise<SubnetCatalog>
+  deviceDetails(options: { consent: boolean; browser: string }): Promise<DeviceDetails>
   addListener(eventName: 'scanQueued', listenerFunc: () => void): Promise<PluginListenerHandle>
   addListener(eventName: 'scansSynced', listenerFunc: (event: { count: number }) => void): Promise<PluginListenerHandle>
 }
@@ -81,6 +84,14 @@ class WardriveWeb extends WebPlugin implements WardrivePlugin {
     this.catalog = options.catalog
     this.journal = options.journal.trim() ? options.journal : '[]'
   }
+
+  async catalogSubnet(): Promise<SubnetCatalog> {
+    throw new Error('The browser cannot catalog a subnet. Use the Android or macOS app on a network you own.')
+  }
+
+  async deviceDetails(): Promise<DeviceDetails> {
+    throw new Error('The browser cannot read device details. Use the Android or macOS app on a network you own.')
+  }
 }
 
 function parseJournal(text: string): JournalScan[] {
@@ -105,6 +116,8 @@ interface MacBridge {
   enqueue(options: { scans: string }): Promise<void>
   clearLocal(): Promise<void>
   replaceLocal(options: { catalog: string; journal: string }): Promise<void>
+  catalogSubnet(options: { consent: boolean }): Promise<SubnetCatalog>
+  deviceDetails(options: { consent: boolean; browser: string }): Promise<DeviceDetails>
   addListener(eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void): Promise<PluginListenerHandle>
 }
 
@@ -147,6 +160,14 @@ class WardriveMac extends WebPlugin {
 
   replaceLocal(options: { catalog: string; journal: string }): Promise<void> {
     return this.bridge.replaceLocal(options)
+  }
+
+  catalogSubnet(options: { consent: boolean }): Promise<SubnetCatalog> {
+    return this.bridge.catalogSubnet(options)
+  }
+
+  deviceDetails(options: { consent: boolean; browser: string }): Promise<DeviceDetails> {
+    return this.bridge.deviceDetails(options)
   }
 
   addListener(eventName: 'scanQueued' | 'scansSynced', listenerFunc: (event?: { count?: number }) => void): Promise<PluginListenerHandle> {

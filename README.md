@@ -89,6 +89,9 @@ Restart the Vite dev server after any change to a `VITE_` variable so it picks u
 | `REDIS_CA` | CA file for Redis (`certs/ca.crt`). |
 | `TLS_CERT` | API certificate (`certs/server.crt`). |
 | `TLS_KEY` | API private key (`certs/server.key`). |
+| `DEEPSEEK_API_KEY` | Server-only key for automatic device enrichment. Leave blank to disable the worker. |
+| `DEEPSEEK_MODEL` | Optional enrichment model. Defaults to `deepseek-flash`. |
+| `ENRICHMENT_REFRESH_DAYS` | Optional number of days before research is refreshed. Defaults to `30`. |
 | `VITE_API_TOKEN` | Same value as `API_TOKEN`, read by the UI. |
 | `VITE_DEVICE_API_URL` | API base URL used by the Android app. Optional. |
 
@@ -125,6 +128,18 @@ npm run dev
 Open `http://localhost:5173`. The page proxies API calls to `https://127.0.0.1:9453`. Choose a speed and click **Load sample drive** to fill the catalog.
 
 Place lookup calls the public Nominatim and Overpass services, so the machine running the API needs outbound HTTPS.
+
+## Device enrichment
+
+Set `DEEPSEEK_API_KEY` in `.env` and restart the API to enable enrichment. The key is used only by the server and must never use a `VITE_` prefix. The worker automatically queues eligible named Wi-Fi and Bluetooth records, backfills existing records, deduplicates repeated device titles, and refreshes old results. Hidden networks, address-only records, and generic names are skipped.
+
+Research uses DeepSeek Search and Fetch for live sources, then the DeepSeek Responses API for schema-constrained output. The worker prioritizes official manufacturer support pages, vendor advisories, CVE/NVD, and CISA KEV. Public PoC or exploit pages can be saved as labeled links, but their source code, payloads, and executable content are not downloaded or stored.
+
+Only the observed title, radio kind, vendor OUIs, service UUIDs, and limited protocol metadata are sent for research. Full BSSIDs, Bluetooth addresses, coordinates, and observation history are excluded. Job inputs and results remain encrypted in Postgres. Enrichment returned to the app is also cached in its local catalog so it remains visible offline; protect that device storage accordingly.
+
+Passive scans do not reveal the installed firmware or driver. The catalog therefore labels release data as the latest publicly available release and treats vulnerabilities as potentially applicable until the exact model and installed version are verified. `High Risk` is assigned conservatively from strong identity evidence plus end-of-support, CISA KEV or official active exploitation, or an official latest release more than three years old.
+
+Each enriched catalog entry includes a copyable remediation prompt. It asks for vendor-supported verification, backup, update, mitigation, validation, monitoring, and rollback steps. It explicitly rejects exploit development, unsupported firmware changes, and invented commands.
 
 ## Test and build
 

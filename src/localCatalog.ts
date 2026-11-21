@@ -8,6 +8,7 @@ import {
   type JournalScan,
   type LocalCatalog,
 } from '../shared/catalog'
+import { unionPostalCodes } from '../shared/postal'
 import type { MapState, OpenRow, RangeSnapshot } from './types'
 
 export type RefreshMode = 'local' | 'sync' | 'pull'
@@ -36,6 +37,7 @@ export function parseCatalog(text: string): LocalCatalog {
     history: Array.isArray(value.history) ? value.history : [],
     heardBssids: Array.isArray(value.heardBssids) ? value.heardBssids : [],
     phone: value.phone ?? empty.phone,
+    postalCodes: unionPostalCodes([Array.isArray(value.postalCodes) ? value.postalCodes : []]),
     foldedScanIds: Array.isArray(value.foldedScanIds) ? value.foldedScanIds : [],
     syncedBssids: normalizeBssids(value.syncedBssids ?? []),
     speedMps: numberOrNull(value.speedMps),
@@ -135,6 +137,7 @@ export async function loadView(mode: RefreshMode): Promise<LocalView> {
     range: presented.range,
     map: {
       phone: presented.range.phone,
+      postalCodes: presented.range.postalCodes,
       radiusM: presented.range.radiusM,
       dwellSeconds: presented.range.dwellSeconds,
       scanPeriodSeconds: presented.range.scanPeriodSeconds,

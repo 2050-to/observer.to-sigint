@@ -1,4 +1,5 @@
 import { gpsGround, plottedHeight } from './height.js'
+import { unionPostalCodes } from './postal.js'
 import type { NetworkRecord, OpenRow, SecurityLabel } from './types.js'
 
 export function classifySecurity(capabilities: string, types: string[]): SecurityLabel {
@@ -32,6 +33,7 @@ export function openRows(records: NetworkRecord[]): OpenRow[] {
       const best = group.reduce((a, b) => (a.bestRssi >= b.bestRssi ? a : b))
       const latest = group.reduce((a, b) => (a.lastSeen >= b.lastSeen ? a : b))
       const withPlace = group.find((item) => item.place) ?? null
+      const elevated = group.find((item) => item.place?.elevationM != null) ?? withPlace
       const channels = [...new Set(group.flatMap((item) => item.channels))].sort((a, b) => a - b)
       return {
         label: best.hidden || !best.ssid ? hiddenLabel(best.bssid) : best.ssid,
@@ -44,6 +46,8 @@ export function openRows(records: NetworkRecord[]): OpenRow[] {
         lastSeen: latest.lastSeen,
         address: withPlace?.place?.address ?? null,
         crossStreets: withPlace?.place?.crossStreets ?? [],
+        elevationM: elevated?.place?.elevationM ?? null,
+        postalCodes: unionPostalCodes(group.map((item) => item.postalCodes)),
         lat: best.bestLat,
         lon: best.bestLon,
         floor: plottedHeight({

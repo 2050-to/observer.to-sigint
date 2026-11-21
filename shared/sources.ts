@@ -1,4 +1,4 @@
-import type { CellRecord, DeviceRecord, Fix, MotionTrack, NetworkRecord, Room } from './types.js'
+import type { CellRecord, DeviceEnrichment, DeviceRecord, Fix, MotionTrack, NetworkRecord, Room } from './types.js'
 
 export type SignalKind = 'wifi' | 'bluetooth' | 'gps' | 'cell'
 
@@ -29,6 +29,7 @@ export interface StackedDevice {
   label: string
   signals: SignalRow[]
   keys: string[]
+  enrichments: DeviceEnrichment[]
 }
 
 export function signalKinds(signals: SignalRow[]): SignalKind[] {
@@ -70,8 +71,8 @@ function pairKeys(mover: MotionTrack): string[] {
 }
 
 export function stackSignals(input: {
-  networks: Pick<NetworkRecord, 'bssid' | 'ssid' | 'hidden' | 'bestRssi' | 'bestLat' | 'bestLon'>[]
-  devices: Pick<DeviceRecord, 'address' | 'name' | 'lastRssi' | 'bestLat' | 'bestLon'>[]
+  networks: Pick<NetworkRecord, 'bssid' | 'ssid' | 'hidden' | 'bestRssi' | 'bestLat' | 'bestLon' | 'enrichment'>[]
+  devices: Pick<DeviceRecord, 'address' | 'name' | 'lastRssi' | 'bestLat' | 'bestLon' | 'enrichment'>[]
   cells: Pick<CellRecord, 'key' | 'radio' | 'cellId' | 'role' | 'lastRssi' | 'siteLat' | 'siteLon' | 'bestLat' | 'bestLon'>[]
   movers: MotionTrack[]
   phone: Fix | null
@@ -85,7 +86,13 @@ export function stackSignals(input: {
       detail: `${Math.round(network.bestRssi)} dBm · ${network.bssid}`,
     }]
     addGps(signals, coords(network.bestLat, network.bestLon))
-    devices.push({ id: `wifi:${network.bssid}`, label: title, signals, keys: [network.bssid, `wifi:${network.bssid}`] })
+    devices.push({
+      id: `wifi:${network.bssid}`,
+      label: title,
+      signals,
+      keys: [network.bssid, `wifi:${network.bssid}`],
+      enrichments: network.enrichment ? [network.enrichment] : [],
+    })
   }
   for (const device of input.devices) {
     const title = device.name?.trim() || device.address
@@ -95,7 +102,13 @@ export function stackSignals(input: {
       detail: `${Math.round(device.lastRssi)} dBm · ${device.address}`,
     }]
     addGps(signals, coords(device.bestLat, device.bestLon))
-    devices.push({ id: `bluetooth:${device.address}`, label: title, signals, keys: [device.address, `bluetooth:${device.address}`] })
+    devices.push({
+      id: `bluetooth:${device.address}`,
+      label: title,
+      signals,
+      keys: [device.address, `bluetooth:${device.address}`],
+      enrichments: device.enrichment ? [device.enrichment] : [],
+    })
   }
   for (const cell of input.cells) {
     const title = `${cell.radio.toUpperCase()} ${cell.cellId}`
@@ -107,7 +120,7 @@ export function stackSignals(input: {
     const lat = cell.siteLat ?? cell.bestLat
     const lon = cell.siteLon ?? cell.bestLon
     addGps(signals, coords(lat, lon))
-    devices.push({ id: `cell:${cell.key}`, label: title, signals, keys: [cell.key, `cell:${cell.key}`] })
+    devices.push({ id: `cell:${cell.key}`, label: title, signals, keys: [cell.key, `cell:${cell.key}`], enrichments: [] })
   }
   if (input.phone) {
     const signals: SignalRow[] = []
@@ -123,7 +136,7 @@ export function stackSignals(input: {
     }
     addGps(signals, coords(input.phone.lat, input.phone.lon))
     if (signals.length > 0) {
-      devices.push({ id: 'phone', label: 'This device', signals, keys: ['phone'] })
+      devices.push({ id: 'phone', label: 'This device', signals, keys: ['phone'], enrichments: [] })
     }
   }
 
@@ -157,8 +170,18 @@ export function stackSignals(input: {
       }
     }
     const keys = [...new Set(group.flatMap((device) => device.keys))].sort()
+    const enrichments = new Map<string, DeviceEnrichment>()
+    for (const enrichment of group.flatMap((device) => device.enrichments)) {
+      const key = [
+        enrichment.queryTitle,
+        enrichment.manufacturer,
+        enrichment.model,
+        enrichment.lookedUpAt,
+      ].join('|')
+      enrichments.set(key, enrichment)
+    }
     const label = group.find((device) => device.label && !device.label.includes(':'))?.label ?? group[0].label
-    return { id: keys[0] ?? group[0].id, label, signals, keys }
+    return { id: keys[0] ?? group[0].id, label, signals, keys, enrichments: [...enrichments.values()] }
   }).sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id))
 }
 

@@ -89,5 +89,7 @@ export function mergeRecord(existing: NetworkRecord | null, incoming: ScanAp, fi
     seenCount: (existing?.seenCount ?? 0) + 1,
     channels: distinctChannels([...(existing?.channels ?? []), incoming.channel]),
     place: existing?.place ?? null,
+    postalCodes: existing?.postalCodes ?? [],
+    enrichment: existing?.enrichment ?? null,
   }
 }

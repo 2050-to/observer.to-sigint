@@ -4,9 +4,11 @@ import { api } from './api'
 import { sampleScans } from './fixture'
 import { loadView, type RefreshMode } from './localCatalog'
 import { onDevice, Wardrive } from './native/drive'
-import type { MapState, OpenRow, RangeSnapshot } from './types'
+import { clearOwnedPrefs } from './ownedPrefs'
+import type { EnrichmentQueueStatus, MapState, OpenRow, RangeSnapshot } from './types'
 import { DriveMap } from './views/DriveMap'
 import { LogView } from './views/LogView'
+import { OwnedNetwork } from './views/OwnedNetwork'
 import { OpenList } from './views/OpenList'
 import { RangeGraph } from './views/RangeGraph'
 
@@ -51,9 +53,11 @@ export function App() {
   const [speed, setSpeed] = useState(SPEEDS[2].mps)
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
+  const [enrichmentStatus, setEnrichmentStatus] = useState<EnrichmentQueueStatus | null>(null)
   const [focus, setFocus] = useState<{ lat: number; lon: number; label: string } | null>(null)
   const [eraseStep, setEraseStep] = useState<0 | 1 | 2>(0)
   const [erasing, setErasing] = useState(false)
+  const [ownedReset, setOwnedReset] = useState(0)
   const { nameFor, draftFor, rename, clear } = useLabels()
   const queue = useRef(Promise.resolve())
 
@@ -68,8 +72,30 @@ export function App() {
       setWaiting(view.waiting)
       if (view.syncedNow > 0) setSyncedCount(view.syncedNow)
       setError('')
+      void api.enrichmentStatus()
+        .then(setEnrichmentStatus)
+        .catch(() => setEnrichmentStatus(null))
     })
   }, [])
+
+  useEffect(() => {
+    if (!enrichmentStatus?.enabled || enrichmentStatus.pending + enrichmentStatus.processing === 0) return
+    let stopped = false
+    const previousComplete = enrichmentStatus.complete
+    const previousActive = enrichmentStatus.pending + enrichmentStatus.processing
+    const timer = window.setTimeout(() => {
+      void api.enrichmentStatus().then(async (next) => {
+        if (stopped) return
+        setEnrichmentStatus(next)
+        const nextActive = next.pending + next.processing
+        if (next.complete > previousComplete || (previousActive > 0 && nextActive === 0)) await refresh('pull')
+      }).catch(() => undefined)
+    }, 3000)
+    return () => {
+      stopped = true
+      window.clearTimeout(timer)
+    }
+  }, [enrichmentStatus, refresh])
 
   useEffect(() => {
     let stop = false
@@ -194,6 +220,8 @@ export function App() {
       setErasing(false)
     }
     clear()
+    clearOwnedPrefs()
+    setOwnedReset((value) => value + 1)
     setRunning(false)
     setFocus(null)
     setSyncedCount(0)
@@ -266,6 +294,7 @@ export function App() {
       </section>
       {note && <p className="note">{note}</p>}
       {error && <p className="warn">{error}</p>}
+      <OwnedNetwork active={onDevice()} resetToken={ownedReset} />
       <nav>
         {(['range', 'map', 'open', 'log'] as Tab[]).map((item) => (
           <button key={item} type="button" className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>
@@ -310,6 +339,7 @@ export function App() {
           movers={map?.movers ?? []}
           phone={map?.phone ?? null}
           history={range?.history ?? []}
+          enrichmentStatus={enrichmentStatus}
           draftFor={draftFor}
           rename={rename}
         />

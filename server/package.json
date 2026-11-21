@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "test": "tsx src/logic.test.ts"
+    "test": "tsx src/logic.test.ts && tsx src/enrichment.test.ts && tsx src/ownedNetwork.test.ts && tsx src/labelLayout.test.ts && tsx src/geo.test.ts"
   },
   "dependencies": {
     "ioredis": "^5.8.2",

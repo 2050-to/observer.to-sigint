@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('wifiMapping', {
     enqueue: (options: { scans: string }) => ipcRenderer.invoke('wardrive:enqueue', options),
     clearLocal: () => ipcRenderer.invoke('wardrive:clear'),
     replaceLocal: (options: { catalog: string; journal: string }) => ipcRenderer.invoke('wardrive:replace', options),
+    catalogSubnet: (options: { consent: boolean }) => ipcRenderer.invoke('wardrive:subnet', options),
+    deviceDetails: (options: { consent: boolean; browser: string }) => ipcRenderer.invoke('wardrive:details', options),
     addListener: (eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void) => {
       const channel = eventName === 'scansSynced' ? 'wardrive:synced' : 'wardrive:queued'
       const wrapped = (_event: IpcRendererEvent, payload: { count?: number }) => listener(payload ?? {})

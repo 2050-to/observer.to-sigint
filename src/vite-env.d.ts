@@ -15,6 +15,21 @@ interface MacWardriveBridge {
   enqueue(options: { scans: string }): Promise<void>
   clearLocal(): Promise<void>
   replaceLocal(options: { catalog: string; journal: string }): Promise<void>
+  catalogSubnet(options: { consent: boolean }): Promise<{
+    cidr: string
+    interfacePrefix: number
+    limited: boolean
+    checked: number
+    hosts: { ip: string; role: 'network' | 'broadcast' | 'device' | 'host'; present: boolean; mac: string | null; name: string | null }[]
+  }>
+  deviceDetails(options: { consent: boolean; browser: string }): Promise<{
+    os: string
+    browser: string
+    ramBytes: number
+    cpu: string
+    hostname: string
+    collectedAt: string
+  }>
   addListener(eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void): Promise<{ remove: () => Promise<void> }>
 }
 

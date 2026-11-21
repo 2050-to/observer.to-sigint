@@ -13,7 +13,12 @@ export function radiusOf(phone: Fix, heard: NetworkRecord[]): number {
   return clampRadius(farthest)
 }
 
-export function snapshotFrom(heard: NetworkRecord[], phone: Fix, speedMps: number | null): RangeSnapshot {
+export function snapshotFrom(
+  heard: NetworkRecord[],
+  phone: Fix,
+  speedMps: number | null,
+  postalCodes: string[] = [],
+): RangeSnapshot {
   const radiusM = radiusOf(phone, heard)
   const timing = timingFor(radiusM, speedMps)
   return {
@@ -26,6 +31,7 @@ export function snapshotFrom(heard: NetworkRecord[], phone: Fix, speedMps: numbe
     rooms: [],
     movers: [],
     history: [],
+    postalCodes,
   }
 }
 

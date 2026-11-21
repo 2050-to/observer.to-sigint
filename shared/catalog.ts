@@ -31,6 +31,7 @@ export interface LocalCatalog {
   history: RangeSnapshot['history']
   heardBssids: string[]
   phone: Fix
+  postalCodes: string[]
   foldedScanIds: string[]
   syncedBssids: string[]
   speedMps: number | null
@@ -63,6 +64,7 @@ export function emptyCatalog(): LocalCatalog {
     history: [],
     heardBssids: [],
     phone: emptyFix(),
+    postalCodes: [],
     foldedScanIds: [],
     syncedBssids: [],
     speedMps: null,
@@ -155,6 +157,7 @@ export function foldScans(catalog: LocalCatalog, scans: JournalScan[]): LocalCat
     history,
     heardBssids,
     phone,
+    postalCodes: catalog.postalCodes ?? [],
     foldedScanIds: [...folded],
     syncedBssids: catalog.syncedBssids,
     speedMps,
@@ -189,6 +192,7 @@ export function reconcileCatalog(
     history: server.snapshot.history ?? [],
     heardBssids: server.snapshot.heard.map((network) => network.bssid),
     phone: server.snapshot.phone,
+    postalCodes: server.snapshot.postalCodes ?? [],
     foldedScanIds: uploaded,
     syncedBssids: [...synced],
     speedMps: server.snapshot.speedMps,
@@ -204,7 +208,7 @@ export function presentCatalog(catalog: LocalCatalog): PresentedCatalog {
   })
   const scene = inferScene(catalog.history ?? [])
   const range = {
-    ...snapshotFrom(heard, catalog.phone, catalog.speedMps),
+    ...snapshotFrom(heard, catalog.phone, catalog.speedMps, catalog.postalCodes ?? []),
     rooms: scene.rooms,
     movers: scene.movers,
     history: catalog.history ?? [],

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { emptyCatalog, foldScans, reconcileCatalog, scanHearsSaved } from '../../shared/catalog.js'
-import { catalogCsv } from '../../shared/csv.js'
+import { catalogBundleCsv, catalogCsv } from '../../shared/csv.js'
 import { haversineMeters } from '../../shared/geo.js'
 import { distanceFromRssi } from '../../shared/pathloss.js'
 import { collapseDevices, mergeCell, mergeDevice } from '../../shared/radios.js'
@@ -91,7 +91,27 @@ assert.ok(Math.abs(offset.north - 176.864) < 0.01)
 assert.ok(Math.abs(offset.east - 52.52) < 0.05)
 assert.equal(second.seenCount, 2)
 assert.deepEqual(second.channels, [6, 11])
+assert.deepEqual(second.postalCodes, [])
 assert.equal(second.firstSeen, '2026-01-01T00:00:00.000Z')
+const keptZip = mergeRecord({ ...second, postalCodes: ['98109'] }, ap({ ssid: 'Cafe', bssid: 'aa:bb:cc:dd:ee:01', rssi: -80, capabilities: '[ESS]' }), fix, '2026-01-01T00:07:00.000Z')
+assert.deepEqual(keptZip.postalCodes, ['98109'])
+const beacon = mergeDevice(null, {
+  address: 'aa:bb:cc:00:00:10',
+  addressType: 'public',
+  name: 'Handset',
+  rssi: -50,
+  txPower: null,
+  serviceUuids: [],
+}, fix, '2026-01-01T00:00:00.000Z')
+const beaconAgain = mergeDevice({ ...beacon, postalCodes: ['98109'] }, {
+  address: 'aa:bb:cc:00:00:10',
+  addressType: 'public',
+  name: 'Handset',
+  rssi: -60,
+  txPower: null,
+  serviceUuids: [],
+}, fix, '2026-01-01T00:01:00.000Z')
+assert.deepEqual(beaconAgain.postalCodes, ['98109'])
 
 assert.equal(classifySecurity('[WPA2-PSK-CCMP][ESS]', []), 'wpa2')
 assert.equal(classifySecurity('[WPA2-EAP-CCMP][ESS]', []), 'enterprise')
@@ -112,6 +132,28 @@ assert.equal(rows.length, 2)
 assert.equal(rows.find((row) => row.ssid === 'Cafe')?.bssidCount, 2)
 assert.equal(rows.some((row) => row.ssid === 'Home'), false)
 assert.equal(rows.find((row) => row.hidden)?.label, 'Hidden EE04')
+const elevated = {
+  ...first,
+  place: {
+    address: '1 Pike St Seattle',
+    crossStreets: ['Pike St'],
+    elevationM: 56.1,
+    fetchedAt: '2026-01-01T00:00:00.000Z',
+  },
+  postalCodes: ['98109'],
+}
+const otherZip = {
+  ...mergeRecord(null, ap({ ssid: 'Cafe', bssid: 'aa:bb:cc:dd:ee:02', rssi: -60, capabilities: '[ESS]' }), fix, '2026-01-01T00:00:00.000Z'),
+  postalCodes: ['98107'],
+}
+const elevatedRows = openRows([elevated, otherZip])
+assert.equal(elevatedRows[0]?.elevationM, 56.1)
+assert.deepEqual(elevatedRows[0]?.postalCodes, ['98109', '98107'])
+const exported = catalogCsv([elevated])
+assert.ok(exported.includes('56.1,98109'))
+const deviceExport = catalogBundleCsv([elevated], { devices: [beaconAgain] })
+assert.ok(deviceExport.includes('postal_codes'))
+assert.ok(deviceExport.includes('98109'))
 
 const scanA = {
   scanId: '11111111-1111-4111-8111-111111111111',
@@ -131,6 +173,7 @@ assert.equal(folded.networks[0]?.seenCount, 1)
 assert.equal(folded.networks[0]?.bestRssi, -42)
 assert.equal(folded.syncedBssids.length, 0)
 assert.equal(folded.foldedScanIds.length, 1)
+assert.deepEqual(foldScans({ ...emptyCatalog(), postalCodes: ['98101'] }, []).postalCodes, ['98101'])
 const weaker = foldScans(folded, [{
   ...scanA,
   scanId: '22222222-2222-4222-8222-222222222222',
@@ -164,13 +207,18 @@ const reconciled = reconcileCatalog(
       rooms: [],
       movers: [],
       history: [],
+      postalCodes: ['98104'],
     },
   },
 )
 assert.equal(reconciled.networks.find((network) => network.bssid === 'aa:bb:cc:dd:ee:09')?.ssid, 'New')
 assert.equal(reconciled.syncedBssids.includes('aa:bb:cc:dd:ee:09'), false)
 assert.equal(reconciled.networks.find((network) => network.bssid === 'aa:bb:cc:dd:ee:01')?.seenCount, 2)
-assert.equal(catalogCsv(reconciled.networks).split('\n')[0], 'last_seen,best_rssi,lat,lon,ssid,bssid,channel,security,altitude_m,floor')
+assert.deepEqual(reconciled.postalCodes, ['98104'])
+const csvHeader = catalogCsv(reconciled.networks).split('\n')[0]
+assert.ok(csvHeader.startsWith('last_seen,best_rssi,lat,lon,ssid,bssid,channel,security,altitude_m,floor,ground_elevation_m,postal_codes,manufacturer,model,category,tags'))
+assert.ok(csvHeader.includes('vulnerability_ids'))
+assert.ok(csvHeader.includes('remediation_prompt'))
 
 assert.ok(Math.abs(distanceFromRssi(-59, -59) - 1) < 0.01)
 assert.ok(Math.abs(distanceFromRssi(-81, -59) - 10) < 0.05)

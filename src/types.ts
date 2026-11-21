@@ -3,7 +3,12 @@ import type { CellRecord, DeviceRecord, MotionTrack, NetworkRecord, RangeSnapsho
 export type {
   AffiliatedLink,
   CellRecord,
+  DeviceCategory,
+  DeviceEnrichment,
   DeviceRecord,
+  EnrichmentQueueStatus,
+  EnrichmentTag,
+  EvidenceSource,
   Fix,
   MotionTrack,
   NetworkRecord,
@@ -16,10 +21,12 @@ export type {
   ScanDevice,
   ScenePing,
   SecurityLabel,
+  VulnerabilityArtifact,
 } from '../shared/types'
 
 export interface MapState {
   phone: RangeSnapshot['phone']
+  postalCodes?: string[]
   radiusM: number
   dwellSeconds: number
   scanPeriodSeconds: number
