@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { createServer } from 'node:https'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { catalogBundleCsv } from '../../shared/csv.js'
+import { catalogForensicsMarkdown } from '../../shared/forensics.js'
 import { DeepSeekEnrichmentClient } from './enrichment/deepseek.js'
 import { EnrichmentWorker } from './enrichment/worker.js'
 import { lookupPlace } from './geocode.js'
@@ -289,6 +290,17 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
       cells: await store.cells(),
       rooms: snapshot.rooms,
     }), 'text/csv; charset=utf-8')
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/export.md') {
+    const snapshot = await store.range()
+    const markdown = await catalogForensicsMarkdown(await store.catalog(), {
+      devices: await store.devices(),
+      cells: await store.cells(),
+      rooms: snapshot.rooms,
+    }, new Date().toISOString())
+    res.setHeader('Content-Disposition', 'attachment; filename="digital-forensics.md"')
+    send(res, 200, markdown, 'text/markdown; charset=utf-8')
     return
   }
   send(res, 404, { error: 'not found' })

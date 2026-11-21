@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { catalogBundleCsv } from '../../shared/csv'
+import { catalogForensicsMarkdown } from '../../shared/forensics'
 import { enrichmentSearchText } from '../../shared/enrichment'
 import { findRotatingAddresses, type RotationGroup } from '../../shared/rotation'
 import { SIGNAL_COLORS, SIGNAL_KINDS, SIGNAL_NAMES, stackSignals, type SignalKind, type StackedDevice } from '../../shared/sources'
@@ -107,6 +108,15 @@ export function LogView({
     })
   }
 
+  function saveBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   async function download() {
     let blob: Blob
     try {
@@ -114,12 +124,19 @@ export function LogView({
     } catch {
       blob = new Blob([catalogBundleCsv(networks, { devices, cells, rooms })], { type: 'text/csv; charset=utf-8' })
     }
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'wifi-networks.csv'
-    link.click()
-    URL.revokeObjectURL(url)
+    saveBlob(blob, 'wifi-networks.csv')
+  }
+
+  async function downloadReport() {
+    const extras = { devices, cells, rooms }
+    let blob: Blob
+    try {
+      blob = await api.forensics()
+    } catch {
+      const markdown = await catalogForensicsMarkdown(networks, extras, new Date().toISOString())
+      blob = new Blob([markdown], { type: 'text/markdown; charset=utf-8' })
+    }
+    saveBlob(blob, 'digital-forensics.md')
   }
 
   return (
@@ -135,7 +152,10 @@ export function LogView({
             </p>
           )}
         </div>
-        <button type="button" onClick={() => void download()}>Download CSV</button>
+        <div className="actions">
+          <button type="button" onClick={() => void downloadReport()}>Download report</button>
+          <button type="button" onClick={() => void download()}>Download CSV</button>
+        </div>
       </div>
       <div className="datasources">
         <div className="log-head">

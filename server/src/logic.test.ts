@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { emptyCatalog, foldScans, reconcileCatalog, scanHearsSaved } from '../../shared/catalog.js'
 import { catalogBundleCsv, catalogCsv } from '../../shared/csv.js'
+import { catalogForensicsMarkdown } from '../../shared/forensics.js'
 import { haversineMeters } from '../../shared/geo.js'
 import { distanceFromRssi } from '../../shared/pathloss.js'
 import { collapseDevices, mergeCell, mergeDevice } from '../../shared/radios.js'
@@ -13,7 +15,7 @@ import { timingFor } from './dwell.js'
 import { eastNorthMeters, plottedHeight } from './height.js'
 import { collapseScan, mergeRecord } from './merge.js'
 import { classifySecurity, openRows } from './security.js'
-import type { NetworkRecord, Room, ScanAp, ScanCell, ScanDevice, ScenePing } from './types.js'
+import type { DeviceEnrichment, NetworkRecord, Room, ScanAp, ScanCell, ScanDevice, ScenePing } from './types.js'
 
 process.env.DATA_KEY = Buffer.alloc(32, 7).toString('base64')
 process.env.HMAC_KEY = Buffer.alloc(32, 9).toString('base64')
@@ -603,5 +605,68 @@ const missingPlace = findRotatingAddresses([
   ping({ observedAt: '2026-01-01T00:00:03.000Z', lat: null, lon: null, devices: [radio('aa:bb:cc:00:00:52', -51)] }),
 ])
 assert.equal(missingPlace.length, 0)
+
+const remediationPrompt = 'REMEDIATION-PROMPT-SHOULD-NOT-APPEAR'
+const exploitUrl = 'https://www.exploit-db.com/exploits/55555'
+const supportUrl = 'https://support.example/router'
+const forensicsEnrichment: DeviceEnrichment = {
+  schemaVersion: 1,
+  status: 'complete',
+  queryTitle: 'Cafe',
+  manufacturer: 'Example',
+  model: 'Radio',
+  category: 'Router',
+  tags: ['Router'],
+  summary: 'A router.',
+  confidence: 'low',
+  supportStatus: 'unknown',
+  supportEndsAt: null,
+  officialSupportUrl: supportUrl,
+  releases: [],
+  newestRelease: null,
+  vulnerabilities: [{
+    id: 'CVE-2025-1234',
+    title: 'Example issue',
+    severity: 'high',
+    cvss: null,
+    affectedVersions: null,
+    fixedVersion: null,
+    publishedAt: null,
+    updatedAt: null,
+    mitigation: null,
+    cisaKev: true,
+    knownExploited: true,
+    publicExploit: true,
+    applicability: 'potential',
+    links: [{
+      kind: 'public_exploit',
+      title: 'PoC',
+      url: exploitUrl,
+      official: false,
+      accessedAt: '2026-01-01T00:00:00.000Z',
+    }],
+  }],
+  risk: { level: 'high', reasons: ['Known exploited'] },
+  sources: [
+    { kind: 'support', title: 'Support', url: supportUrl, official: true, accessedAt: '2026-01-01T00:00:00.000Z' },
+    { kind: 'public_exploit', title: 'PoC', url: exploitUrl, official: false, accessedAt: '2026-01-01T00:00:00.000Z' },
+  ],
+  remediationPrompt,
+  lookedUpAt: '2026-01-01T00:00:00.000Z',
+  modelName: 'deepseek-flash',
+}
+const forensicsNetwork = { ...elevated, enrichment: forensicsEnrichment }
+const forensicsExtras = { devices: [beaconAgain], cells: [], rooms: [] }
+const report = await catalogForensicsMarkdown([forensicsNetwork], forensicsExtras, '2026-01-02T00:00:00.000Z')
+const reportHash = createHash('sha256').update(catalogBundleCsv([forensicsNetwork], forensicsExtras)).digest('hex')
+assert.match(report, /^# Digital forensics report/)
+assert.ok(report.includes('aa:bb:cc:dd:ee:01'))
+assert.ok(report.includes('aa:bb:cc:00:00:10'))
+assert.ok(report.includes(`SHA-256 of the companion CSV: ${reportHash}`))
+assert.equal(report.includes(remediationPrompt), false)
+assert.equal(report.includes(exploitUrl), false)
+assert.ok(report.includes(supportUrl))
+assert.ok(report.includes('CVE-2025-1234'))
+assert.ok(report.includes('Public exploit reference: yes'))
 
 console.log('logic tests passed')

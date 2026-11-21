@@ -36,5 +36,6 @@ export const api = {
   place: async (body: { bssid?: string; lat: number; lon: number }): Promise<{ place: PlaceInfo; network?: NetworkRecord; postalCodes?: string[] }> =>
     request('/api/place', { method: 'POST', body: JSON.stringify(body) }).then((response) => response.json()),
   csv: async (): Promise<Blob> => request('/api/export.csv').then((response) => response.blob()),
+  forensics: async (): Promise<Blob> => request('/api/export.md').then((response) => response.blob()),
   reset: (): Promise<void> => request('/api/reset', { method: 'POST' }).then(() => undefined),
 }
