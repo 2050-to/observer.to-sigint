@@ -17,23 +17,6 @@ main {
   padding: 20px 16px 40px;
 }
 
-main.fit-window {
-  height: 100dvh;
-  max-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding-bottom: 16px;
-}
-
-main.fit-window > header,
-main.fit-window > .status,
-main.fit-window > .note,
-main.fit-window > .warn,
-main.fit-window > nav {
-  flex: 0 0 auto;
-}
-
 header {
   display: flex;
   justify-content: space-between;
@@ -88,19 +71,11 @@ nav { margin: 8px 0 12px; }
 
 .panel { display: grid; gap: 12px; }
 
-.graph, .map, .space {
+.graph, .map {
   height: 520px;
   background: #1c2420;
   border-radius: 16px;
   overflow: hidden;
-}
-
-.space { position: relative; }
-
-.floor-label {
-  color: #c5d5cc;
-  font-size: 12px;
-  white-space: nowrap;
 }
 
 .legend { list-style: none; padding: 0; margin: 0; color: #8aa398; font-size: 13px; }
@@ -123,32 +98,6 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #2c3a33; }
 .meta dd { margin: 0; }
 
 .map.leaflet-container { background: #1c2420; height: 520px; width: 100%; font: inherit; }
-
-.sonar, .plan {
-  width: 100%;
-  background: #1c2420;
-  border-radius: 16px;
-}
-
-main.fit-window > .rooms-view {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-  align-content: start;
-}
-
-.rooms-view .sonar,
-.rooms-view .plan {
-  display: block;
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: calc(100dvh - 14rem);
-}
-
-.building { display: grid; gap: 8px; }
-.building h2, .building h3 { font-size: 16px; }
-.floor-note { margin: 0; color: #8aa398; font-size: 13px; }
 
 .label-field {
   background: transparent;

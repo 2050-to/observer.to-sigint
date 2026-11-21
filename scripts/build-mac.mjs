@@ -60,7 +60,9 @@ if (packed.status !== 0 || !packedFiles.has('/dist/index.html')) {
 const staging = join(release, 'dmg-staging')
 rmSync(staging, { recursive: true, force: true })
 mkdirSync(staging)
-cpSync(app, join(staging, 'Wi-Fi Mapping.app'), { recursive: true })
+// ditto keeps the framework symlinks relative. fs.cp turns them into absolute
+// paths back to the build folder, and the packaged app then crashes on open.
+run('ditto', [app, join(staging, 'Wi-Fi Mapping.app')])
 symlinkSync('/Applications', join(staging, 'Applications'))
 const dmg = join(release, 'Wi-Fi Mapping.dmg')
 run('hdiutil', ['create', '-volname', 'Wi-Fi Mapping', '-srcfolder', staging, '-ov', '-format', 'UDZO', dmg])

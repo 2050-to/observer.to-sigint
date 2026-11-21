@@ -1,6 +1,6 @@
 # Wi-Fi Mapping
 
-Local app for collecting and reviewing Wi-Fi networks. A React UI shows range, map, space, open networks, and a log. An HTTPS API stores scans in Postgres and keeps a short-lived snapshot in Redis. An optional Android app and a macOS app scan nearby networks and post them to the API.
+Local app for collecting and reviewing Wi-Fi networks. A React UI shows range, a map, open networks, and a log. An HTTPS API stores scans in Postgres and keeps a short-lived snapshot in Redis. An optional Android app and a macOS app scan nearby networks and post them to the API.
 
 The browser cannot scan Wi-Fi. Use **Load sample drive** there. Real scans run in the Android app.
 

@@ -9,10 +9,8 @@ import { DriveMap } from './views/DriveMap'
 import { LogView } from './views/LogView'
 import { OpenList } from './views/OpenList'
 import { RangeGraph } from './views/RangeGraph'
-import { RoomsView } from './views/RoomsView'
-import { SpaceView } from './views/SpaceView'
 
-type Tab = 'range' | 'map' | 'space' | 'rooms' | 'open' | 'log'
+type Tab = 'range' | 'map' | 'open' | 'log'
 
 const SPEEDS = [
   { id: 'walk', label: 'Slow walk', mps: 0.82 },
@@ -156,7 +154,7 @@ export function App() {
   }
 
   return (
-    <main className={tab === 'rooms' ? 'fit-window' : undefined}>
+    <main>
       <header>
         <div>
           <p className="eyebrow">Omnidirectional range</p>
@@ -191,9 +189,9 @@ export function App() {
       {note && <p className="note">{note}</p>}
       {error && <p className="warn">{error}</p>}
       <nav>
-        {(['range', 'map', 'space', 'rooms', 'open', 'log'] as Tab[]).map((item) => (
+        {(['range', 'map', 'open', 'log'] as Tab[]).map((item) => (
           <button key={item} type="button" className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>
-            {item === 'range' ? 'In range' : item === 'map' ? 'Map' : item === 'space' ? 'Space' : item === 'rooms' ? 'Rooms' : item === 'open' ? 'Open' : 'Log'}
+            {item === 'range' ? 'In range' : item === 'map' ? 'Map' : item === 'open' ? 'Open' : 'Log'}
           </button>
         ))}
       </nav>
@@ -208,35 +206,6 @@ export function App() {
           nameFor={nameFor}
           draftFor={draftFor}
           rename={rename}
-        />
-      )}
-      {tab === 'space' && (
-        <SpaceView
-          phone={map?.phone ?? null}
-          networks={map?.networks ?? []}
-          devices={map?.devices ?? []}
-          rooms={map?.rooms ?? []}
-          movers={map?.movers ?? []}
-          nameFor={nameFor}
-          draftFor={draftFor}
-          rename={rename}
-        />
-      )}
-      {tab === 'rooms' && (
-        <RoomsView
-          rooms={map?.rooms ?? []}
-          movers={map?.movers ?? []}
-          devices={map?.devices ?? []}
-          networks={map?.networks ?? []}
-          cells={map?.cells ?? []}
-          phone={map?.phone ?? null}
-          nameFor={nameFor}
-          draftFor={draftFor}
-          rename={rename}
-          onShow={(point) => {
-            setFocus(point)
-            setTab('map')
-          }}
         />
       )}
       {tab === 'open' && (

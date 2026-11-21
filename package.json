@@ -52,8 +52,7 @@
     "cytoscape": "^3.32.0",
     "leaflet": "^1.9.4",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "three": "^0.187.0"
+    "react-dom": "^19.1.0"
   },
   "devDependencies": {
     "@capacitor/cli": "^7.4.2",
@@ -63,7 +62,6 @@
     "@types/node": "^26.6.6",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
-    "@types/three": "^0.187.0",
     "@vitejs/plugin-react": "^4.4.1",
     "electron": "^45.4.1",
     "electron-builder": "^26.18.0",
