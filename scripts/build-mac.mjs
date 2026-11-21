@@ -50,6 +50,12 @@ const release = join(root, 'release')
 const macDir = readdirSync(release).find((name) => name.startsWith('mac'))
 if (!macDir) throw new Error('electron-builder did not write a mac app directory')
 const app = join(release, macDir, 'Wi-Fi Mapping.app')
+const packed = spawnSync('npx', ['@electron/asar', 'list', join(app, 'Contents/Resources/app.asar')], { cwd: root, encoding: 'utf8' })
+const packedFiles = new Set((packed.stdout || '').split('\n'))
+if (packed.status !== 0 || !packedFiles.has('/dist/index.html')) {
+  console.error(packed.stderr || 'The packaged app is missing dist/index.html')
+  process.exit(1)
+}
 run('codesign', ['--force', '--deep', '--sign', '-', app])
 
 const staging = join(release, 'dmg-staging')

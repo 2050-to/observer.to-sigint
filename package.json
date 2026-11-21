@@ -15,6 +15,24 @@
   "build": {
     "appId": "com.wifimapping.app",
     "productName": "Wi-Fi Mapping",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/dist/**/*",
+      "macos/addon/build/Release/scanner.node",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/scanner.node"
+    ],
+    "extraResources": [
+      {
+        "from": "build-resources/ca.crt",
+        "to": "ca.crt"
+      }
+    ],
     "mac": {
       "category": "public.app-category.utilities",
       "extendInfo": {
