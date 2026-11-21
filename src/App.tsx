@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useLabels } from './labels'
 import { api } from './api'
 import { sampleScans } from './fixture'
 import { loadView, type RefreshMode } from './localCatalog'
@@ -21,10 +22,15 @@ const SPEEDS = [
 
 const NO_HEARD: RangeSnapshot['heard'] = []
 
+function deviceLabel(): string {
+  if (typeof window !== 'undefined' && window.wifiMapping) return 'Mac'
+  return 'phone'
+}
+
 function waitingText(count: number): string {
   const noun = count === 1 ? 'scan' : 'scans'
   const pronoun = count === 1 ? 'It' : 'They'
-  return `${count} ${noun} on this phone. ${pronoun} will sync when a saved network is in range.`
+  return `${count} ${noun} on this ${deviceLabel()}. ${pronoun} will sync when a saved network is in range.`
 }
 
 function syncedText(count: number): string {
@@ -44,6 +50,7 @@ export function App() {
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
   const [focus, setFocus] = useState<{ lat: number; lon: number; label: string } | null>(null)
+  const { nameFor, draftFor, rename } = useLabels()
   const queue = useRef(Promise.resolve())
 
   const refresh = useCallback((mode: RefreshMode) => {
@@ -190,20 +197,29 @@ export function App() {
           </button>
         ))}
       </nav>
-      {tab === 'range' && <RangeGraph heard={range?.heard ?? NO_HEARD} />}
+      {tab === 'range' && (
+        <RangeGraph heard={range?.heard ?? NO_HEARD} nameFor={nameFor} draftFor={draftFor} rename={rename} />
+      )}
       {tab === 'map' && (
         <DriveMap
           map={map}
           focus={focus}
           onPlaceSaved={() => void refresh(running ? 'pull' : 'sync')}
+          nameFor={nameFor}
+          draftFor={draftFor}
+          rename={rename}
         />
       )}
       {tab === 'space' && (
         <SpaceView
           phone={map?.phone ?? null}
           networks={map?.networks ?? []}
+          devices={map?.devices ?? []}
           rooms={map?.rooms ?? []}
           movers={map?.movers ?? []}
+          nameFor={nameFor}
+          draftFor={draftFor}
+          rename={rename}
         />
       )}
       {tab === 'rooms' && (
@@ -211,6 +227,12 @@ export function App() {
           rooms={map?.rooms ?? []}
           movers={map?.movers ?? []}
           devices={map?.devices ?? []}
+          networks={map?.networks ?? []}
+          cells={map?.cells ?? []}
+          phone={map?.phone ?? null}
+          nameFor={nameFor}
+          draftFor={draftFor}
+          rename={rename}
           onShow={(point) => {
             setFocus(point)
             setTab('map')
@@ -220,6 +242,9 @@ export function App() {
       {tab === 'open' && (
         <OpenList
           rows={openRows}
+          nameFor={nameFor}
+          draftFor={draftFor}
+          rename={rename}
           onShow={(row) => {
             if (row.lat == null || row.lon == null) return
             setFocus({ lat: row.lat, lon: row.lon, label: row.label })
@@ -235,6 +260,10 @@ export function App() {
           devices={map?.devices ?? []}
           cells={map?.cells ?? []}
           rooms={map?.rooms ?? []}
+          movers={map?.movers ?? []}
+          phone={map?.phone ?? null}
+          draftFor={draftFor}
+          rename={rename}
         />
       )}
     </main>

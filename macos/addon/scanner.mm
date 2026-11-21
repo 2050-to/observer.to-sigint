@@ -62,15 +62,35 @@ static BOOL LocallyAdministered(NSString *address) {
   return (value & 0x02) != 0;
 }
 
-static BOOL MacAddress(NSString *address) {
-  NSRegularExpression *pattern = [NSRegularExpression regularExpressionWithPattern:@"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$" options:NSRegularExpressionCaseInsensitive error:nil];
+static BOOL Matches(NSString *address, NSString *expression) {
+  NSRegularExpression *pattern = [NSRegularExpression regularExpressionWithPattern:expression options:NSRegularExpressionCaseInsensitive error:nil];
   return [pattern numberOfMatchesInString:address options:0 range:NSMakeRange(0, address.length)] == 1;
+}
+
+static BOOL MacAddress(NSString *address) {
+  return Matches(address, @"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$");
+}
+
+static BOOL DeviceKey(NSString *address) {
+  return MacAddress(address) || Matches(address, @"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
+}
+
+static NSString *FullUuid(CBUUID *uuid) {
+  NSString *text = uuid.UUIDString.lowercaseString;
+  if (text.length == 4) return [NSString stringWithFormat:@"0000%@-0000-1000-8000-00805f9b34fb", text];
+  if (text.length == 8) return [NSString stringWithFormat:@"%@-0000-1000-8000-00805f9b34fb", text];
+  return text;
+}
+
+static BOOL LocationGranted(CLAuthorizationStatus status) {
+  return status == kCLAuthorizationStatusAuthorizedAlways;
 }
 
 @interface RadioScanner : NSObject <CBCentralManagerDelegate, CLLocationManagerDelegate>
 @property(nonatomic, strong) CBCentralManager *central;
 @property(nonatomic, strong) CLLocationManager *locationManager;
 @property(nonatomic, strong) CLLocation *location;
+@property(nonatomic, strong) NSNumber *referenceAltitude;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSDictionary *> *adverts;
 @property(nonatomic, strong) dispatch_source_t timer;
 @property(nonatomic, assign) BOOL active;
@@ -101,6 +121,7 @@ static BOOL MacAddress(NSString *address) {
 
 - (void)startScanning {
   self.active = YES;
+  self.referenceAltitude = nil;
   dispatch_async(dispatch_get_main_queue(), ^{
     if (self.locationManager == nil || self.central == nil) return;
     [NSApp activateIgnoringOtherApps:YES];
@@ -128,6 +149,7 @@ static BOOL MacAddress(NSString *address) {
 
 - (void)stop {
   self.active = NO;
+  self.referenceAltitude = nil;
   dispatch_source_t timer = self.timer;
   self.timer = nil;
   if (timer) dispatch_source_cancel(timer);
@@ -154,8 +176,10 @@ static BOOL MacAddress(NSString *address) {
     payload = @{
       @"wifiOn": @NO,
       @"bluetoothOn": @NO,
+      @"cellOn": @NO,
       @"networks": @[],
       @"devices": @[],
+      @"cells": @[],
       @"message": exception.reason ?: @"Wi-Fi scan failed.",
     };
   }
@@ -170,7 +194,7 @@ static BOOL MacAddress(NSString *address) {
   void (^readRadios)(void) = ^{
     bluetoothOn = self.central.state == CBManagerStatePoweredOn;
     CLAuthorizationStatus authorization = self.locationManager.authorizationStatus;
-    locationAllowed = authorization == kCLAuthorizationStatusAuthorizedAlways;
+    locationAllowed = LocationGranted(authorization);
     status = [self statusMessage];
   };
   if ([NSThread isMainThread]) readRadios();
@@ -182,8 +206,10 @@ static BOOL MacAddress(NSString *address) {
     return @{
       @"wifiOn": @NO,
       @"bluetoothOn": @(bluetoothOn),
+      @"cellOn": @NO,
       @"networks": @[],
       @"devices": devices,
+      @"cells": @[],
       @"message": @"Wi-Fi is off.",
     };
   }
@@ -193,8 +219,10 @@ static BOOL MacAddress(NSString *address) {
     return @{
       @"wifiOn": @YES,
       @"bluetoothOn": @(bluetoothOn),
+      @"cellOn": @NO,
       @"networks": @[],
       @"devices": devices,
+      @"cells": @[],
       @"message": error.localizedDescription ?: @"Wi-Fi scan failed.",
     };
   }
@@ -211,8 +239,10 @@ static BOOL MacAddress(NSString *address) {
   NSMutableDictionary *payload = [@{
     @"wifiOn": @YES,
     @"bluetoothOn": @(bluetoothOn),
+    @"cellOn": @NO,
     @"networks": networks,
     @"devices": devices,
+    @"cells": @[],
     @"message": status,
   } mutableCopy];
   [self addLocation:payload];
@@ -239,6 +269,8 @@ static BOOL MacAddress(NSString *address) {
   if (fix.verticalAccuracy >= 0) {
     payload[@"altitudeM"] = @(fix.altitude);
     payload[@"verticalAccuracyM"] = @(fix.verticalAccuracy);
+    if (!self.referenceAltitude) self.referenceAltitude = @(fix.altitude);
+    payload[@"relativeM"] = @(fix.altitude - self.referenceAltitude.doubleValue);
   }
   if (fix.speed >= 0) payload[@"speedMps"] = @(fix.speed);
 }
@@ -253,7 +285,7 @@ static BOOL MacAddress(NSString *address) {
 }
 
 - (void)centralManagerDidUpdateState:(CBCentralManager *)central {
-  if (central.state == CBManagerStatePoweredOn && self.timer) {
+  if (central.state == CBManagerStatePoweredOn && self.active) {
     [central scanForPeripheralsWithServices:nil options:@{CBCentralManagerScanOptionAllowDuplicatesKey: @YES}];
   }
 }
@@ -261,16 +293,17 @@ static BOOL MacAddress(NSString *address) {
 - (void)centralManager:(CBCentralManager *)central didDiscoverPeripheral:(CBPeripheral *)peripheral advertisementData:(NSDictionary<NSString *, id> *)advertisementData RSSI:(NSNumber *)RSSI {
   (void)central;
   NSString *address = peripheral.identifier.UUIDString.lowercaseString;
-  if (!MacAddress(address)) return;
-  id name = advertisementData[CBAdvertisementDataLocalNameKey] ?: peripheral.name;
+  if (!DeviceKey(address)) return;
+  id name = advertisementData[CBAdvertisementDataLocalNameKey];
   id tx = advertisementData[CBAdvertisementDataTxPowerLevelKey];
   NSMutableArray *uuids = [NSMutableArray array];
   for (CBUUID *uuid in advertisementData[CBAdvertisementDataServiceUUIDsKey]) {
-    [uuids addObject:uuid.UUIDString.lowercaseString];
+    [uuids addObject:FullUuid(uuid)];
   }
+  NSString *addressType = MacAddress(address) && !LocallyAdministered(address) ? @"public" : @"random";
   NSMutableDictionary *device = [@{
     @"address": address,
-    @"addressType": LocallyAdministered(address) ? @"random" : @"public",
+    @"addressType": addressType,
     @"rssi": RSSI ?: @0,
     @"serviceUuids": uuids,
   } mutableCopy];
@@ -278,14 +311,13 @@ static BOOL MacAddress(NSString *address) {
   if ([tx isKindOfClass:[NSNumber class]] && [tx intValue] != 127) device[@"txPower"] = tx;
   else device[@"txPower"] = [NSNull null];
   @synchronized (self.adverts) {
-    NSDictionary *previous = self.adverts[address];
-    if (!previous || [RSSI intValue] > [previous[@"rssi"] intValue]) self.adverts[address] = device;
+    self.adverts[address] = device;
   }
 }
 
 - (void)locationManagerDidChangeAuthorization:(CLLocationManager *)manager {
   CLAuthorizationStatus status = manager.authorizationStatus;
-  if (status == kCLAuthorizationStatusAuthorizedAlways) {
+  if (LocationGranted(status) && self.active) {
     [manager startUpdatingLocation];
   }
 }

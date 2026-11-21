@@ -3,14 +3,16 @@ import { emptyCatalog, foldScans, reconcileCatalog, scanHearsSaved } from '../..
 import { catalogCsv } from '../../shared/csv.js'
 import { haversineMeters } from '../../shared/geo.js'
 import { distanceFromRssi } from '../../shared/pathloss.js'
-import { mergeCell, mergeDevice } from '../../shared/radios.js'
+import { collapseDevices, mergeCell, mergeDevice } from '../../shared/radios.js'
 import { inferScene, stripPing } from '../../shared/scene.js'
+import { segmentSignals, stackSignals } from '../../shared/sources.js'
+import { estimateBuildings } from '../../shared/structure.js'
 import { decryptJson, encryptJson, bssidHmac } from './crypto.js'
 import { timingFor } from './dwell.js'
 import { eastNorthMeters, plottedHeight } from './height.js'
 import { collapseScan, mergeRecord } from './merge.js'
 import { classifySecurity, openRows } from './security.js'
-import type { NetworkRecord, ScanAp, ScanCell, ScanDevice, ScenePing } from './types.js'
+import type { NetworkRecord, Room, ScanAp, ScanCell, ScanDevice, ScenePing } from './types.js'
 
 process.env.DATA_KEY = Buffer.alloc(32, 7).toString('base64')
 process.env.HMAC_KEY = Buffer.alloc(32, 9).toString('base64')
@@ -326,6 +328,14 @@ assert.equal(handset?.kind, 'vehicle')
 assert.equal(handset?.roomId, null)
 assert.ok(withPhone.rooms.every((room) => room.members.every((member) => member.id !== 'phone')))
 
+const macUuid = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+const fromMac = collapseDevices([radio(macUuid, -40, 'random', { name: 'Speaker' })])
+const speaker = fromMac[0]
+assert.ok(speaker)
+assert.equal(speaker.address, macUuid)
+assert.equal(mergeDevice(null, speaker, fix, '2026-01-01T03:00:00.000Z').address, macUuid)
+assert.equal(collapseDevices([radio('not-an-address', -40)]).length, 0)
+
 const namedA = mergeDevice(null, radio('aa:bb:cc:00:00:21', -60, 'random', { name: 'Phone' }), fix, '2026-01-01T02:00:00.000Z')
 const namedB = mergeDevice(null, radio('aa:bb:cc:00:00:22', -60, 'random', { name: 'Phone' }), fix, '2026-01-01T02:00:00.000Z')
 assert.notEqual(namedA.address, namedB.address)
@@ -370,5 +380,74 @@ let remote = mergeCell(null, towerInput(false, null), { ...fix, lat: 47.62, lon:
 remote = mergeCell(remote, towerInput(false, null), { ...fix, lat: 47.62 + 10 / 110540, lon: -122.35 }, '2026-01-01T03:01:10.000Z')
 assert.equal(remote.role, 'remote')
 assert.equal(remote.siteLat, null)
+
+function placedRoom(id: string, lat: number, lon: number, relative: number | null, bssid: string | null = null): Room {
+  return {
+    id,
+    originKind: 'wifi',
+    originLabel: id,
+    originBssid: bssid,
+    lat,
+    lon,
+    radiusM: 4,
+    widthM: 4,
+    depthM: 4,
+    confidence: 1,
+    members: [],
+  }
+}
+
+const eastLon = -122.35 + 4 / (111320 * Math.cos((47.62 * Math.PI) / 180))
+const joined = estimateBuildings([
+  placedRoom('room:a', 47.62, -122.35, null),
+  placedRoom('room:b', 47.62, eastLon, null),
+], { networks: [], devices: [], phone: null })
+assert.equal(joined.length, 1)
+assert.equal(joined[0].floors.length, 1)
+assert.ok(joined[0].floors[0].walls.some((wall) => wall.kind === 'interior'))
+assert.ok(joined[0].floors[0].walls.some((wall) => wall.kind === 'exterior'))
+
+const split = estimateBuildings([
+  placedRoom('room:near', 47.62, -122.35, null),
+  placedRoom('room:far', 47.63, -122.35, null),
+], { networks: [], devices: [], phone: null })
+assert.equal(split.length, 2)
+
+const stackedFloors = estimateBuildings([
+  placedRoom('room:low', 47.62, -122.35, 0, 'aa:bb:cc:dd:ee:10'),
+  placedRoom('room:high', 47.62, -122.35, 9, 'aa:bb:cc:dd:ee:11'),
+], {
+  networks: [
+    { bssid: 'aa:bb:cc:dd:ee:10', bestRelativeM: 0, bestAltitudeM: null, bestVerticalAccuracyM: null },
+    { bssid: 'aa:bb:cc:dd:ee:11', bestRelativeM: 9, bestAltitudeM: null, bestVerticalAccuracyM: null },
+  ],
+  devices: [],
+  phone: null,
+})
+assert.equal(stackedFloors.length, 1)
+assert.deepEqual(stackedFloors[0].floors.map((floor) => floor.index), [0, 3])
+
+const linked = stackSignals({
+  networks: [{ bssid: 'aa:bb:cc:dd:ee:01', ssid: 'Cafe', hidden: false, bestRssi: -40, bestLat: 47.62, bestLon: -122.35 }],
+  devices: [{ address: 'aa:bb:cc:00:00:10', name: 'Handset', lastRssi: -50, bestLat: null, bestLon: null }],
+  cells: [],
+  movers: [{
+    id: 'track:aa:bb:cc:dd:ee:01+aa:bb:cc:00:00:10@1',
+    label: 'Handset',
+    roomId: null,
+    kind: 'person or vehicle',
+    capabilities: ['wifi', 'bluetooth'],
+    speedMps: 1.5,
+    speedKind: 'radial_lower_bound',
+    distanceM: 4,
+  }],
+  phone: { lat: 47.62, lon: -122.35, accuracy: 5, altitudeM: null, verticalAccuracyM: null, relativeM: null },
+})
+const linkedHandset = linked.find((device) => device.keys.includes('aa:bb:cc:dd:ee:01') && device.keys.includes('aa:bb:cc:00:00:10'))
+assert.ok(linkedHandset)
+assert.ok(linkedHandset?.signals.some((signal) => signal.kind === 'wifi'))
+assert.ok(linkedHandset?.signals.some((signal) => signal.kind === 'bluetooth'))
+assert.ok(linkedHandset?.signals.some((signal) => signal.kind === 'gps'))
+assert.deepEqual(segmentSignals(linked).map((section) => section.kind), ['wifi', 'bluetooth', 'gps'])
 
 console.log('logic tests passed')

@@ -4,13 +4,14 @@ import { coarseCellRangeM, distanceFromRssi } from './pathloss.js'
 import type { CellRecord, DeviceRecord, Fix, ScanCell, ScanDevice, SignalObservation } from './types.js'
 
 const MAC = /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/i
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const OBSERVATION_CAP = 40
 const SITE_SPREAD_M = 100
 
 export function normalizeMac(value: string): string {
-  const mac = value.trim().toLowerCase()
-  if (!MAC.test(mac)) throw new Error(`invalid address ${value}`)
-  return mac
+  const address = value.trim().toLowerCase()
+  if (MAC.test(address) || UUID.test(address)) return address
+  throw new Error(`invalid address ${value}`)
 }
 
 export function cellKeyOf(cell: Pick<ScanCell, 'radio' | 'mcc' | 'mnc' | 'area' | 'cellId'>): string {

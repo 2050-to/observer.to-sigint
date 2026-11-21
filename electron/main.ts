@@ -4,13 +4,15 @@ import { createRequire } from 'node:module'
 import { Agent } from 'node:https'
 import { join } from 'node:path'
 import { request as httpsRequest } from 'node:https'
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, powerSaveBlocker } from 'electron'
 import { CatalogStore, type StoredScan } from './catalog'
 import { listen } from './server'
 
 const require = createRequire(__filename)
 const API_ORIGIN = 'https://127.0.0.1:9453'
 const MIN_PERIOD_MS = 30_000
+const V_SLOW = 0.82
+const V_MAX = 44.704
 
 interface ScannerModule {
   start(callback: (json: string) => void): void
@@ -29,23 +31,27 @@ interface NativeScan {
   speedMps?: number | null
   wifiOn?: boolean
   bluetoothOn?: boolean
+  cellOn?: boolean
   networks?: { bssid?: string; rssi?: number }[]
   devices?: unknown[]
+  cells?: unknown[]
 }
 
 interface ScanReply {
   radiusM?: number
-  scanPeriodSeconds?: number
 }
 
 let window: BrowserWindow | null = null
 let store: CatalogStore
 let scanner: ScannerModule | null = null
 let running = false
+let quitting = false
+let sleepBlocker = -1
 let message = 'Drive is stopped.'
 let apiUrl = ''
 let token = ''
-let lastFingerprint = ''
+let radiusM = 91.4
+let lastSpeed: number | null = null
 let flushing = false
 let flushAgain = false
 let chain = Promise.resolve()
@@ -87,6 +93,30 @@ function numberOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+function periodFor(radius: number, speedMps: number | null): number {
+  const speed = speedMps == null ? V_MAX : Math.min(V_MAX, Math.max(V_SLOW, speedMps))
+  return Math.max((2 * radius / speed) * 1000, MIN_PERIOD_MS)
+}
+
+function applyPeriod(): void {
+  scanner?.setPeriod(Math.round(periodFor(radiusM, lastSpeed)))
+}
+
+function holdAwake(active: boolean): void {
+  if (active) {
+    if (!powerSaveBlocker.isStarted(sleepBlocker)) sleepBlocker = powerSaveBlocker.start('prevent-app-suspension')
+    return
+  }
+  if (powerSaveBlocker.isStarted(sleepBlocker)) powerSaveBlocker.stop(sleepBlocker)
+  sleepBlocker = -1
+}
+
+function waitingStatus(count: number): string {
+  const noun = count === 1 ? 'scan' : 'scans'
+  const pronoun = count === 1 ? 'It' : 'They'
+  return `${count} ${noun} on this Mac. ${pronoun} will sync when a saved network is in range.`
+}
+
 function hearsSaved(networks: { bssid?: string }[], saved: string[]): boolean {
   if (!saved.length) return false
   const known = new Set(saved)
@@ -109,10 +139,10 @@ function toScan(payload: NativeScan): StoredScan {
     speedMps: numberOrNull(payload.speedMps),
     wifiOn: Boolean(payload.wifiOn),
     bluetoothOn: Boolean(payload.bluetoothOn),
-    cellOn: false,
+    cellOn: Boolean(payload.cellOn),
     networks: Array.isArray(payload.networks) ? payload.networks : [],
     devices: Array.isArray(payload.devices) ? payload.devices : [],
-    cells: [],
+    cells: Array.isArray(payload.cells) ? payload.cells : [],
   }
 }
 
@@ -194,9 +224,7 @@ async function flush(): Promise<void> {
           const bssid = network.bssid?.trim().toLowerCase()
           if (bssid) synced.push(bssid)
         }
-        if (typeof response.scanPeriodSeconds === 'number' && response.scanPeriodSeconds > 0) {
-          scanner?.setPeriod(Math.max(MIN_PERIOD_MS, Math.round(response.scanPeriodSeconds * 1000)))
-        }
+        if (typeof response.radiusM === 'number' && response.radiusM > 0) radiusM = response.radiusM
       }
       if (uploadedIds.length) {
         await exclusive(() => {
@@ -215,7 +243,11 @@ async function flush(): Promise<void> {
     const noun = accepted === 1 ? 'scan' : 'scans'
     message = `Synced ${accepted} ${noun}.`
     window?.webContents.send('wardrive:synced', { count: accepted })
+  } else {
+    const pending = await exclusive(() => store.unuploaded().length)
+    if (pending > 0) message = waitingStatus(pending)
   }
+  applyPeriod()
 }
 
 async function onNativeScan(json: string): Promise<void> {
@@ -227,17 +259,19 @@ async function onNativeScan(json: string): Promise<void> {
     return
   }
   if (payload.message) message = payload.message
-  const networks = Array.isArray(payload.networks) ? payload.networks : []
-  const fingerprint = networks.map((network) => `${network.bssid ?? ''}:${network.rssi ?? ''}`).join('|')
-  if (!fingerprint || fingerprint === lastFingerprint) {
+  lastSpeed = numberOrNull(payload.speedMps)
+  applyPeriod()
+  const networks = (Array.isArray(payload.networks) ? payload.networks : []).filter((network) => network.bssid?.trim())
+  if (!networks.length) {
     window?.webContents.send('wardrive:queued', {})
     return
   }
   const saved = await exclusive(() => {
-    lastFingerprint = fingerprint
     const scan = toScan(payload)
     store.append(scan)
-    return hearsSaved(networks, store.syncedBssids())
+    const heard = hearsSaved(networks, store.syncedBssids())
+    if (!heard) message = waitingStatus(store.unuploaded().length)
+    return heard
   })
   window?.webContents.send('wardrive:queued', {})
   if (saved) await flush()
@@ -253,8 +287,10 @@ function registerIpc(): void {
     apiUrl = nextUrl
     token = nextToken
     running = true
-    lastFingerprint = ''
+    radiusM = 91.4
+    lastSpeed = null
     message = 'Scanning nearby networks.'
+    holdAwake(true)
     scanner.stop()
     scanner.start((json) => {
       void onNativeScan(json)
@@ -263,6 +299,7 @@ function registerIpc(): void {
   ipcMain.handle('wardrive:stop', async () => {
     running = false
     message = 'Drive is stopped.'
+    holdAwake(false)
     scanner?.stop()
   })
   ipcMain.handle('wardrive:status', async () => ({ running, message }))
@@ -309,6 +346,12 @@ async function openWindow(): Promise<void> {
       sandbox: true,
     },
   })
+  window.on('close', (event) => {
+    if (running && !quitting) {
+      event.preventDefault()
+      window?.hide()
+    }
+  })
   await window.loadURL(`http://127.0.0.1:${ui.port}/`)
 }
 
@@ -320,12 +363,18 @@ app.whenReady().then(() => {
   app.quit()
 })
 
+app.on('activate', () => {
+  window?.show()
+})
+
 app.on('window-all-closed', () => {
-  app.quit()
+  if (!running) app.quit()
 })
 
 app.on('before-quit', () => {
+  quitting = true
   running = false
+  holdAwake(false)
   scanner?.stop()
   void serverClose?.()
 })

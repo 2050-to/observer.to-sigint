@@ -12,6 +12,19 @@
     "cap:sync": "npm run build && npx cap sync android",
     "mac:dmg": "npm run build && node scripts/build-mac.mjs"
   },
+  "build": {
+    "appId": "com.wifimapping.app",
+    "productName": "Wi-Fi Mapping",
+    "mac": {
+      "category": "public.app-category.utilities",
+      "extendInfo": {
+        "NSLocationUsageDescription": "Wi-Fi Mapping records where this Mac heard each network and advertisement.",
+        "NSLocationWhenInUseUsageDescription": "Wi-Fi Mapping records where this Mac heard each network and advertisement.",
+        "NSBluetoothAlwaysUsageDescription": "Wi-Fi Mapping reads public Bluetooth advertisements. It does not connect to devices.",
+        "NSBluetoothPeripheralUsageDescription": "Wi-Fi Mapping reads public Bluetooth advertisements. It does not connect to devices."
+      }
+    }
+  },
   "main": "electron/dist/main.cjs",
   "dependencies": {
     "@capacitor/android": "^7.4.2",

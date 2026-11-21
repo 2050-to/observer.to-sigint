@@ -40,10 +40,10 @@ function coords(lat: number | null, lon: number | null): string | null {
   return `${lat.toFixed(5)}, ${lon.toFixed(5)}`
 }
 
-function addGps(signals: SignalRow[], lat: number | null, lon: number | null, detail: string | null) {
+function addGps(signals: SignalRow[], detail: string | null) {
   if (!detail) return
   if (signals.some((signal) => signal.kind === 'gps')) return
-  signals.push({ kind: 'gps', title: 'GPS', detail })
+  signals.push({ kind: 'gps', title: 'Fix', detail })
 }
 
 function rootOf(parent: Map<string, string>, id: string): string {
@@ -82,9 +82,9 @@ export function stackSignals(input: {
     const signals: SignalRow[] = [{
       kind: 'wifi',
       title,
-      detail: `${network.bestRssi} dBm · ${network.bssid}`,
+      detail: `${Math.round(network.bestRssi)} dBm · ${network.bssid}`,
     }]
-    addGps(signals, network.bestLat, network.bestLon, coords(network.bestLat, network.bestLon))
+    addGps(signals, coords(network.bestLat, network.bestLon))
     devices.push({ id: `wifi:${network.bssid}`, label: title, signals, keys: [network.bssid, `wifi:${network.bssid}`] })
   }
   for (const device of input.devices) {
@@ -92,9 +92,9 @@ export function stackSignals(input: {
     const signals: SignalRow[] = [{
       kind: 'bluetooth',
       title,
-      detail: `${device.lastRssi} dBm · ${device.address}`,
+      detail: `${Math.round(device.lastRssi)} dBm · ${device.address}`,
     }]
-    addGps(signals, device.bestLat, device.bestLon, coords(device.bestLat, device.bestLon))
+    addGps(signals, coords(device.bestLat, device.bestLon))
     devices.push({ id: `bluetooth:${device.address}`, label: title, signals, keys: [device.address, `bluetooth:${device.address}`] })
   }
   for (const cell of input.cells) {
@@ -102,11 +102,11 @@ export function stackSignals(input: {
     const signals: SignalRow[] = [{
       kind: 'cell',
       title,
-      detail: `${cell.role} · ${cell.lastRssi} dBm`,
+      detail: `${cell.role} · ${Math.round(cell.lastRssi)} dBm`,
     }]
     const lat = cell.siteLat ?? cell.bestLat
     const lon = cell.siteLon ?? cell.bestLon
-    addGps(signals, lat, lon, coords(lat, lon))
+    addGps(signals, coords(lat, lon))
     devices.push({ id: `cell:${cell.key}`, label: title, signals, keys: [cell.key, `cell:${cell.key}`] })
   }
   if (input.phone) {
@@ -121,7 +121,7 @@ export function stackSignals(input: {
         detail: speed == null ? 'Heard on this phone' : `${speed.toFixed(1)} m/s`,
       })
     }
-    addGps(signals, input.phone.lat, input.phone.lon, coords(input.phone.lat, input.phone.lon))
+    addGps(signals, coords(input.phone.lat, input.phone.lon))
     if (signals.length > 0) {
       devices.push({ id: 'phone', label: 'This phone', signals, keys: ['phone'] })
     }
@@ -180,7 +180,7 @@ export function roomSignals(room: Room): SignalRow[] {
     })
   }
   if (room.lat != null && room.lon != null && !signals.some((signal) => signal.kind === 'gps')) {
-    signals.push({ kind: 'gps', title: 'GPS', detail: `${room.lat.toFixed(5)}, ${room.lon.toFixed(5)}` })
+    signals.push({ kind: 'gps', title: 'Fix', detail: `${room.lat.toFixed(5)}, ${room.lon.toFixed(5)}` })
   }
   return signals
 }

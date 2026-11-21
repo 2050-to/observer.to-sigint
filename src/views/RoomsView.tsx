@@ -31,7 +31,7 @@ function FloorPlan({
     minNorth = Math.min(minNorth, wall.north1, wall.north2)
     maxNorth = Math.max(maxNorth, wall.north1, wall.north2)
   }
-  const pad = 6
+  const pad = Math.max(1, Math.max(maxEast - minEast, maxNorth - minNorth) * 0.12)
   minEast -= pad
   maxEast += pad
   minNorth -= pad
@@ -65,7 +65,7 @@ function FloorPlan({
         <WallLine key={wall.id} wall={wall} xFor={xFor} yFor={yFor} />
       ))}
       {floor.rooms.map((room) => (
-        <text key={`${room.id}-label`} x={xFor(room.east)} y={yFor(room.north)} fill="#e7f0ea" fontSize="13" textAnchor="middle">
+        <text key={`${room.id}-label`} x={xFor(room.east)} y={yFor(room.north + room.depthM / 2) + 16} fill="#e7f0ea" fontSize="13" textAnchor="middle">
           {nameFor(room.id, room.label)}
         </text>
       ))}
@@ -161,7 +161,7 @@ export function RoomsView({
               <h3>
                 <LabelField id={`${building.id}:floor:${floor.index}`} fallback={floor.label} draftFor={draftFor} rename={rename} />
               </h3>
-              <p className="floor-note">{floor.rooms.length} room{floor.rooms.length === 1 ? '' : 's'} · {floor.walls.filter((wall) => wall.kind === 'exterior').length} exterior walls · {floor.walls.filter((wall) => wall.kind === 'interior').length} interior walls</p>
+              <p className="floor-note">{floor.rooms.length} {floor.rooms.length === 1 ? 'room' : 'rooms'} · {floor.walls.filter((wall) => wall.kind === 'exterior').length} exterior walls · {floor.walls.filter((wall) => wall.kind === 'interior').length} interior walls</p>
               <FloorPlan floor={floor} nameFor={nameFor} />
             </div>
           ))}

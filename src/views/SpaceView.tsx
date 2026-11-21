@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
-import { SIGNAL_COLORS, roomSignals } from '../../shared/sources'
+import { SIGNAL_COLORS, roomSignals, stackFor, stackSignals, type SignalRow } from '../../shared/sources'
 import { estimateBuildings, STORY_HEIGHT_M, type PlanBuilding } from '../../shared/structure'
 import { eastNorthMeters, floorLabel, gpsGround, plottedHeight, STORY_M, type PlottedHeight } from '../height'
 import { SignalLegend, SignalStack } from '../SignalStack'
@@ -191,7 +191,7 @@ export function SpaceView({
         const reach = Math.min(mover.distanceM, room.radiusM)
         points.push({
           id: mover.id,
-          label: `${mover.label} · ${mover.kind}`,
+          label: nameFor(mover.id, `${mover.label} · ${mover.kind}`),
           east: east + reach,
           north,
           height: phoneHeight ?? { meters: 1, source: 'barometer', floor: 0, uncertain: false },
@@ -307,13 +307,21 @@ export function SpaceView({
       scene.add(object)
     }
     for (const building of shownBuildings) {
+      const corners = building.levels.flatMap((level) => ([
+        { east: level.east - level.width / 2, north: level.north - level.depth / 2 },
+        { east: level.east + level.width / 2, north: level.north + level.depth / 2 },
+      ]))
+      const shellBox = boundsOf(corners)
+      const indexes = building.levels.map((level) => level.index)
+      const base = Math.min(...indexes) * STORY_M
+      const top = (Math.max(...indexes) + 1) * STORY_M
       const shell = new THREE.LineSegments(
-        new THREE.EdgesGeometry(new THREE.BoxGeometry(building.width, Math.max(building.top - building.base, STORY_M), building.depth)),
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(shellBox.width, Math.max(top - base, STORY_M), shellBox.depth)),
         new THREE.LineBasicMaterial({ color: 0xe7f0ea }),
       )
-      shell.position.set(building.east, (building.base + building.top) / 2, building.north)
+      shell.position.set(shellBox.east, (base + top) / 2, shellBox.north)
       scene.add(shell)
-      tag(building.label, building.east, building.top + 1.2, building.north)
+      tag(building.label, shellBox.east, top + 1.2, shellBox.north)
       for (const level of building.levels) {
         const slab = new THREE.Mesh(
           new THREE.BoxGeometry(level.width, 0.16, level.depth),
@@ -335,11 +343,15 @@ export function SpaceView({
           meshes.push(box)
           tag(room.label, room.east, level.index * STORY_M + STORY_M * 0.95, room.north)
         }
-        const wallGeometry = new THREE.BufferGeometry().setFromPoints(level.walls.flatMap((wall) => ([
-          new THREE.Vector3(wall.east1, level.index * STORY_M + 0.2, wall.north1),
-          new THREE.Vector3(wall.east2, level.index * STORY_M + 0.2, wall.north2),
-        ])))
-        scene.add(new THREE.LineSegments(wallGeometry, new THREE.LineBasicMaterial({ color: 0xe7f0ea })))
+        for (const kind of ['exterior', 'interior'] as const) {
+          const segments = level.walls.filter((wall) => wall.kind === kind)
+          if (segments.length === 0) continue
+          const wallGeometry = new THREE.BufferGeometry().setFromPoints(segments.flatMap((wall) => ([
+            new THREE.Vector3(wall.east1, level.index * STORY_M + 0.2, wall.north1),
+            new THREE.Vector3(wall.east2, level.index * STORY_M + 0.2, wall.north2),
+          ])))
+          scene.add(new THREE.LineSegments(wallGeometry, new THREE.LineBasicMaterial({ color: kind === 'exterior' ? 0xe7f0ea : 0x8aa398 })))
+        }
       }
     }
 
@@ -440,9 +452,20 @@ export function SpaceView({
     }
   }, [floor, model.phoneHeight, model.structures, visible])
 
+  const stacks = useMemo(
+    () => stackSignals({ networks, devices, cells: [], movers, phone }),
+    [devices, movers, networks, phone],
+  )
   const phoneSelected = selectedId === 'phone'
+  const selectedRoom = rooms.find((room) => room.id === selectedId) ?? null
   const activeHeight = phoneSelected ? model.phoneHeight : selected?.height ?? null
   const source = activeHeight?.source === 'barometer' ? 'Barometer' : 'GPS'
+  const selectedStack = selectedId ? stackFor(stacks, selectedId) : null
+  const detailSignals: SignalRow[] = selectedRoom
+    ? roomSignals(selectedRoom)
+    : selectedStack?.signals ?? []
+  const detailId = selectedRoom?.id ?? selectedStack?.id ?? selectedId ?? 'selection'
+  const detailFallback = selectedRoom?.originLabel ?? selectedStack?.label ?? (phoneSelected ? 'This phone' : selected?.label ?? 'Selection')
 
   return (
     <div className="panel">
@@ -462,18 +485,27 @@ export function SpaceView({
       <div className="actions">
         {model.phoneHeight && (
           <button type="button" onClick={() => setSelectedId('phone')}>
-            This phone · {floorLabel(model.phoneHeight) ?? 'Height uncertain'}
+            {nameFor('phone', 'This phone')} · {floorLabel(model.phoneHeight) ?? 'Height uncertain'}
           </button>
         )}
+        {model.structures.flatMap((building) => building.levels.flatMap((level) => level.rooms)).map((room) => (
+          <button key={room.id} type="button" onClick={() => setSelectedId(room.id)}>
+            {room.label}
+          </button>
+        ))}
         {visible.map((point) => (
           <button key={point.id} type="button" onClick={() => setSelectedId(point.id)}>
             {point.label} · {floorLabel(point.height) ?? 'Height uncertain'}
           </button>
         ))}
       </div>
-      {(selected || phoneSelected) && (
+      {(selected || phoneSelected || selectedRoom) && (
         <article className="card">
-          <h2>{phoneSelected ? 'This phone' : selected?.label}</h2>
+          {detailSignals.length > 0 ? (
+            <SignalStack id={detailId} fallback={detailFallback} signals={detailSignals} draftFor={draftFor} rename={rename} />
+          ) : (
+            <h2>{detailFallback}</h2>
+          )}
           {selected?.record && (
             <p>{selected.record.security} · best {selected.record.bestRssi} dBm · {selected.record.bssid}</p>
           )}

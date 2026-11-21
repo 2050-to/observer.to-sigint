@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import cytoscape, { type Core } from 'cytoscape'
+import { SIGNAL_COLORS, type SignalRow } from '../../shared/sources'
+import { SignalLegend, SignalStack } from '../SignalStack'
 import { SECURITY_COLORS, type NetworkRecord, type SecurityLabel } from '../types'
 
 export interface SsidGroup {
@@ -38,7 +40,26 @@ export function groupHeard(heard: NetworkRecord[]): SsidGroup[] {
   })
 }
 
-export function RangeGraph({ heard }: { heard: NetworkRecord[] }) {
+function networkSignals(network: NetworkRecord): SignalRow[] {
+  const title = network.hidden || !network.ssid ? network.bssid : network.ssid
+  const signals: SignalRow[] = [{ kind: 'wifi', title, detail: `${network.bestRssi} dBm · ${network.bssid}` }]
+  if (network.bestLat != null && network.bestLon != null) {
+    signals.push({ kind: 'gps', title: 'Fix', detail: `${network.bestLat.toFixed(5)}, ${network.bestLon.toFixed(5)}` })
+  }
+  return signals
+}
+
+export function RangeGraph({
+  heard,
+  nameFor,
+  draftFor,
+  rename,
+}: {
+  heard: NetworkRecord[]
+  nameFor: (id: string, fallback: string) => string
+  draftFor: (id: string, fallback: string) => string
+  rename: (id: string, value: string) => void
+}) {
   const host = useRef<HTMLDivElement>(null)
   const graph = useRef<Core | null>(null)
   const [selected, setSelected] = useState<SsidGroup | null>(null)
@@ -54,7 +75,7 @@ export function RangeGraph({ heard }: { heard: NetworkRecord[] }) {
     const cy = cytoscape({
       container: host.current,
       elements: [
-        { data: { id: 'phone', label: 'This phone', color: '#7dcea0', size: 36 }, position: { x: 0, y: 0 } },
+        { data: { id: 'phone', label: nameFor('phone', 'This phone'), color: SIGNAL_COLORS.gps, size: 36 }, position: { x: 0, y: 0 } },
         ...groups.flatMap((group, index) => {
           const distance = (5 - ring(group.bestRssi)) * 130 + 110
           const angle = (index / Math.max(groups.length, 1)) * Math.PI * 2 - Math.PI / 2
@@ -62,8 +83,8 @@ export function RangeGraph({ heard }: { heard: NetworkRecord[] }) {
             {
               data: {
                 id: group.id,
-                label: group.label,
-                color: SECURITY_COLORS[group.security],
+                label: nameFor(group.id, group.label),
+                color: SIGNAL_COLORS.wifi,
                 size: 28 + Math.min(group.networks.length, 6) * 8,
               },
               position: { x: Math.cos(angle) * distance, y: Math.sin(angle) * distance },
@@ -114,12 +135,13 @@ export function RangeGraph({ heard }: { heard: NetworkRecord[] }) {
       cy.destroy()
       graph.current = null
     }
-  }, [heard])
+  }, [heard, nameFor])
 
   return (
     <div className="panel">
       <div ref={host} className="graph" />
       {groups.length === 0 && <p className="empty">No networks in the latest scan.</p>}
+      <SignalLegend />
       <ul className="legend">
         {(Object.keys(SECURITY_COLORS) as SecurityLabel[]).map((label) => (
           <li key={label}><i style={{ background: SECURITY_COLORS[label] }} />{label}</li>
@@ -127,8 +149,11 @@ export function RangeGraph({ heard }: { heard: NetworkRecord[] }) {
       </ul>
       {selected && (
         <article className="card">
-          <h2>{selected.label}</h2>
-          <p>{selected.security} · best {selected.bestRssi} dBm · {selected.networks.length} BSSID{selected.networks.length === 1 ? '' : 's'}</p>
+          <SignalStack id={selected.id} fallback={selected.label} signals={[{ kind: 'wifi', title: selected.label, detail: `${selected.security} · best ${selected.bestRssi} dBm` }]} draftFor={draftFor} rename={rename} />
+          <p>{selected.networks.length} BSSID{selected.networks.length === 1 ? '' : 's'}</p>
+          {selected.networks.map((network) => (
+            <SignalStack key={network.bssid} id={network.bssid} fallback={network.hidden || !network.ssid ? network.bssid : network.ssid} signals={networkSignals(network)} draftFor={draftFor} rename={rename} />
+          ))}
           <table>
             <thead>
               <tr><th>BSSID</th><th>Channel</th><th>RSSI</th><th>Seen</th></tr>
@@ -136,7 +161,7 @@ export function RangeGraph({ heard }: { heard: NetworkRecord[] }) {
             <tbody>
               {selected.networks.map((network) => (
                 <tr key={network.bssid}>
-                  <td>{network.bssid}</td>
+                  <td>{nameFor(network.bssid, network.hidden || !network.ssid ? network.bssid : network.ssid)}</td>
                   <td>{network.channel} {network.band} GHz</td>
                   <td>{network.lastRssi} dBm</td>
                   <td>{network.seenCount}</td>

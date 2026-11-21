@@ -156,7 +156,7 @@ Build an ad-hoc signed disk image on this Mac:
 npm run mac:dmg
 ```
 
-Open `release/Wi-Fi Mapping.dmg`, drag **Wi-Fi Mapping** to Applications, and open it. On the first **Start drive**, allow Location and Bluetooth. The app scans nearby Wi-Fi and Bluetooth advertisements and keeps the catalog on this Mac. Cell towers are not available. When `npm run server` is running, scans sync to `https://127.0.0.1:9453`.
+Open `release/Wi-Fi Mapping.dmg`, drag **Wi-Fi Mapping** to Applications, and open it. On the first **Start drive**, allow Location and Bluetooth. The app uses the same screens as Android and scans on the same timing: Wi-Fi networks, public Bluetooth advertisements, and this Mac's GPS, altitude, and speed. A drive keeps running if you close the window. Click the Dock icon to bring it back, and quit from the app menu to stop it. macOS does not reveal a Bluetooth advertiser's hardware address, so each advertisement is keyed by the identifier CoreBluetooth gives this app. macOS also does not provide tower identity, so cell sites are collected on the phone and show up here after those scans sync. When `npm run server` is running, scans sync to `https://127.0.0.1:9453`.
 
 The disk image is not notarized. It opens on the Mac that built it. On another Mac, Control-click the app and choose Open so Gatekeeper allows it.
 
