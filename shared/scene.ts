@@ -94,6 +94,154 @@ function findRoot(parent: Map<string, string>, id: string): string {
   return root
 }
 
+function cellIdentity(cell: ScanCell): string {
+  return [cell.radio, cell.mcc, cell.mnc, cell.area, cell.cellId].join(':')
+}
+
+function geometry(pings: ScenePing[], indexes: number[]) {
+  const fixes = indexes.map((index) => pings[index]).filter((ping) => ping.lat != null && ping.lon != null)
+  const lat = fixes.length ? fixes.reduce((sum, ping) => sum + (ping.lat ?? 0), 0) / fixes.length : null
+  const lon = fixes.length ? fixes.reduce((sum, ping) => sum + (ping.lon ?? 0), 0) / fixes.length : null
+  let travel = 0
+  for (let i = 0; i < fixes.length; i += 1) {
+    for (let j = i + 1; j < fixes.length; j += 1) {
+      travel = Math.max(travel, haversineMeters(fixes[i].lat!, fixes[i].lon!, fixes[j].lat!, fixes[j].lon!))
+    }
+  }
+  let eastSpan = 0
+  let northSpan = 0
+  if (lat != null && lon != null && fixes.length > 1) {
+    const offsets = fixes.map((ping) => eastNorthMeters(lat, lon, ping.lat!, ping.lon!))
+    eastSpan = Math.max(...offsets.map((item) => item.east)) - Math.min(...offsets.map((item) => item.east))
+    northSpan = Math.max(...offsets.map((item) => item.north)) - Math.min(...offsets.map((item) => item.north))
+  }
+  return {
+    lat,
+    lon,
+    travel,
+    eastSpan,
+    northSpan,
+    confidence: Math.round(Math.min(1, indexes.length / 4) * 100) / 100,
+  }
+}
+
+function groupsSharing(pings: ScenePing[], covered: Set<number>, keysOf: (ping: ScenePing) => string[]): number[][] {
+  const indexes = pings.map((_, index) => index).filter((index) => !covered.has(index) && keysOf(pings[index]).length > 0)
+  const parent = new Map(indexes.map((index) => [String(index), String(index)]))
+  const unite = (left: string, right: string) => {
+    const a = findRoot(parent, left)
+    const b = findRoot(parent, right)
+    if (a !== b) parent.set(a, b)
+  }
+  const owners = new Map<string, number[]>()
+  for (const index of indexes) {
+    for (const key of keysOf(pings[index])) {
+      const list = owners.get(key) ?? []
+      list.push(index)
+      owners.set(key, list)
+    }
+  }
+  for (const list of owners.values()) {
+    for (let index = 1; index < list.length; index += 1) unite(String(list[0]), String(list[index]))
+  }
+  const groups = new Map<string, number[]>()
+  for (const index of indexes) {
+    const root = findRoot(parent, String(index))
+    const list = groups.get(root) ?? []
+    list.push(index)
+    groups.set(root, list)
+  }
+  return [...groups.values()]
+}
+
+function signalRoom(
+  id: string,
+  originKind: Room['originKind'],
+  originLabel: string,
+  originBssid: string | null,
+  reach: number,
+  pings: ScenePing[],
+  indexes: number[],
+): Room {
+  const place = geometry(pings, indexes)
+  const radius = Math.max(reach, 1)
+  return {
+    id,
+    originKind,
+    originLabel,
+    originBssid,
+    lat: place.lat,
+    lon: place.lon,
+    radiusM: radius + place.travel,
+    widthM: Math.max(place.eastSpan, 2 * radius),
+    depthM: Math.max(place.northSpan, 2 * radius),
+    confidence: place.confidence,
+    members: [],
+  }
+}
+
+function strongestWifi(pings: ScenePing[], indexes: number[]): { bssid: string; label: string; reach: number } | null {
+  const stats = new Map<string, { ssid: string; rssi: number[] }>()
+  for (const index of indexes) {
+    for (const network of pings[index].networks) {
+      const stat = stats.get(network.bssid) ?? { ssid: network.ssid, rssi: [] }
+      if (network.ssid) stat.ssid = network.ssid
+      stat.rssi.push(network.rssi)
+      stats.set(network.bssid, stat)
+    }
+  }
+  let best: { bssid: string; label: string; reach: number; mean: number } | null = null
+  for (const [bssid, stat] of stats) {
+    const mean = stat.rssi.reduce((sum, value) => sum + value, 0) / stat.rssi.length
+    if (best && mean <= best.mean) continue
+    const rssi = stat.rssi[stat.rssi.length - 1]
+    best = { bssid, label: stat.ssid || bssid, reach: distanceFromRssi(rssi, null), mean }
+  }
+  return best
+}
+
+function strongestCell(pings: ScenePing[], indexes: number[]): { key: string; label: string; reach: number } | null {
+  let best: { key: string; label: string; reach: number; rssi: number } | null = null
+  for (const index of indexes) {
+    for (const cell of pings[index].cells) {
+      if (best && cell.rssi <= best.rssi) continue
+      best = {
+        key: cellIdentity(cell),
+        label: `${cell.radio.toUpperCase()} ${cell.cellId}`,
+        reach: distanceFromRssi(cell.rssi, null),
+        rssi: cell.rssi,
+      }
+    }
+  }
+  return best
+}
+
+function roomsFromSignals(pings: ScenePing[], covered: Set<number>): Room[] {
+  const rooms: Room[] = []
+  const claim = (indexes: number[]) => {
+    for (const index of indexes) covered.add(index)
+  }
+  for (const indexes of groupsSharing(pings, covered, (ping) => ping.networks.map((network) => network.bssid))) {
+    const origin = strongestWifi(pings, indexes)
+    if (!origin) continue
+    rooms.push(signalRoom(`room:wifi:${origin.bssid}`, 'wifi', origin.label, origin.bssid, origin.reach, pings, indexes))
+    claim(indexes)
+  }
+  for (const indexes of groupsSharing(pings, covered, (ping) => ping.cells.map(cellIdentity))) {
+    const origin = strongestCell(pings, indexes)
+    if (!origin) continue
+    rooms.push(signalRoom(`room:cell:${origin.key}`, 'cell', origin.label, null, origin.reach, pings, indexes))
+    claim(indexes)
+  }
+  const gps = pings
+    .map((_, index) => index)
+    .filter((index) => !covered.has(index) && pings[index].lat != null && pings[index].lon != null)
+  if (gps.length > 0) {
+    rooms.push(signalRoom(`room:gps:${gps.join('+')}`, 'gps', 'GPS', null, 10, pings, gps))
+  }
+  return rooms
+}
+
 export function inferRooms(pings: ScenePing[]): Room[] {
   const heard = new Map<string, number[]>()
   pings.forEach((ping, index) => {
@@ -103,8 +251,10 @@ export function inferRooms(pings: ScenePing[]): Room[] {
       heard.set(device.address, list)
     }
   })
-  const core = [...heard.entries()].filter(([, indexes]) => indexes.length >= 2).map(([address]) => address)
-  if (core.length === 0) return []
+  const core = [...heard.entries()].filter(([, indexes]) => indexes.length >= 1).map(([address]) => address)
+  const rooms: Room[] = []
+  const covered = new Set<number>()
+  if (core.length > 0) {
   const parent = new Map(core.map((address) => [address, address]))
   const unite = (left: string, right: string) => {
     const a = findRoot(parent, left)
@@ -131,7 +281,6 @@ export function inferRooms(pings: ScenePing[]): Room[] {
       break
     }
   }
-  const rooms: Room[] = []
   for (const members of groups.values()) {
     const addresses = [...members].sort()
     const indexes = pings
@@ -212,7 +361,10 @@ export function inferRooms(pings: ScenePing[]): Room[] {
       confidence,
       members: roomMembers,
     })
+    for (const index of used) covered.add(index)
   }
+  }
+  rooms.push(...roomsFromSignals(pings, covered))
   return rooms.sort((a, b) => a.id.localeCompare(b.id))
 }
 
@@ -311,7 +463,7 @@ function monotonic(distances: number[]): 'approaching' | 'receding' | null {
 }
 
 function classify(capabilities: Capability[], speed: number | null): { kind: MotionKind; speedKind: SpeedKind } | null {
-  if (capabilities.length < 2 || speed == null || speed <= 0.3) return null
+  if (capabilities.length < 1 || speed == null || speed <= 0.3) return null
   return {
     kind: speed > RUN_LIMIT_MPS ? 'vehicle' : 'person or vehicle',
     speedKind: 'ground',
@@ -319,12 +471,37 @@ function classify(capabilities: Capability[], speed: number | null): { kind: Mot
 }
 
 function roomFor(rooms: Room[], address: string): string | null {
-  return rooms.find((room) => room.members.some((member) => member.id === address))?.id ?? null
+  return rooms.find((room) => (
+    room.originBssid === address
+    || room.id === `room:wifi:${address}`
+    || room.id === `room:cell:${address}`
+    || room.members.some((member) => member.id === address)
+  ))?.id ?? null
+}
+
+function sourceTrack(span: Span, capability: Capability, rooms: Room[]): MotionTrack | null {
+  const ground = groundSpeed(span.samples)
+  const radial = radialSpeed(span.samples)
+  const speed = ground ?? radial
+  const speedKind: SpeedKind | null = ground != null ? 'ground' : radial != null ? 'radial_lower_bound' : null
+  const labeled = classify([capability], speed)
+  if (!labeled || speed == null || speedKind == null) return null
+  return {
+    id: `${capability}:${span.id}@${span.samples[0].time}`,
+    label: span.label,
+    roomId: roomFor(rooms, span.id),
+    kind: speedKind === 'radial_lower_bound' && labeled.kind === 'vehicle' ? 'vehicle' : labeled.kind,
+    capabilities: [capability],
+    speedMps: speed,
+    speedKind,
+    distanceM: span.samples[span.samples.length - 1]?.distance ?? null,
+  }
 }
 
 export function inferMotion(pings: ScenePing[], rooms: Room[]): MotionTrack[] {
   const ble = new Map<string, Sample[]>()
   const wifi = new Map<string, Sample[]>()
+  const cells = new Map<string, Sample[]>()
   pings.forEach((ping) => {
     const time = Date.parse(ping.observedAt)
     if (Number.isNaN(time)) return
@@ -356,10 +533,27 @@ export function inferMotion(pings: ScenePing[], rooms: Room[]): MotionTrack[] {
       })
       wifi.set(network.bssid, list)
     }
+    for (const cell of ping.cells) {
+      const id = cellIdentity(cell)
+      const list = cells.get(id) ?? []
+      list.push({
+        time,
+        distance: distanceFromRssi(cell.rssi, null),
+        phoneLat: ping.lat,
+        phoneLon: ping.lon,
+        phoneSpeed: ping.speedMps,
+        broadcastLat: null,
+        broadcastLon: null,
+        label: `${cell.radio.toUpperCase()} ${cell.cellId}`,
+      })
+      cells.set(id, list)
+    }
   })
   const bleSpans = [...ble.entries()].flatMap(([id, samples]) => groupSpans(samples, id))
   const wifiSpans = [...wifi.entries()].flatMap(([id, samples]) => groupSpans(samples, id))
+  const cellSpans = [...cells.entries()].flatMap(([id, samples]) => groupSpans(samples, id))
   const usedBle = new Set<Span>()
+  const usedWifi = new Set<Span>()
   const tracks: MotionTrack[] = []
   for (const radio of bleSpans) {
     let match: { wifi: Span; left: number[]; right: number[] } | null = null
@@ -390,6 +584,7 @@ export function inferMotion(pings: ScenePing[], rooms: Room[]): MotionTrack[] {
       const resolvedKind = speedKind === 'radial_lower_bound' && labeled.kind === 'vehicle'
         ? 'vehicle'
         : labeled.kind
+      usedWifi.add(match.wifi)
       tracks.push({
         id: `track:${match.wifi.id}+${radio.id}@${radio.samples[0].time}`,
         label: radio.label || match.wifi.label,
@@ -405,6 +600,11 @@ export function inferMotion(pings: ScenePing[], rooms: Room[]): MotionTrack[] {
   }
   for (const radio of bleSpans) {
     if (usedBle.has(radio)) continue
+    const labeled = sourceTrack(radio, 'bluetooth', rooms)
+    if (labeled) {
+      tracks.push(labeled)
+      continue
+    }
     if (!radio.samples.every((sample) => still(sample.phoneSpeed))) continue
     const direction = monotonic(radio.samples.map((sample) => sample.distance))
     if (!direction) continue
@@ -418,6 +618,15 @@ export function inferMotion(pings: ScenePing[], rooms: Room[]): MotionTrack[] {
       speedKind: 'radial_lower_bound',
       distanceM: radio.samples[radio.samples.length - 1]?.distance ?? null,
     })
+  }
+  for (const access of wifiSpans) {
+    if (usedWifi.has(access)) continue
+    const labeled = sourceTrack(access, 'wifi', rooms)
+    if (labeled) tracks.push(labeled)
+  }
+  for (const tower of cellSpans) {
+    const labeled = sourceTrack(tower, 'cell', rooms)
+    if (labeled) tracks.push(labeled)
   }
   for (const room of rooms) {
     const fixed = room.members.filter((member) => member.kind === 'fixed')
@@ -439,7 +648,10 @@ export function inferMotion(pings: ScenePing[], rooms: Room[]): MotionTrack[] {
       distanceM: null,
     })
   }
-  const latest = [...pings].reverse().find((ping) => ping.speedMps != null && ping.lat != null && ping.lon != null)
+  const latest = [...pings].reverse().find((ping) => {
+    if (ping.speedMps == null) return false
+    return ping.wifiOn || ping.bluetoothOn || ping.cellOn || (ping.lat != null && ping.lon != null)
+  })
   if (latest?.speedMps != null) {
     const capabilities: Capability[] = []
     if (latest.wifiOn) capabilities.push('wifi')

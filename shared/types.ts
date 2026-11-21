@@ -112,7 +112,7 @@ export type Capability = 'wifi' | 'bluetooth' | 'cell' | 'gps'
 export type SpeedKind = 'ground' | 'radial_lower_bound'
 export type MotionKind = 'approaching' | 'receding' | 'body shadow' | 'person or vehicle' | 'vehicle'
 export type ContentKind = 'fixed' | 'carried' | 'unknown'
-export type OriginKind = 'wifi' | 'bluetooth'
+export type OriginKind = 'wifi' | 'bluetooth' | 'gps' | 'cell'
 
 export const RUN_LIMIT_MPS = 10
 

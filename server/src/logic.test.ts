@@ -253,8 +253,68 @@ const alone = inferScene([
   ping({ observedAt: '2026-01-01T00:50:02.000Z', devices: [radio('aa:bb:cc:00:00:11', rssiFor(12))] }),
 ])
 const solo = alone.movers.find((mover) => mover.capabilities.includes('bluetooth') && mover.capabilities.length === 1)
-assert.equal(solo?.kind, 'approaching')
-assert.equal(alone.movers.some((mover) => mover.kind === 'vehicle' || mover.kind === 'person or vehicle'), false)
+assert.equal(solo?.kind, 'person or vehicle')
+assert.equal(solo?.capabilities.join(','), 'bluetooth')
+
+const wifiOnly = inferScene([
+  ping({ observedAt: '2026-01-01T00:51:00.000Z', lat: null, lon: null, networks: [{ bssid: 'de:ad:be:ef:00:02', ssid: 'Cafe', rssi: rssiFor(20) }] }),
+  ping({ observedAt: '2026-01-01T00:51:01.000Z', lat: null, lon: null, networks: [{ bssid: 'de:ad:be:ef:00:02', ssid: 'Cafe', rssi: rssiFor(8) }] }),
+])
+assert.equal(wifiOnly.rooms.length, 1)
+assert.equal(wifiOnly.rooms[0]?.originKind, 'wifi')
+assert.equal(wifiOnly.rooms[0]?.originLabel, 'Cafe')
+const wifiMover = wifiOnly.movers.find((mover) => mover.capabilities.length === 1 && mover.capabilities[0] === 'wifi')
+assert.equal(wifiMover?.kind, 'vehicle')
+
+const gpsOnly = inferScene([
+  ping({ observedAt: '2026-01-01T00:52:00.000Z', lat: 47.62, lon: -122.35, speedMps: 4 }),
+])
+assert.equal(gpsOnly.rooms.length, 1)
+assert.equal(gpsOnly.rooms[0]?.originKind, 'gps')
+const gpsPhone = gpsOnly.movers.find((mover) => mover.id === 'phone')
+assert.equal(gpsPhone?.kind, 'person or vehicle')
+assert.equal(gpsPhone?.capabilities.join(','), 'gps')
+
+const cellOnly = inferScene([
+  ping({
+    observedAt: '2026-01-01T00:53:00.000Z',
+    lat: null,
+    lon: null,
+    cellOn: true,
+    speedMps: 15,
+    cells: [{ radio: 'lte', registered: true, mcc: '310', mnc: '260', area: '1234', cellId: '99', pci: 12, rssi: -80, timingAdvanceM: 100 }],
+  }),
+  ping({
+    observedAt: '2026-01-01T00:53:01.000Z',
+    lat: null,
+    lon: null,
+    cellOn: true,
+    speedMps: 15,
+    cells: [{ radio: 'lte', registered: true, mcc: '310', mnc: '260', area: '1234', cellId: '99', pci: 12, rssi: -95, timingAdvanceM: 100 }],
+  }),
+])
+assert.equal(cellOnly.rooms.length, 1)
+assert.equal(cellOnly.rooms[0]?.originKind, 'cell')
+assert.equal(cellOnly.rooms[0]?.originLabel, 'LTE 99')
+const cellPhone = cellOnly.movers.find((mover) => mover.id === 'phone')
+assert.equal(cellPhone?.kind, 'vehicle')
+assert.equal(cellPhone?.capabilities.join(','), 'cell')
+const cellMover = cellOnly.movers.find((mover) => mover.capabilities.length === 1 && mover.capabilities[0] === 'cell' && mover.id !== 'phone')
+assert.equal(cellMover?.kind, 'vehicle')
+
+const oneBluetooth = inferScene([
+  ping({ observedAt: '2026-01-01T00:54:00.000Z', lat: null, lon: null, devices: [radio('b0:00:00:00:00:09', -50, 'public', { name: 'Beacon' })] }),
+])
+assert.equal(oneBluetooth.rooms.length, 1)
+assert.equal(oneBluetooth.rooms[0]?.originKind, 'bluetooth')
+
+function phoneFrom(partial: Partial<ScenePing>) {
+  return inferScene([ping({ observedAt: '2026-01-01T00:55:00.000Z', lat: null, lon: null, speedMps: 15, ...partial })]).movers.find((mover) => mover.id === 'phone')
+}
+assert.equal(phoneFrom({ wifiOn: true })?.capabilities.join(','), 'wifi')
+assert.equal(phoneFrom({ wifiOn: true })?.kind, 'vehicle')
+assert.equal(phoneFrom({ bluetoothOn: true })?.capabilities.join(','), 'bluetooth')
+assert.equal(phoneFrom({ bluetoothOn: true })?.kind, 'vehicle')
 
 const withPhone = inferScene([
   ping({ observedAt: '2026-01-01T01:00:00.000Z', devices: [radio('b0:00:00:00:00:01', -50, 'public')], networks: [{ bssid: 'aa:bb:cc:dd:ee:01', ssid: 'Cafe', rssi: -45 }] }),

@@ -63,7 +63,7 @@ export function RoomsView({
           </g>
         ))}
       </svg>
-      {rooms.length === 0 && <p className="empty">No room has enough repeated Bluetooth advertisements yet.</p>}
+      {rooms.length === 0 && <p className="empty">No Bluetooth, Wi-Fi, GPS, or cell signal yet.</p>}
       <ul className="open-list">
         {rooms.map((room) => {
           const moving = movers.filter((mover) => mover.roomId === room.id)
@@ -71,7 +71,7 @@ export function RoomsView({
             <li key={room.id}>
               <div>
                 <strong>{room.originLabel}</strong>
-                <span>{room.originKind === 'wifi' ? 'Wi-Fi origin' : 'Bluetooth origin'}</span>
+                <span>{originText(room.originKind)}</span>
               </div>
               <p>{room.radiusM.toFixed(0)} m radius · {room.widthM.toFixed(0)} m by {room.depthM.toFixed(0)} m · confidence {Math.round(room.confidence * 100)}%</p>
               <p>{room.members.map((member) => `${member.label} (${member.kind})`).join(', ') || 'No contents yet'}</p>
@@ -86,6 +86,13 @@ export function RoomsView({
       {movers.filter((mover) => mover.roomId == null).map((mover) => <Mover key={mover.id} mover={mover} />)}
     </div>
   )
+}
+
+function originText(kind: Room['originKind']): string {
+  if (kind === 'wifi') return 'Wi-Fi origin'
+  if (kind === 'gps') return 'GPS origin'
+  if (kind === 'cell') return 'Cell origin'
+  return 'Bluetooth origin'
 }
 
 function Mover({ mover }: { mover: MotionTrack }) {

@@ -15,6 +15,13 @@ interface PlotPoint {
   record: NetworkRecord | null
 }
 
+function originColor(kind: Room['originKind']): string {
+  if (kind === 'wifi') return '#3d8bfd'
+  if (kind === 'gps') return '#7dcea0'
+  if (kind === 'cell') return '#e6a23c'
+  return '#c9a0dc'
+}
+
 function bestFix(record: NetworkRecord) {
   return {
     altitudeM: record.bestAltitudeM ?? null,
@@ -74,7 +81,7 @@ export function SpaceView({
         east,
         north,
         radius: Math.max(room.radiusM, 1),
-        color: room.originKind === 'wifi' ? '#3d8bfd' : '#c9a0dc',
+        color: originColor(room.originKind),
       })
       for (const mover of movers) {
         if (mover.roomId !== room.id || mover.distanceM == null) continue
