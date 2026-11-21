@@ -107,9 +107,58 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #2c3a33; }
 
 .map.leaflet-container { background: #1c2420; height: 520px; width: 100%; font: inherit; }
 
-.sonar {
+.sonar, .plan {
   width: 100%;
-  max-width: 520px;
   background: #1c2420;
   border-radius: 16px;
 }
+
+.sonar { max-width: 520px; }
+
+.building { display: grid; gap: 8px; }
+.building h2, .building h3 { font-size: 16px; }
+.floor-note { margin: 0; color: #8aa398; font-size: 13px; }
+
+.label-field {
+  background: transparent;
+  color: #e7f0ea;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 2px 6px;
+  font: inherit;
+  font-weight: 650;
+  min-width: 12ch;
+}
+.label-field:hover, .label-field:focus { border-color: #3d4f46; background: #121714; }
+
+.source-stack { display: grid; gap: 6px; justify-items: start; }
+.source-pile { display: grid; gap: 4px; width: 100%; padding-left: 10px; border-left: 3px solid #3d4f46; }
+.source-pile.single { border-left-color: transparent; padding-left: 0; }
+.source-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  margin: 0;
+  padding: 4px 8px;
+  background: #24302a;
+  border-left: 4px solid #3d8bfd;
+  border-radius: 8px;
+}
+.source-line i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.source-line strong { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
+.source-line span { color: #c5d5cc; }
+
+.signal-groups { display: grid; gap: 16px; margin-top: 16px; }
+.signal-groups h3 { display: flex; gap: 8px; align-items: center; font-size: 15px; }
+.signal-groups h3 i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+.leaflet-tooltip.map-label {
+  background: #121714;
+  color: #e7f0ea;
+  border: 1px solid #3d4f46;
+  border-radius: 8px;
+  box-shadow: none;
+  font: 12px "Avenir Next", "Segoe UI", sans-serif;
+}
+.leaflet-tooltip.map-label::before { display: none; }
