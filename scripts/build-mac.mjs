@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import esbuild from 'esbuild'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const env = { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: 'false' }
+const env = { ...process.env }
 
 function run(command, args, cwd = root) {
   const result = spawnSync(command, args, { cwd, env, stdio: 'inherit' })
@@ -56,7 +56,6 @@ if (packed.status !== 0 || !packedFiles.has('/dist/index.html')) {
   console.error(packed.stderr || 'The packaged app is missing dist/index.html')
   process.exit(1)
 }
-run('codesign', ['--force', '--deep', '--sign', '-', app])
 
 const staging = join(release, 'dmg-staging')
 rmSync(staging, { recursive: true, force: true })

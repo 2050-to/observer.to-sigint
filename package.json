@@ -34,6 +34,8 @@
       }
     ],
     "mac": {
+      "identity": "-",
+      "hardenedRuntime": true,
       "category": "public.app-category.utilities",
       "extendInfo": {
         "NSLocationUsageDescription": "Wi-Fi Mapping records where this Mac heard each network and advertisement.",

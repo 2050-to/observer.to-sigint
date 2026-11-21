@@ -156,7 +156,7 @@ export function App() {
   }
 
   return (
-    <main>
+    <main className={tab === 'rooms' ? 'fit-window' : undefined}>
       <header>
         <div>
           <p className="eyebrow">Omnidirectional range</p>
@@ -262,6 +262,7 @@ export function App() {
           rooms={map?.rooms ?? []}
           movers={map?.movers ?? []}
           phone={map?.phone ?? null}
+          history={range?.history ?? []}
           draftFor={draftFor}
           rename={rename}
         />

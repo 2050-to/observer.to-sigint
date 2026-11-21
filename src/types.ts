@@ -14,6 +14,7 @@ export type {
   ScanAp,
   ScanCell,
   ScanDevice,
+  ScenePing,
   SecurityLabel,
 } from '../shared/types'
 

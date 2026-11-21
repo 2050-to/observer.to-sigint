@@ -4,6 +4,7 @@ import { catalogCsv } from '../../shared/csv.js'
 import { haversineMeters } from '../../shared/geo.js'
 import { distanceFromRssi } from '../../shared/pathloss.js'
 import { collapseDevices, mergeCell, mergeDevice } from '../../shared/radios.js'
+import { findRotatingAddresses } from '../../shared/rotation.js'
 import { inferScene, stripPing } from '../../shared/scene.js'
 import { segmentSignals, stackSignals } from '../../shared/sources.js'
 import { estimateBuildings } from '../../shared/structure.js'
@@ -449,5 +450,110 @@ assert.ok(linkedHandset?.signals.some((signal) => signal.kind === 'wifi'))
 assert.ok(linkedHandset?.signals.some((signal) => signal.kind === 'bluetooth'))
 assert.ok(linkedHandset?.signals.some((signal) => signal.kind === 'gps'))
 assert.deepEqual(segmentSignals(linked).map((section) => section.kind), ['wifi', 'bluetooth', 'gps'])
+
+function rotationScan(id: string, at: string, lat: number | null, lon: number | null, devices: ScanDevice[], networks: ScanAp[] = []) {
+  return {
+    scanId: id,
+    observedAt: at,
+    lat,
+    lon,
+    accuracy: 8,
+    altitudeM: null,
+    verticalAccuracyM: null,
+    relativeM: null,
+    speedMps: 0,
+    networks,
+    devices,
+  }
+}
+
+const rotatedCatalog = foldScans(emptyCatalog(), [
+  rotationScan('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', '2026-01-01T00:00:00.000Z', 47.62, -122.35, [radio('da:11:00:00:00:01', -58, 'random', { name: 'Beacon' })]),
+  rotationScan('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', '2026-01-01T00:00:01.000Z', 47.62, -122.35, [radio('da:11:00:00:00:01', -59, 'random', { name: 'Beacon' })]),
+  rotationScan('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3', '2026-01-01T00:00:02.000Z', 47.62, -122.35, [radio('da:11:00:00:00:02', -60, 'random', { name: 'Other' })]),
+  rotationScan('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4', '2026-01-01T00:00:03.000Z', 47.62, -122.35, [radio('da:11:00:00:00:02', -61, 'random', { name: 'Other' })]),
+])
+const rotated = findRotatingAddresses(rotatedCatalog.history)
+assert.equal(rotated.length, 1)
+assert.equal(rotated[0].kind, 'bluetooth')
+assert.deepEqual(rotated[0].addresses, ['da:11:00:00:00:01', 'da:11:00:00:00:02'])
+assert.equal(rotatedCatalog.devices.length, 2)
+assert.equal(rotatedCatalog.devices.some((device) => device.address === 'da:11:00:00:00:01'), true)
+assert.equal(rotatedCatalog.devices.some((device) => 'broadcastLat' in device), false)
+
+const wifiRotated = findRotatingAddresses([
+  ping({ observedAt: '2026-01-01T00:00:00.000Z', networks: [{ bssid: 'da:00:00:00:00:01', ssid: 'Phone', rssi: -60 }] }),
+  ping({ observedAt: '2026-01-01T00:00:01.000Z', networks: [{ bssid: 'da:00:00:00:00:01', ssid: 'Phone', rssi: -61 }] }),
+  ping({ observedAt: '2026-01-01T00:00:02.000Z', networks: [{ bssid: 'da:00:00:00:00:02', ssid: 'Guest', rssi: -62 }] }),
+  ping({ observedAt: '2026-01-01T00:00:03.000Z', networks: [{ bssid: 'da:00:00:00:00:02', ssid: 'Guest', rssi: -63 }] }),
+])
+assert.equal(wifiRotated.length, 1)
+assert.equal(wifiRotated[0].kind, 'wifi')
+assert.deepEqual(wifiRotated[0].addresses, ['da:00:00:00:00:01', 'da:00:00:00:00:02'])
+
+const jumped = findRotatingAddresses([
+  ping({ observedAt: '2026-01-01T00:00:00.000Z', devices: [radio('aa:bb:cc:00:00:21', -50)] }),
+  ping({ observedAt: '2026-01-01T00:00:01.000Z', devices: [radio('aa:bb:cc:00:00:21', -51)] }),
+  ping({ observedAt: '2026-01-01T00:00:02.000Z', devices: [radio('aa:bb:cc:00:00:22', -90)] }),
+  ping({ observedAt: '2026-01-01T00:00:03.000Z', devices: [radio('aa:bb:cc:00:00:22', -91)] }),
+])
+assert.equal(jumped.length, 0)
+
+const far = findRotatingAddresses([
+  ping({ observedAt: '2026-01-01T00:00:00.000Z', lat: 47.62, lon: -122.35, devices: [radio('aa:bb:cc:00:00:31', -50)] }),
+  ping({ observedAt: '2026-01-01T00:00:01.000Z', lat: 47.62, lon: -122.35, devices: [radio('aa:bb:cc:00:00:31', -50)] }),
+  ping({ observedAt: '2026-01-01T00:00:02.000Z', lat: 47.63, lon: -122.35, devices: [radio('aa:bb:cc:00:00:32', -50)] }),
+  ping({ observedAt: '2026-01-01T00:00:03.000Z', lat: 47.63, lon: -122.35, devices: [radio('aa:bb:cc:00:00:32', -50)] }),
+])
+assert.equal(far.length, 0)
+
+const sameTime = findRotatingAddresses([
+  ping({
+    observedAt: '2026-01-01T00:00:00.000Z',
+    devices: [radio('aa:bb:cc:00:00:41', -50, 'random', { name: 'Speaker' }), radio('aa:bb:cc:00:00:42', -50, 'random', { name: 'Speaker' })],
+  }),
+  ping({
+    observedAt: '2026-01-01T00:00:01.000Z',
+    devices: [radio('aa:bb:cc:00:00:41', -51, 'random', { name: 'Speaker' }), radio('aa:bb:cc:00:00:42', -51, 'random', { name: 'Speaker' })],
+  }),
+])
+assert.equal(sameTime.length, 0)
+
+const publicAddresses = findRotatingAddresses([
+  ping({ observedAt: '2026-01-01T00:00:00.000Z', devices: [radio('00:11:22:33:44:55', -50, 'public')] }),
+  ping({ observedAt: '2026-01-01T00:00:01.000Z', devices: [radio('00:11:22:33:44:55', -50, 'public')] }),
+  ping({ observedAt: '2026-01-01T00:00:02.000Z', devices: [radio('00:11:22:33:44:66', -50, 'public')] }),
+  ping({ observedAt: '2026-01-01T00:00:03.000Z', devices: [radio('00:11:22:33:44:66', -51, 'public')] }),
+  ping({ observedAt: '2026-01-01T00:00:04.000Z', networks: [{ bssid: '00:11:22:33:44:01', ssid: 'Cafe', rssi: -50 }] }),
+  ping({ observedAt: '2026-01-01T00:00:05.000Z', networks: [{ bssid: '00:11:22:33:44:01', ssid: 'Cafe', rssi: -50 }] }),
+  ping({ observedAt: '2026-01-01T00:00:06.000Z', networks: [{ bssid: '00:11:22:33:44:02', ssid: 'Cafe', rssi: -51 }] }),
+  ping({ observedAt: '2026-01-01T00:00:07.000Z', networks: [{ bssid: '00:11:22:33:44:02', ssid: 'Cafe', rssi: -51 }] }),
+])
+assert.equal(publicAddresses.length, 0)
+
+const longGap = findRotatingAddresses([
+  ping({ observedAt: '2026-01-01T00:00:00.000Z', devices: [radio('aa:bb:cc:00:00:61', -83)] }),
+  ping({ observedAt: '2026-01-01T00:00:01.000Z', devices: [radio('aa:bb:cc:00:00:61', -83)] }),
+  ping({ observedAt: '2026-01-01T00:01:40.000Z', devices: [radio('aa:bb:cc:00:00:62', -88)] }),
+  ping({ observedAt: '2026-01-01T00:01:41.000Z', devices: [radio('aa:bb:cc:00:00:62', -88)] }),
+])
+assert.equal(longGap.length, 0)
+
+const heldLevel = findRotatingAddresses([
+  ping({ observedAt: '2026-01-01T00:00:00.000Z', devices: [radio('aa:bb:cc:00:00:71', -60)] }),
+  ping({ observedAt: '2026-01-01T00:00:01.000Z', devices: [radio('aa:bb:cc:00:00:71', -60)] }),
+  ping({ observedAt: '2026-01-01T00:01:30.000Z', devices: [radio('aa:bb:cc:00:00:72', -62)] }),
+  ping({ observedAt: '2026-01-01T00:01:31.000Z', devices: [radio('aa:bb:cc:00:00:72', -62)] }),
+])
+assert.equal(heldLevel.length, 1)
+assert.deepEqual(heldLevel[0].addresses, ['aa:bb:cc:00:00:71', 'aa:bb:cc:00:00:72'])
+
+const missingPlace = findRotatingAddresses([
+  ping({ observedAt: '2026-01-01T00:00:00.000Z', lat: null, lon: null, devices: [radio('aa:bb:cc:00:00:51', -50)] }),
+  ping({ observedAt: '2026-01-01T00:00:01.000Z', lat: null, lon: null, devices: [radio('aa:bb:cc:00:00:51', -50)] }),
+  ping({ observedAt: '2026-01-01T00:00:02.000Z', lat: null, lon: null, devices: [radio('aa:bb:cc:00:00:52', -51)] }),
+  ping({ observedAt: '2026-01-01T00:00:03.000Z', lat: null, lon: null, devices: [radio('aa:bb:cc:00:00:52', -51)] }),
+])
+assert.equal(missingPlace.length, 0)
 
 console.log('logic tests passed')

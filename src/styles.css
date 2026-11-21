@@ -17,6 +17,23 @@ main {
   padding: 20px 16px 40px;
 }
 
+main.fit-window {
+  height: 100dvh;
+  max-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 16px;
+}
+
+main.fit-window > header,
+main.fit-window > .status,
+main.fit-window > .note,
+main.fit-window > .warn,
+main.fit-window > nav {
+  flex: 0 0 auto;
+}
+
 header {
   display: flex;
   justify-content: space-between;
@@ -113,7 +130,21 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #2c3a33; }
   border-radius: 16px;
 }
 
-.sonar { max-width: 520px; }
+main.fit-window > .rooms-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  align-content: start;
+}
+
+.rooms-view .sonar,
+.rooms-view .plan {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: calc(100dvh - 14rem);
+}
 
 .building { display: grid; gap: 8px; }
 .building h2, .building h3 { font-size: 16px; }
@@ -149,9 +180,46 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #2c3a33; }
 .source-line strong { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
 .source-line span { color: #c5d5cc; }
 
-.signal-groups { display: grid; gap: 16px; margin-top: 16px; }
-.signal-groups h3 { display: flex; gap: 8px; align-items: center; font-size: 15px; }
-.signal-groups h3 i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.log-view { display: grid; gap: 16px; }
+.log-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
+.log-head p { margin: 4px 0 0; }
+.datasources { display: grid; gap: 12px; }
+.datasource-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.datasource-bar input {
+  flex: 1 1 220px;
+  min-width: 0;
+  background: #121714;
+  color: #e7f0ea;
+  border: 1px solid #3d4f46;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font: inherit;
+}
+.filter-chip { display: inline-flex; align-items: center; gap: 6px; }
+.filter-chip i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.filter-chip span { color: #8aa398; }
+.datasource-grid {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+.datasource-grid li { background: #121714; border-radius: 12px; padding: 10px; }
+.rotation-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.rotation-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: baseline;
+  background: #121714;
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.rotation-list code { color: #c5d5cc; font-size: 12px; }
+.rotation-note { margin: 8px 0 0; color: #e6a23c; font-size: 13px; }
 
 .leaflet-tooltip.map-label {
   background: #121714;

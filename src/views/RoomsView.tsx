@@ -147,7 +147,7 @@ export function RoomsView({
   })
 
   return (
-    <div className="panel">
+    <div className="panel rooms-view">
       <p className="empty">Labels describe anonymous motion in this survey. They are not a person's identity. Solid lines are estimated exterior walls. Dashed lines are shared interior walls.</p>
       <SignalLegend />
       {buildings.length === 0 && <p className="empty">No Bluetooth, Wi-Fi, GPS, or cell signal yet.</p>}

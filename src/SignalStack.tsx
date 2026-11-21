@@ -35,12 +35,14 @@ export function SignalStack({
   id,
   fallback,
   signals,
+  note,
   draftFor,
   rename,
 }: {
   id: string
   fallback: string
   signals: SignalRow[]
+  note?: string
   draftFor: (id: string, fallback: string) => string
   rename: (id: string, value: string) => void
 }) {
@@ -48,6 +50,7 @@ export function SignalStack({
   return (
     <div className="source-stack">
       <LabelField id={id} fallback={fallback} draftFor={draftFor} rename={rename} />
+      {note && <p className="rotation-note">{note}</p>}
       <div className={kinds.length > 1 ? 'source-pile' : 'source-pile single'}>
         {signals.map((signal) => (
           <p key={`${signal.kind}:${signal.title}:${signal.detail}`} className="source-line" style={{ borderLeftColor: SIGNAL_COLORS[signal.kind] }}>
