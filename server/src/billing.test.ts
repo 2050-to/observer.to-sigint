@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import Stripe from 'stripe'
-import { acceptWebhook, effectFromEvent, type BillingEffect } from './billing.js'
+import { acceptWebhook, effectFromEvent, startCheckout, type BillingEffect } from './billing.js'
 import { ApiError } from './http.js'
 import type { Store } from './store.js'
 
@@ -107,5 +107,12 @@ await assert.rejects(
   () => acceptWebhook(payload, `${header}tampered`, store),
   (error: unknown) => error instanceof ApiError && error.status === 400,
 )
+
+for (const email of ['ben@2050.to', 'Alicia@2050.to', 'vicanwulika@gmail.com']) {
+  await assert.rejects(
+    () => startCheckout(store, { id: 'comp', email }),
+    (error: unknown) => error instanceof ApiError && error.status === 403,
+  )
+}
 
 console.log('billing checks passed')

@@ -1,6 +1,6 @@
 # Observer.to
 
-Local app for collecting and reviewing wireless presence around a place you are responsible for. A React UI shows a public homepage, then a signed-in observer with range, a map, open networks, a log, this device's DNS, and optional bookmark, search, and browsing imports. An HTTPS API stores each account's records in Postgres and keeps a short-lived snapshot in Redis. Search and questions stay inside that account. An optional Android app and a macOS app scan nearby networks and post them to the API. The Mac app can also record its own DNS lookups.
+Local app for collecting and reviewing wireless presence around a place you are responsible for. A React UI shows a public homepage, then a signed-in observer with range, a map, open networks, a log, and optional search and browsing imports. An HTTPS API stores each account's records in Postgres and keeps a short-lived snapshot in Redis. Search and questions stay inside that account. An optional Android app and a macOS app scan nearby networks and post them to the API.
 
 The browser cannot scan Wi-Fi. Use **Load sample drive** there after you sign in. Real scans run in the Android app.
 

@@ -26,6 +26,59 @@ main {
   padding: 20px 16px 40px;
 }
 
+main.observer {
+  height: 100dvh;
+  max-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 12px;
+}
+
+main.observer.mac-app {
+  max-width: none;
+}
+
+main.observer .workspace {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+main.observer.mac-app .workspace {
+  flex-direction: row;
+  gap: 16px;
+}
+
+main.observer .stage {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+main.observer.mac-app .stage {
+  min-width: 0;
+}
+
+main.observer .fill-view {
+  flex: 1 1 auto;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+}
+
+main.observer .fill-view .graph,
+main.observer .fill-view .map,
+main.observer .fill-view .map.leaflet-container {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 240px;
+}
+
 header {
   display: flex;
   justify-content: space-between;
@@ -168,6 +221,10 @@ nav { margin: 8px 0 12px; }
 
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #303237; }
+.panel > .fit { justify-self: start; }
+.records td.when,
+.records td.mid { white-space: nowrap; vertical-align: top; }
+.records td.detail { overflow-wrap: anywhere; }
 .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
 .meta dt { color: var(--text-muted); font-size: 12px; }
 .meta dd { margin: 0; overflow-wrap: anywhere; }
@@ -345,6 +402,44 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #303237; }
   padding: 14px;
   color: var(--text-secondary);
 }
+.ask-rail {
+  width: 340px;
+  flex: 0 0 340px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 14px;
+  overflow: hidden;
+}
+.ask-transcript {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ask-turn { display: grid; gap: 6px; }
+.ask-turn p { margin: 0; }
+.ask-dataset { color: var(--text-muted); font-size: 12px; }
+.ask-question {
+  justify-self: start;
+  max-width: 100%;
+  background: var(--control);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 8px 12px;
+  overflow-wrap: anywhere;
+}
+.ask-scope { margin: 0; color: var(--text-muted); font-size: 13px; }
+.ask-rail .ask { flex: 0 0 auto; }
+.ask-rail .ask label { display: grid; align-items: stretch; }
+.ask-rail .ask input { min-width: 0; width: 100%; }
+.ask-rail .note, .ask-rail .warn { margin: 0; }
+
 .ask { display: grid; gap: 8px; }
 .ask input, .file input, .signin input[type="date"] {
   background: var(--background);

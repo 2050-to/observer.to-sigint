@@ -12,6 +12,13 @@ export interface LocalCatalogFile {
   journal: string
 }
 
+export interface LocalHistoryImport {
+  visits: { url: string; title: string | null; visitedAt: string }[]
+  searches: { query: string; engine: string | null; queriedAt: string }[]
+  sources: string[]
+  skipped: string[]
+}
+
 interface WardrivePlugin {
   startDrive(options: { apiUrl: string; token: string }): Promise<void>
   stopDrive(): Promise<void>
@@ -24,6 +31,7 @@ interface WardrivePlugin {
   replaceLocal(options: { catalog: string; journal: string }): Promise<void>
   catalogSubnet(options: { consent: boolean }): Promise<SubnetCatalog>
   deviceDetails(options: { consent: boolean; browser: string }): Promise<DeviceDetails>
+  importHistory(options: { consent: boolean }): Promise<LocalHistoryImport>
   addListener(eventName: 'scanQueued', listenerFunc: () => void): Promise<PluginListenerHandle>
   addListener(eventName: 'scansSynced', listenerFunc: (event: { count: number }) => void): Promise<PluginListenerHandle>
 }
@@ -92,6 +100,10 @@ class WardriveWeb extends WebPlugin implements WardrivePlugin {
   async deviceDetails(): Promise<DeviceDetails> {
     throw new Error('The browser cannot read device details. Use the Android or macOS app on a network you own.')
   }
+
+  async importHistory(): Promise<LocalHistoryImport> {
+    throw new Error('This browser cannot read history stored by other browsers. Use the macOS app, or import a file.')
+  }
 }
 
 function parseJournal(text: string): JournalScan[] {
@@ -118,6 +130,8 @@ interface MacBridge {
   replaceLocal(options: { catalog: string; journal: string }): Promise<void>
   catalogSubnet(options: { consent: boolean }): Promise<SubnetCatalog>
   deviceDetails(options: { consent: boolean; browser: string }): Promise<DeviceDetails>
+  importHistory(options: { consent: boolean }): Promise<LocalHistoryImport>
+  promptFullDiskAccess(): Promise<void>
   addListener(eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void): Promise<PluginListenerHandle>
 }
 
@@ -170,6 +184,10 @@ class WardriveMac extends WebPlugin {
     return this.bridge.deviceDetails(options)
   }
 
+  importHistory(options: { consent: boolean }): Promise<LocalHistoryImport> {
+    return this.bridge.importHistory(options)
+  }
+
   addListener(eventName: 'scanQueued' | 'scansSynced', listenerFunc: (event?: { count?: number }) => void): Promise<PluginListenerHandle> {
     return this.bridge.addListener(eventName, listenerFunc)
   }
@@ -186,6 +204,14 @@ export const Wardrive: WardrivePlugin = desktop
   ? new WardriveMac(desktop) as WardrivePlugin
   : registerPlugin<WardrivePlugin>('Wardrive', { web: () => new WardriveWeb() })
 
+export function promptFullDiskAccess(): void {
+  void macBridge()?.promptFullDiskAccess()
+}
+
 export function onDevice(): boolean {
   return Capacitor.isNativePlatform() || desktop != null
+}
+
+export function onMacApp(): boolean {
+  return desktop != null
 }

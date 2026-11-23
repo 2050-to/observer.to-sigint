@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -6,7 +7,7 @@ import { join, resolve } from 'node:path'
 import { request as httpsRequest } from 'node:https'
 import { app, BrowserWindow, ipcMain, powerSaveBlocker } from 'electron'
 import { CatalogStore, type StoredScan } from './catalog'
-import { DnsCapture } from './dnsCapture'
+import { readLocalBrowserHistory } from './browserHistory'
 import { catalogLocalSubnet, localDeviceDetails } from './ownedNetwork'
 import { listen } from './server'
 
@@ -61,7 +62,6 @@ let flushAgain = false
 let discarding = false
 let chain = Promise.resolve()
 let serverClose: (() => Promise<void>) | null = null
-const dnsCapture = new DnsCapture()
 
 function exclusive<T>(fn: () => T): Promise<T> {
   const run = chain.then(fn, fn)
@@ -121,6 +121,16 @@ function waitingStatus(count: number): string {
   const noun = count === 1 ? 'scan' : 'scans'
   const pronoun = count === 1 ? 'It' : 'They'
   return `${count} ${noun} on this Mac. ${pronoun} will sync when a saved network is in range.`
+}
+
+function permissionNotice(text: string | undefined): boolean {
+  if (!text) return false
+  return text.includes('Allow Location') || text.includes('Allow Bluetooth')
+}
+
+function revealMacPrivacy(anchor: string): void {
+  if (process.platform !== 'darwin') return
+  execFile('open', [`x-apple.systempreferences:com.apple.preference.security?${anchor}`], () => undefined)
 }
 
 function hearsSaved(networks: { bssid?: string }[], saved: string[]): boolean {
@@ -287,7 +297,7 @@ async function onNativeScan(json: string): Promise<void> {
     const scan = toScan(payload)
     store.append(scan)
     const heard = hearsSaved(networks, store.syncedBssids())
-    if (!heard) message = waitingStatus(store.unuploaded().length)
+    if (!heard && !permissionNotice(message)) message = waitingStatus(store.unuploaded().length)
     return heard
   })
   window?.webContents.send('wardrive:queued', {})
@@ -383,15 +393,13 @@ function registerIpc(): void {
     if (options?.consent !== true) throw new Error('Device details stay off until you allow them for a network you own.')
     return localDeviceDetails(options?.browser ?? '')
   })
-  ipcMain.handle('dns:start', async (_event, options: { apiUrl?: string; token?: string }) => {
-    const nextUrl = options?.apiUrl ?? ''
-    const nextToken = options?.token ?? ''
-    if (!nextUrl.startsWith('https://')) throw new Error('apiUrl must be https')
-    if (!nextToken) throw new Error('Sign in before recording DNS.')
-    return dnsCapture.start({ apiUrl: nextUrl, token: nextToken, ca: caPath() })
+  ipcMain.handle('wardrive:history', async (_event, options: { consent?: boolean }) => {
+    if (options?.consent !== true) throw new Error('Browser history stays unread until you import it.')
+    return readLocalBrowserHistory()
   })
-  ipcMain.handle('dns:stop', async () => dnsCapture.stop())
-  ipcMain.handle('dns:status', async () => dnsCapture.status())
+  ipcMain.handle('wardrive:full-disk-access', () => {
+    revealMacPrivacy('Privacy_AllFiles')
+  })
   ipcMain.handle('wardrive:clear', async () => {
     running = false
     message = 'Drive is stopped.'
@@ -478,6 +486,5 @@ app.on('before-quit', () => {
   running = false
   holdAwake(false)
   scanner?.stop()
-  dnsCapture.stop()
   void serverClose?.()
 })

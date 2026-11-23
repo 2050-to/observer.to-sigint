@@ -1,6 +1,7 @@
 import { randomInt } from 'node:crypto'
 import Stripe from 'stripe'
 import { appOrigin } from './auth.js'
+import { isCompEmail } from './comp.js'
 import { ApiError } from './http.js'
 import type { Store } from './store.js'
 
@@ -156,6 +157,7 @@ export async function acceptWebhook(raw: string, signature: string | undefined, 
 }
 
 export async function startCheckout(store: Store, user: { id: string; email: string }): Promise<string> {
+  if (isCompEmail(user.email)) throw new ApiError(403, 'this account already includes alerts and questions')
   const stripe = requireStripe()
   const price = process.env.STRIPE_PRICE_ID?.trim() ?? ''
   const existing = await store.subscriptionFor(user.id)

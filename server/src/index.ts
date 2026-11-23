@@ -10,7 +10,7 @@ import { AlertWorker } from './alerts.js'
 import { appOrigin, normalizeEmail, requestLogin, verifyLogin, verifySession } from './auth.js'
 import { askAccount } from './ask.js'
 import { acceptWebhook, startCheckout, startPortal } from './billing.js'
-import { asBookmarkBody, asDnsBody, asOwnedDevice, asOwnedLan, asPlaceFilter, asSearchBody, asVisitBody } from './intake.js'
+import { asOwnedDevice, asOwnedLan, asPlaceFilter, asSearchBody, asVisitBody } from './intake.js'
 import { DeepSeekEnrichmentClient } from './enrichment/deepseek.js'
 import { EnrichmentWorker } from './enrichment/worker.js'
 import { lookupPlace } from './geocode.js'
@@ -274,7 +274,11 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
     send(res, 200, {
       id: user.id,
       email: user.email,
-      alerts: { status: alerts.status, currentPeriodEnd: alerts.currentPeriodEnd },
+      alerts: {
+        status: alerts.status,
+        currentPeriodEnd: alerts.currentPeriodEnd,
+        portal: Boolean(alerts.stripeCustomerId),
+      },
       consent: {
         accepted: consent.accepted,
         bornOn: consent.bornOn,
@@ -375,35 +379,13 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
     send(res, 200, { networks: await store.searchWifi(user.id, asPlaceFilter(url)) })
     return
   }
-  if (req.method === 'GET' && url.pathname === '/api/dns') {
-    const from = url.searchParams.get('from')
-    const to = url.searchParams.get('to')
-    if (!from || !to || Number.isNaN(Date.parse(from)) || Number.isNaN(Date.parse(to))) {
-      throw new ApiError(400, 'from and to are required')
-    }
-    send(res, 200, { queries: await store.dnsWindow(user.id, from, to) })
-    return
-  }
-  if (req.method === 'POST' && url.pathname === '/api/dns') {
-    const count = await store.insertDns(user.id, asDnsBody(JSON.parse(await readBody(req)) as unknown))
-    send(res, 200, { count })
-    return
-  }
-  if (req.method === 'GET' && url.pathname === '/api/bookmarks') {
-    send(res, 200, { items: await store.listBookmarks(user.id, url.searchParams.get('q') ?? '') })
-    return
-  }
-  if (req.method === 'POST' && url.pathname === '/api/bookmarks') {
-    const count = await store.saveBookmarks(user.id, asBookmarkBody(JSON.parse(await readBody(req)) as unknown))
-    send(res, 200, { count })
-    return
-  }
   if (req.method === 'GET' && url.pathname === '/api/search-history') {
     send(res, 200, { items: await store.listSearches(user.id, url.searchParams.get('q') ?? '') })
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/search-history') {
-    const count = await store.saveSearches(user.id, asSearchBody(JSON.parse(await readBody(req)) as unknown))
+    const body = asSearchBody(JSON.parse(await readBody(req)) as unknown)
+    const count = await store.saveSearches(user.id, body.items, body.replace)
     send(res, 200, { count })
     return
   }
@@ -412,7 +394,8 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/browsing-history') {
-    const count = await store.saveVisits(user.id, asVisitBody(JSON.parse(await readBody(req)) as unknown))
+    const body = asVisitBody(JSON.parse(await readBody(req)) as unknown)
+    const count = await store.saveVisits(user.id, body.items, body.replace)
     send(res, 200, { count })
     return
   }

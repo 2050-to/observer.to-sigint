@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import { Redis } from 'ioredis'
 import pg from 'pg'
 import { deliverDueAlerts } from './alerts.js'
+import { askAccount } from './ask.js'
 import { loginToken } from './auth.js'
 import { Store, type ScanInput } from './store.js'
 
@@ -177,6 +178,39 @@ try {
   })
   assert.equal(afterWipe, 0)
   assert.equal((await store.catalog(userA.id)).length, 0)
+
+  const compEmail = 'ben@2050.to'
+  const priorComp = await pool.query<{ id: string; last_alert_at: Date | null }>(
+    'SELECT id, last_alert_at FROM users WHERE email = $1',
+    [compEmail],
+  )
+  const existingComp = priorComp.rows[0]
+  const createdComp = !existingComp
+  const compId = existingComp ? existingComp.id : (await store.upsertUser(compEmail)).id
+  try {
+    const comp = await store.subscriptionFor(compId)
+    assert.equal(comp.status, 'active')
+    const plain = await store.upsertUser(`accounts-test-${stamp}-plain@example.com`)
+    assert.equal((await store.subscriptionFor(plain.id)).status, 'none')
+    const due = await store.alertCandidates()
+    if (!due.some((user) => user.id === compId)) {
+      const last = existingComp?.last_alert_at
+      assert.ok(last && Date.now() - last.getTime() < 7 * 24 * 60 * 60 * 1000)
+    }
+    if (createdComp) {
+      assert.equal(comp.stripeCustomerId, null)
+      const answer = await askAccount(store, compId, { dataset: 'search', question: 'anything' }, async () => 'comp answer')
+      assert.equal(answer.answer, 'comp answer')
+    }
+    await store.saveSearches(plain.id, [{ query: 'old query', engine: null, queriedAt: '2026-11-01T00:00:00.000Z' }])
+    await store.saveSearches(plain.id, [{ query: 'new query', engine: 'Google', queriedAt: '2026-11-02T00:00:00.000Z' }], true)
+    assert.deepEqual((await store.listSearches(plain.id, '')).map((row) => row.query), ['new query'])
+    await store.saveVisits(plain.id, [{ url: 'https://old.example/', title: 'Old', visitedAt: '2026-11-01T00:00:00.000Z' }])
+    await store.saveVisits(plain.id, [{ url: 'https://new.example/', title: 'New', visitedAt: '2026-11-02T00:00:00.000Z' }], true)
+    assert.deepEqual((await store.listVisits(plain.id, '')).map((row) => row.url), ['https://new.example/'])
+  } finally {
+    if (createdComp) await pool.query('DELETE FROM users WHERE id = $1', [compId])
+  }
 } finally {
   await pool.query('DELETE FROM users WHERE email LIKE $1', [`accounts-test-${stamp}-%@example.com`])
   await redis.quit()

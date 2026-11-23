@@ -2,45 +2,12 @@ import { asDeviceDetails, asSubnetCatalog } from '../../shared/ownedNetwork.js'
 import { normalizeUrl, clipText, parseWhen } from '../../shared/imports.js'
 import { cityName, stateCode, zipCode } from '../../shared/places.js'
 import { ApiError } from './http.js'
-import type { DnsQueryRow } from './personal.js'
 
-export function asDnsBody(value: unknown): DnsQueryRow[] {
-  const queries = arrayOf(value, 'queries')
-  const rows: DnsQueryRow[] = []
-  for (const entry of queries.slice(0, 200)) {
-    if (!entry || typeof entry !== 'object') continue
-    const record = entry as Record<string, unknown>
-    const name = clipText(record.name, 253)?.toLowerCase()
-    const type = clipText(record.type, 16)?.toUpperCase()
-    const observedAt = parseWhen(record.observedAt)
-    if (!name || !type || !observedAt || !/^[a-z0-9.-]+$/.test(name)) continue
-    rows.push({
-      observedAt,
-      name,
-      type,
-      rcode: clipText(record.rcode, 32),
-    })
-  }
-  if (rows.length === 0) throw new ApiError(400, 'queries are required')
-  return rows
-}
-
-export function asBookmarkBody(value: unknown): { title: string; url: string }[] {
-  const items = arrayOf(value, 'items')
-  const rows: { title: string; url: string }[] = []
-  for (const entry of items.slice(0, 2000)) {
-    if (!entry || typeof entry !== 'object') continue
-    const record = entry as Record<string, unknown>
-    const url = normalizeUrl(record.url)
-    const title = clipText(record.title, 300) ?? url
-    if (!url || !title) continue
-    rows.push({ title, url })
-  }
-  if (rows.length === 0) throw new ApiError(400, 'bookmarks are required')
-  return rows
-}
-
-export function asSearchBody(value: unknown): { query: string; engine: string | null; queriedAt: string }[] {
+export function asSearchBody(value: unknown): {
+  items: { query: string; engine: string | null; queriedAt: string }[]
+  replace: boolean
+} {
+  const replace = wantsReplace(value)
   const items = arrayOf(value, 'items')
   const rows: { query: string; engine: string | null; queriedAt: string }[] = []
   for (const entry of items.slice(0, 2000)) {
@@ -51,11 +18,15 @@ export function asSearchBody(value: unknown): { query: string; engine: string | 
     if (!query || !queriedAt) continue
     rows.push({ query, engine: clipText(record.engine, 40), queriedAt })
   }
-  if (rows.length === 0) throw new ApiError(400, 'searches are required')
-  return rows
+  if (rows.length === 0 && !replace) throw new ApiError(400, 'searches are required')
+  return { items: rows, replace }
 }
 
-export function asVisitBody(value: unknown): { url: string; title: string | null; visitedAt: string }[] {
+export function asVisitBody(value: unknown): {
+  items: { url: string; title: string | null; visitedAt: string }[]
+  replace: boolean
+} {
+  const replace = wantsReplace(value)
   const items = arrayOf(value, 'items')
   const rows: { url: string; title: string | null; visitedAt: string }[] = []
   for (const entry of items.slice(0, 2000)) {
@@ -66,8 +37,8 @@ export function asVisitBody(value: unknown): { url: string; title: string | null
     if (!url || !visitedAt) continue
     rows.push({ url, title: clipText(record.title, 300), visitedAt })
   }
-  if (rows.length === 0) throw new ApiError(400, 'visits are required')
-  return rows
+  if (rows.length === 0 && !replace) throw new ApiError(400, 'visits are required')
+  return { items: rows, replace }
 }
 
 export function asPlaceFilter(url: URL): { zip: string | null; state: string | null; city: string | null } {
@@ -91,6 +62,10 @@ export function asOwnedLan(value: unknown) {
   const catalog = asSubnetCatalog(value)
   if (!catalog) throw new ApiError(400, 'network inventory is invalid')
   return catalog
+}
+
+function wantsReplace(value: unknown): boolean {
+  return Boolean(value && typeof value === 'object' && (value as { replace?: unknown }).replace === true)
 }
 
 function arrayOf(value: unknown, key: string): unknown[] {

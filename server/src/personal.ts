@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type pg from 'pg'
-import { bssidHmac, decryptJson, encryptJson } from './crypto.js'
+import { bssidHmac, encryptJson } from './crypto.js'
 import { consentMatches, isAdult } from '../../shared/legal.js'
 import { cityName, isUnitedStates, stateCode, zipCode } from '../../shared/places.js'
 import type { DeviceRecord, NetworkRecord } from './types.js'
@@ -27,13 +27,6 @@ export interface WifiPlaceRow {
   lastSeen: string
 }
 
-export interface DnsQueryRow {
-  observedAt: string
-  name: string
-  type: string
-  rcode: string | null
-}
-
 export interface UsPlace {
   city: string | null
   state: string | null
@@ -41,9 +34,9 @@ export interface UsPlace {
   countryCode: string | null
 }
 
-const DATASETS = new Set(['dns', 'wifi', 'bookmarks', 'search', 'browsing'])
+const DATASETS = new Set(['wifi', 'search', 'browsing'])
 
-export function isAskDataset(value: unknown): value is 'dns' | 'wifi' | 'bookmarks' | 'search' | 'browsing' {
+export function isAskDataset(value: unknown): value is 'wifi' | 'search' | 'browsing' {
   return typeof value === 'string' && DATASETS.has(value)
 }
 
@@ -115,47 +108,6 @@ export async function replaceLanHosts(db: Db, userId: string, hosts: { ip: strin
       [userId, bssidHmac(host.ip), sealed.payload, sealed.nonce],
     )
   }
-}
-
-export async function insertDns(db: Db, userId: string, queries: DnsQueryRow[]): Promise<number> {
-  let count = 0
-  for (const query of queries.slice(0, 200)) {
-    if (!query.name || query.name.length > 253) continue
-    const observedAt = new Date(query.observedAt)
-    if (Number.isNaN(observedAt.getTime())) continue
-    const sealed = encryptJson({
-      name: query.name.toLowerCase(),
-      type: query.type.slice(0, 16),
-      rcode: query.rcode ? query.rcode.slice(0, 32) : null,
-    })
-    await db.query(
-      `INSERT INTO dns_queries (id, user_id, observed_at, payload, nonce)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [randomUUID(), userId, observedAt.toISOString(), sealed.payload, sealed.nonce],
-    )
-    count += 1
-  }
-  return count
-}
-
-export async function dnsWindow(db: Db, userId: string, from: string, to: string): Promise<DnsQueryRow[]> {
-  const result = await db.query<{ observed_at: Date; payload: Buffer; nonce: Buffer }>(
-    `SELECT observed_at, payload, nonce
-     FROM dns_queries
-     WHERE user_id = $1 AND observed_at >= $2 AND observed_at < $3
-     ORDER BY observed_at
-     LIMIT 5000`,
-    [userId, from, to],
-  )
-  return result.rows.map((row) => {
-    const body = decryptJson<{ name: string; type: string; rcode: string | null }>(row.payload, row.nonce)
-    return {
-      observedAt: new Date(row.observed_at).toISOString(),
-      name: body.name,
-      type: body.type,
-      rcode: body.rcode,
-    }
-  })
 }
 
 export function usPlace(parts: {
@@ -299,39 +251,13 @@ export async function searchWifi(
   }))
 }
 
-export async function saveBookmarks(db: Db, userId: string, items: { title: string; url: string }[]): Promise<number> {
-  let count = 0
-  for (const item of items.slice(0, 2000)) {
-    await db.query(
-      `INSERT INTO bookmarks (user_id, url_hmac, title, url)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (user_id, url_hmac) DO UPDATE
-       SET title = EXCLUDED.title, url = EXCLUDED.url, added_at = now()`,
-      [userId, bssidHmac(item.url), item.title, item.url],
-    )
-    count += 1
-  }
-  return count
-}
-
-export async function listBookmarks(db: Db, userId: string, q: string): Promise<{ title: string; url: string }[]> {
-  const needle = q.trim()
-  const result = await db.query<{ title: string; url: string }>(
-    `SELECT title, url FROM bookmarks
-     WHERE user_id = $1
-       AND ($2::text = '' OR title ILIKE $3 OR url ILIKE $3)
-     ORDER BY added_at DESC
-     LIMIT 200`,
-    [userId, needle, `%${needle.replace(/[%_\\]/g, '')}%`],
-  )
-  return result.rows
-}
-
 export async function saveSearches(
   db: Db,
   userId: string,
   items: { query: string; engine: string | null; queriedAt: string }[],
+  replace = false,
 ): Promise<number> {
+  if (replace) await db.query('DELETE FROM search_queries WHERE user_id = $1', [userId])
   let count = 0
   for (const item of items.slice(0, 2000)) {
     await db.query(
@@ -365,7 +291,9 @@ export async function saveVisits(
   db: Db,
   userId: string,
   items: { url: string; title: string | null; visitedAt: string }[],
+  replace = false,
 ): Promise<number> {
+  if (replace) await db.query('DELETE FROM page_visits WHERE user_id = $1', [userId])
   let count = 0
   for (const item of items.slice(0, 2000)) {
     const host = hostOf(item.url)
@@ -399,17 +327,10 @@ export async function listVisits(db: Db, userId: string, q: string): Promise<{ u
 export async function askExcerpt(
   db: Db,
   userId: string,
-  dataset: 'dns' | 'wifi' | 'bookmarks' | 'search' | 'browsing',
+  dataset: 'wifi' | 'search' | 'browsing',
   question: string,
 ): Promise<string> {
   const tokens = question.toLowerCase().split(/[^a-z0-9.-]+/).filter((token) => token.length > 2).slice(0, 8)
-  if (dataset === 'dns') {
-    const rows = await dnsWindow(db, userId, new Date(Date.now() - 7 * 86400000).toISOString(), new Date(Date.now() + 60000).toISOString())
-    const matched = tokens.length === 0
-      ? rows
-      : rows.filter((row) => tokens.some((token) => row.name.includes(token)))
-    return lines((matched.length > 0 ? matched : rows).slice(-40).map((row) => `${row.observedAt} ${row.type} ${row.name}`))
-  }
   if (dataset === 'wifi') {
     const result = await db.query<{ ssid: string; city: string | null; state: string | null; zip: string | null; channel: number | null; security: string | null }>(
       `SELECT ssid, city, state, zip, channel, security FROM wifi_places
@@ -424,10 +345,6 @@ export async function askExcerpt(
     })
     const chosen = (matched.length > 0 ? matched : result.rows).slice(0, 40)
     return lines(chosen.map((row) => [row.ssid, row.city, row.state, row.zip, row.security, row.channel].filter(Boolean).join(' ')))
-  }
-  if (dataset === 'bookmarks') {
-    const rows = await listBookmarks(db, userId, tokens[0] ?? '')
-    return lines(rows.slice(0, 40).map((row) => `${row.title} ${row.url}`))
   }
   if (dataset === 'search') {
     const rows = await listSearches(db, userId, tokens[0] ?? '')

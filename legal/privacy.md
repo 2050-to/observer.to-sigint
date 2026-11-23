@@ -1,7 +1,7 @@
 # Privacy Policy
 
 Last updated: 23 November 2026
-Version: 2026-11-23
+Version: 2026-11-23.2
 
 This policy explains what Observer.to stores, who can see it, and how to delete it. It covers the Mac app, the Android app, the website, and the account API. Read it with the Terms of Service. You must accept the current version of both before an app opens your data or the website shows stored data.
 
@@ -19,7 +19,7 @@ The public marketing pages and the Terms and Privacy Policy can be read without 
 - Date of birth, used only to confirm that you are 18 or older and to decide when you must accept the current terms again. It is not shown to other accounts.
 - The versions of the Terms and Privacy Policy you accepted, and the time you accepted them.
 - Billing identifiers from Stripe if you start a subscription. Observer.to does not store a full card number.
-- Bookmarks, search history, and browsing history from a file you select. Passwords, cookies, payment cards, and form data are not read. The apps do not open your browser profile folders unless you pick a file yourself.
+- Search history and browsing history from a file you select on the website and the Android app. On the Mac app, search history and browsing history from the browsers on that Mac after you click Import from this Mac. Passwords, cookies, payment cards, and form data are not read. The Mac app does not open browser profile folders until you click that button.
 
 Imported history is stored for that account. There is no switch that shares it with other people.
 
@@ -31,8 +31,6 @@ After you accept, a drive can record:
 - Public Bluetooth advertisement fields, such as the identifier the operating system provides, a name if one is advertised, and signal strength. macOS does not reveal a Bluetooth hardware address. Observer.to does not connect to Bluetooth devices.
 - This device's GPS, altitude, and speed while a drive runs, so the observation can be placed.
 - Cell tower identifiers the phone reports during normal operation, such as mobile country and network codes, area, and cell id. Observer.to does not collect IMSI, TMSI, or call content.
-
-On the Mac app, DNS recording stores lookups this Mac sends in cleartext: the name, the record type, the response code when it is visible, and the time. The capture is limited to packets whose source is this Mac. It does not turn on promiscuous mode and it does not record other devices on the local network. Encrypted DNS, such as DNS over HTTPS or DNS over TLS, is not visible and is not stored.
 
 If you turn on the owned-network check, Observer.to stores the current device description you allowed (operating system, browser string, memory, processor, and hostname) and the address inventory of a network you own (address, role, announced name, and related service names). Those rows are saved to your account. They are not a record of other people's traffic.
 
@@ -46,7 +44,7 @@ Place text is about the location of a public beacon your account heard. It is no
 
 The database is Postgres. Each row is tied to your account.
 
-Scan catalogs, device details, local network hosts, and DNS questions are encrypted with a server key before they are stored. Time, and the fields needed to find your own rows, are indexed. Wi-Fi place search stores SSID, channel, security, coordinates, city, state, and ZIP on your rows so your map can filter them. Bookmark URLs, search text, and page addresses are stored so you can search and, on the paid plan, ask about your own imports.
+Scan catalogs, device details, and local network hosts are encrypted with a server key before they are stored. Time, and the fields needed to find your own rows, are indexed. Wi-Fi place search stores SSID, channel, security, coordinates, city, state, and ZIP on your rows so your map can filter them. Search text and page addresses are stored so you can search and, on the paid plan, ask about your own imports.
 
 A short-lived copy of recent catalog data may sit in Redis for the signed-in account. The Mac and Android apps also keep a local catalog so a drive can continue while the server is unreachable. Protect those devices.
 
@@ -65,11 +63,11 @@ These processors receive only what they need:
 - DeepSeek receives a question you submit and a bounded excerpt of your own rows for that question, when the assistant is enabled. It does not receive another account's rows, your password (there is none), or a database login. Observer.to does not send the assistant your email address.
 - Nominatim and Open-Meteo receive coordinates from a place your account is already recording, so the server can attach an address, elevation, or United States city, state, and ZIP.
 
-Observer.to does not let customers query across accounts. Search, exports, the map, DNS review, imports, and assistant questions all require your session and your user id.
+Observer.to does not let customers query across accounts. Search, exports, the map, imports, and assistant questions all require your session and your user id.
 
 ## 7. The assistant
 
-The assistant is part of the paid plan. A question names one of your datasets: DNS, Wi-Fi places, bookmarks, search history, or browsing history. The server loads a limited excerpt of your rows and asks DeepSeek to answer from that excerpt. If the excerpt does not contain the answer, the reply should say so. The assistant is not a source of records about other people, and it is not a substitute for your own judgment.
+The assistant is part of the paid plan. A question names one of your datasets: Wi-Fi places, search history, or browsing history. The server loads a limited excerpt of your rows and asks DeepSeek to answer from that excerpt. If the excerpt does not contain the answer, the reply should say so. The assistant is not a source of records about other people, and it is not a substitute for your own judgment.
 
 If the DeepSeek key is not configured, questions are unavailable. That does not open the rest of the account to anyone else.
 
@@ -85,7 +83,7 @@ Server logs may keep operational errors for as long as the host keeps process lo
 
 Delete all data in the app removes your scans and the records described in the Terms from the device and, when the server is reachable, from the server. You can export a CSV and a markdown report of your beacon catalog while you are signed in.
 
-You may ask for a copy of the email and acceptance record associated with your account by using the contact below. Imports and DNS logs are available in the app after you sign in.
+You may ask for a copy of the email and acceptance record associated with your account by using the contact below. Imports are available in the app after you sign in.
 
 An under-18 attempt is deleted rather than stored.
 

@@ -12,7 +12,7 @@ export function Home() {
         {account && <AccountBar account={account} />}
       </header>
       <p className="lede">
-        Observer.to records the wireless presence around a place you are responsible for. It is a purple-team observer: the same evidence for the people who defend a site and the people who test it. It records public beacons, and it can record this device's own DNS lookups. It does not record anyone else's traffic.
+        Observer.to records the wireless presence around a place you are responsible for. It is a purple-team observer: the same evidence for the people who defend a site and the people who test it. It records public beacons. It does not record anyone else's traffic.
       </p>
       <section>
         <h2>What goes missing</h2>
@@ -31,7 +31,7 @@ export function Home() {
           <li>It does not capture subscriber identities such as IMSI or TMSI.</li>
           <li>It does not transmit, jam, or spoof.</li>
           <li>It does not track a person from a hardware address.</li>
-          <li>Search and questions stay inside the signed-in account. You cannot read another account's DNS, networks, bookmarks, or history.</li>
+          <li>Search and questions stay inside the signed-in account. You cannot read another account's networks or history.</li>
           <li>The observer opens only after you read and accept the current Terms and Privacy Policy, and only if you are 18 or older.</li>
         </ul>
       </section>

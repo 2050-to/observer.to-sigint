@@ -5,26 +5,24 @@ import { AccountBar, UpgradeBanner, alertLabel, useAccount } from './AccountBar'
 import { sessionToken } from './session'
 import { sampleScans } from './fixture'
 import { loadView, type RefreshMode } from './localCatalog'
-import { onDevice, Wardrive } from './native/drive'
+import { AskBox, type AskDataset } from './AskBox'
+import { onDevice, onMacApp, Wardrive } from './native/drive'
 import { clearOwnedPrefs } from './ownedPrefs'
 import type { EnrichmentQueueStatus, MapState, OpenRow, RangeSnapshot } from './types'
 import { DriveMap } from './views/DriveMap'
-import { DnsView } from './views/DnsView'
 import { LogView } from './views/LogView'
 import { OwnedNetwork } from './views/OwnedNetwork'
 import { OpenList } from './views/OpenList'
 import { RangeGraph } from './views/RangeGraph'
 import { RecordView } from './views/RecordView'
 
-type Tab = 'range' | 'map' | 'open' | 'log' | 'dns' | 'bookmarks' | 'search' | 'browsing'
+type Tab = 'range' | 'map' | 'open' | 'log' | 'search' | 'browsing'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'range', label: 'In range' },
   { id: 'map', label: 'Map' },
   { id: 'open', label: 'Open' },
   { id: 'log', label: 'Log' },
-  { id: 'dns', label: 'DNS' },
-  { id: 'bookmarks', label: 'Bookmarks' },
   { id: 'search', label: 'Search history' },
   { id: 'browsing', label: 'Browsing history' },
 ]
@@ -81,6 +79,8 @@ export function App() {
   const [eraseStep, setEraseStep] = useState<0 | 1 | 2>(0)
   const [erasing, setErasing] = useState(false)
   const [ownedReset, setOwnedReset] = useState(0)
+  const macApp = onMacApp()
+  const [askDataset, setAskDataset] = useState<AskDataset>('wifi')
   const { nameFor, nameForGroup, draftFor, rename, clear } = useLabels()
   const account = useAccount()
   const queue = useRef(Promise.resolve())
@@ -127,14 +127,10 @@ export function App() {
   }, [enrichmentStatus, refresh])
 
   useEffect(() => {
-    const bridge = window.wifiMapping?.wardrive
-    if (!bridge?.startDns || !sessionToken()) return
-    const apiUrl = import.meta.env.VITE_DEVICE_API_URL || 'https://127.0.0.1:9453'
-    void bridge.startDns({ apiUrl, token: sessionToken() })
-    return () => {
-      void bridge.stopDns()
-    }
-  }, [])
+    if (tab === 'map') setAskDataset('wifi')
+    else if (tab === 'search') setAskDataset('search')
+    else if (tab === 'browsing') setAskDataset('browsing')
+  }, [tab])
 
   useEffect(() => {
     let stop = false
@@ -277,7 +273,7 @@ export function App() {
   }
 
   return (
-    <main>
+    <main className={macApp ? 'observer mac-app' : 'observer'}>
       <UpgradeBanner account={account} />
       <header>
         <div>
@@ -311,7 +307,7 @@ export function App() {
             <h2 id="erase-title">{eraseStep === 1 ? 'Delete all saved data?' : 'Delete everything permanently?'}</h2>
             <p>
               {eraseStep === 1
-                ? 'This removes every saved network, scan, device, cell, DNS log, import, and custom name on this device and on the server.'
+                ? 'This removes every saved network, scan, device, cell, import, and custom name on this device and on the server.'
                 : 'There is no undo. The catalog will be empty, and a running drive will stop.'}
             </p>
           </div>
@@ -349,6 +345,8 @@ export function App() {
           </button>
         ))}
       </nav>
+      <div className="workspace">
+      <div className="stage">
       {tab === 'range' && (
         <RangeGraph
           heard={range?.heard ?? NO_HEARD}
@@ -405,11 +403,14 @@ export function App() {
           rename={rename}
         />
       )}
-      {tab === 'dns' && <DnsView subscribed={account?.alerts.status === 'active'} />}
-      {tab === 'bookmarks' && <RecordView kind="bookmarks" subscribed={account?.alerts.status === 'active'} />}
       {tab === 'search' && <RecordView kind="search" subscribed={account?.alerts.status === 'active'} />}
       {tab === 'browsing' && <RecordView kind="browsing" subscribed={account?.alerts.status === 'active'} />}
       <OwnedNetwork active={onDevice()} resetToken={ownedReset} />
+      </div>
+      {macApp && (
+        <AskBox layout="rail" dataset={askDataset} subscribed={account?.alerts.status === 'active'} />
+      )}
+      </div>
     </main>
   )
 }

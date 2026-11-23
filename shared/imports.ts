@@ -1,8 +1,3 @@
-export interface BookmarkItem {
-  title: string
-  url: string
-}
-
 export interface SearchItem {
   query: string
   engine: string | null
@@ -70,13 +65,6 @@ export function searchFromUrl(value: string): { query: string; engine: string } 
   return { query, engine: engine.name }
 }
 
-export function parseBookmarks(text: string): BookmarkItem[] {
-  const trimmed = text.trim()
-  if (!trimmed) return []
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) return bookmarksFromJson(JSON.parse(trimmed) as unknown)
-  return bookmarksFromHtml(trimmed)
-}
-
 export function parseSearchHistory(text: string): SearchItem[] {
   const trimmed = text.trim()
   if (!trimmed) return []
@@ -94,39 +82,6 @@ export function parseBrowsingHistory(text: string): VisitItem[] {
   if (!trimmed) return []
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) return visitsFromJson(JSON.parse(trimmed) as unknown)
   return visitsFromCsv(trimmed)
-}
-
-function bookmarksFromHtml(text: string): BookmarkItem[] {
-  const items: BookmarkItem[] = []
-  const pattern = /<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>(.*?)<\/a>/gi
-  for (const match of text.matchAll(pattern)) {
-    const url = normalizeUrl(decode(match[1]))
-    const title = clipText(decode(match[2].replace(/<[^>]+>/g, '')), 300) ?? url
-    if (url && title) items.push({ title, url })
-  }
-  return dedupeBookmarks(items)
-}
-
-function bookmarksFromJson(value: unknown): BookmarkItem[] {
-  const items: BookmarkItem[] = []
-  walk(value, items)
-  return dedupeBookmarks(items)
-}
-
-function walk(value: unknown, items: BookmarkItem[]): void {
-  if (!value || typeof value !== 'object') return
-  if (Array.isArray(value)) {
-    for (const entry of value) walk(entry, items)
-    return
-  }
-  const record = value as Record<string, unknown>
-  const url = normalizeUrl(record.url ?? record.href)
-  const title = clipText(record.title ?? record.name, 300) ?? url
-  if (url && title && record.type !== 'folder') items.push({ title, url })
-  for (const key of ['children', 'roots', 'bookmark_bar', 'other', 'synced']) {
-    if (key in record) walk(record[key], items)
-  }
-  if (record.roots) walk(record.roots, items)
 }
 
 function searchFromJson(value: unknown): SearchItem[] {
@@ -192,18 +147,6 @@ function rowsOf(value: unknown, keys: string[]): unknown[] {
   return [value]
 }
 
-function dedupeBookmarks(items: BookmarkItem[]): BookmarkItem[] {
-  const seen = new Set<string>()
-  const next: BookmarkItem[] = []
-  for (const item of items) {
-    if (seen.has(item.url)) continue
-    seen.add(item.url)
-    next.push(item)
-    if (next.length === 2000) break
-  }
-  return next
-}
-
 function dedupeSearch(items: SearchItem[]): SearchItem[] {
   const seen = new Set<string>()
   const next: SearchItem[] = []
@@ -215,15 +158,6 @@ function dedupeSearch(items: SearchItem[]): SearchItem[] {
     if (next.length === 2000) break
   }
   return next
-}
-
-function decode(value: string): string {
-  return value
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
 }
 
 function splitCsv(line: string): string[] {

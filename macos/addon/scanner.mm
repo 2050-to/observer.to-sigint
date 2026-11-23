@@ -86,6 +86,14 @@ static BOOL LocationGranted(CLAuthorizationStatus status) {
   return status == kCLAuthorizationStatusAuthorizedAlways;
 }
 
+static BOOL BluetoothGranted(void) {
+  return [CBManager authorization] == CBManagerAuthorizationAllowedAlways;
+}
+
+static BOOL AsksFor(NSString *status, NSString *permission) {
+  return [status rangeOfString:permission].location != NSNotFound;
+}
+
 @interface RadioScanner : NSObject <CBCentralManagerDelegate, CLLocationManagerDelegate>
 @property(nonatomic, strong) CBCentralManager *central;
 @property(nonatomic, strong) CLLocationManager *locationManager;
@@ -95,6 +103,10 @@ static BOOL LocationGranted(CLAuthorizationStatus status) {
 @property(nonatomic, strong) dispatch_source_t timer;
 @property(nonatomic, assign) BOOL active;
 @property(nonatomic, assign) BOOL scanning;
+@property(nonatomic, assign) BOOL askedWhenInUse;
+@property(nonatomic, assign) BOOL openedLocationSettings;
+@property(nonatomic, assign) BOOL askedBluetooth;
+@property(nonatomic, assign) BOOL openedBluetoothSettings;
 @property(nonatomic, assign) int periodMs;
 - (void)startScanning;
 - (void)stop;
@@ -122,8 +134,12 @@ static BOOL LocationGranted(CLAuthorizationStatus status) {
 - (void)startScanning {
   self.active = YES;
   self.referenceAltitude = nil;
+  self.askedWhenInUse = NO;
+  self.openedLocationSettings = NO;
+  self.askedBluetooth = NO;
+  self.openedBluetoothSettings = NO;
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (self.locationManager == nil || self.central == nil) return;
+    [self ensureRadios];
     [NSApp activateIgnoringOtherApps:YES];
     if ([self.locationManager authorizationStatus] == kCLAuthorizationStatusNotDetermined) {
       [self.locationManager requestWhenInUseAuthorization];
@@ -236,6 +252,10 @@ static BOOL LocationGranted(CLAuthorizationStatus status) {
       ? @"No Wi-Fi networks were found."
       : [NSString stringWithFormat:@"macOS hid %lu networks. Allow Location for Observer.to to show names and addresses.", (unsigned long)found.count];
   }
+  if (!BluetoothGranted() && !AsksFor(status, @"Allow Location") && [status isEqualToString:@"Scanning nearby networks."]) {
+    status = @"Allow Bluetooth for Observer.to to read nearby advertisements.";
+  }
+  [self promptForStatus:status];
   NSMutableDictionary *payload = [@{
     @"wifiOn": @YES,
     @"bluetoothOn": @(bluetoothOn),
@@ -255,6 +275,80 @@ static BOOL LocationGranted(CLAuthorizationStatus status) {
     return @"Scanning. Allow Location to record where networks were heard.";
   }
   return @"Scanning nearby networks.";
+}
+
+- (void)ensureRadios {
+  if (!self.locationManager) {
+    self.locationManager = [[CLLocationManager alloc] init];
+    self.locationManager.delegate = self;
+    self.locationManager.desiredAccuracy = kCLLocationAccuracyBest;
+  }
+  if (!self.central) {
+    self.central = [[CBCentralManager alloc] initWithDelegate:self queue:dispatch_get_main_queue() options:@{
+      CBCentralManagerOptionShowPowerAlertKey: @NO,
+    }];
+  }
+}
+
+- (void)openPrivacyPane:(NSString *)anchor {
+  NSString *link = [NSString stringWithFormat:@"x-apple.systempreferences:com.apple.preference.security?%@", anchor];
+  NSURL *url = [NSURL URLWithString:link];
+  if (!url) return;
+  [[NSWorkspace sharedWorkspace] openURL:url configuration:[NSWorkspaceOpenConfiguration configuration] completionHandler:nil];
+}
+
+- (void)promptLocationOnMain {
+  [self ensureRadios];
+  CLAuthorizationStatus status = self.locationManager.authorizationStatus;
+  if (LocationGranted(status)) {
+    self.openedLocationSettings = NO;
+    return;
+  }
+  if (status == kCLAuthorizationStatusNotDetermined) {
+    if (!self.askedWhenInUse) {
+      self.askedWhenInUse = YES;
+      [NSApp activateIgnoringOtherApps:YES];
+    }
+    [self.locationManager requestWhenInUseAuthorization];
+    return;
+  }
+  if (self.openedLocationSettings) return;
+  self.openedLocationSettings = YES;
+  [NSApp activateIgnoringOtherApps:YES];
+  [self openPrivacyPane:@"Privacy_LocationServices"];
+}
+
+- (void)promptBluetoothOnMain {
+  [self ensureRadios];
+  CBManagerAuthorization auth = [CBManager authorization];
+  if (auth == CBManagerAuthorizationAllowedAlways) {
+    self.openedBluetoothSettings = NO;
+    return;
+  }
+  if (auth == CBManagerAuthorizationNotDetermined) {
+    if (self.askedBluetooth) return;
+    self.askedBluetooth = YES;
+    [NSApp activateIgnoringOtherApps:YES];
+    [self.central stopScan];
+    self.central = [[CBCentralManager alloc] initWithDelegate:self queue:dispatch_get_main_queue() options:@{
+      CBCentralManagerOptionShowPowerAlertKey: @NO,
+    }];
+    return;
+  }
+  if (self.openedBluetoothSettings) return;
+  self.openedBluetoothSettings = YES;
+  [NSApp activateIgnoringOtherApps:YES];
+  [self openPrivacyPane:@"Privacy_Bluetooth"];
+}
+
+- (void)promptForStatus:(NSString *)status {
+  BOOL location = AsksFor(status, @"Allow Location");
+  BOOL bluetooth = AsksFor(status, @"Allow Bluetooth");
+  if (!location && !bluetooth) return;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (location) [self promptLocationOnMain];
+    if (bluetooth) [self promptBluetoothOnMain];
+  });
 }
 
 - (void)addLocation:(NSMutableDictionary *)payload {
@@ -317,8 +411,9 @@ static BOOL LocationGranted(CLAuthorizationStatus status) {
 
 - (void)locationManagerDidChangeAuthorization:(CLLocationManager *)manager {
   CLAuthorizationStatus status = manager.authorizationStatus;
-  if (LocationGranted(status) && self.active) {
-    [manager startUpdatingLocation];
+  if (LocationGranted(status)) {
+    self.openedLocationSettings = NO;
+    if (self.active) [manager startUpdatingLocation];
   }
 }
 

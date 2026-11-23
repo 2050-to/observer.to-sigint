@@ -6,6 +6,7 @@ import { placeCovers, postalCellKey, postalLabel, samePostalCell, unionPostalCod
 import { roomSignals, SIGNAL_COLORS, stackFor, stackSignals, type SignalRow } from '../../shared/sources'
 import { api, type WifiPlace } from '../api'
 import { AskBox } from '../AskBox'
+import { onMacApp } from '../native/drive'
 import { floorLabel, gpsGround, plottedHeight } from '../height'
 import { SignalLegend, SignalStack } from '../SignalStack'
 import { streetTiles } from '../tiles'
@@ -552,7 +553,7 @@ export function DriveMap({
   }
 
   return (
-    <div className="panel">
+    <div className="panel fill-view">
       <form className="signin" onSubmit={(event) => void searchPlace(event)}>
         <label>
           ZIP
@@ -569,7 +570,7 @@ export function DriveMap({
         <button type="submit">Search my networks</button>
       </form>
       {searchNote && <p className="note">{searchNote}</p>}
-      <AskBox dataset="wifi" subscribed={subscribed} />
+      {!onMacApp() && <AskBox dataset="wifi" subscribed={subscribed} />}
       <SignalLegend />
       <div ref={host} className="map" />
       {pickedSignals.length > 0 && (

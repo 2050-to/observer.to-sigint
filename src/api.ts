@@ -4,7 +4,7 @@ import type { EnrichmentQueueStatus, MapState, NetworkRecord, OpenRow, PlaceInfo
 export interface Account {
   id: string
   email: string
-  alerts: { status: string; currentPeriodEnd: string | null }
+  alerts: { status: string; currentPeriodEnd: string | null; portal: boolean }
   consent: {
     accepted: boolean
     bornOn: string | null
@@ -33,13 +33,6 @@ export interface WifiPlace {
   state: string | null
   zip: string | null
   lastSeen: string
-}
-
-export interface DnsQuery {
-  observedAt: string
-  name: string
-  type: string
-  rcode: string | null
 }
 
 async function request(path: string, init?: RequestInit): Promise<Response> {
@@ -113,34 +106,29 @@ export const api = {
     const body = await request(`/api/wifi?${params}`).then((response) => response.json() as Promise<{ networks: WifiPlace[] }>)
     return body.networks
   },
-  dns: async (from: string, to: string): Promise<DnsQuery[]> => {
-    const params = new URLSearchParams({ from, to })
-    const body = await request(`/api/dns?${params}`).then((response) => response.json() as Promise<{ queries: DnsQuery[] }>)
-    return body.queries
-  },
-  bookmarks: async (q: string): Promise<{ title: string; url: string }[]> => {
-    const body = await request(`/api/bookmarks?q=${encodeURIComponent(q)}`).then((response) => response.json() as Promise<{ items: { title: string; url: string }[] }>)
-    return body.items
-  },
-  saveBookmarks: (items: { title: string; url: string }[]): Promise<{ count: number }> =>
-    request('/api/bookmarks', { method: 'POST', body: JSON.stringify({ items }) }).then((response) => response.json()),
   searches: async (q: string): Promise<{ query: string; engine: string | null; queriedAt: string }[]> => {
     const body = await request(`/api/search-history?q=${encodeURIComponent(q)}`).then((response) => response.json() as Promise<{ items: { query: string; engine: string | null; queriedAt: string }[] }>)
     return body.items
   },
-  saveSearches: (items: { query: string; engine: string | null; queriedAt: string }[]): Promise<{ count: number }> =>
-    request('/api/search-history', { method: 'POST', body: JSON.stringify({ items }) }).then((response) => response.json()),
+  saveSearches: (items: { query: string; engine: string | null; queriedAt: string }[], replace = false): Promise<{ count: number }> =>
+    request('/api/search-history', {
+      method: 'POST',
+      body: JSON.stringify(replace ? { items, replace: true } : { items }),
+    }).then((response) => response.json()),
   visits: async (q: string): Promise<{ url: string; title: string | null; visitedAt: string }[]> => {
     const body = await request(`/api/browsing-history?q=${encodeURIComponent(q)}`).then((response) => response.json() as Promise<{ items: { url: string; title: string | null; visitedAt: string }[] }>)
     return body.items
   },
-  saveVisits: (items: { url: string; title: string | null; visitedAt: string }[]): Promise<{ count: number }> =>
-    request('/api/browsing-history', { method: 'POST', body: JSON.stringify({ items }) }).then((response) => response.json()),
+  saveVisits: (items: { url: string; title: string | null; visitedAt: string }[], replace = false): Promise<{ count: number }> =>
+    request('/api/browsing-history', {
+      method: 'POST',
+      body: JSON.stringify(replace ? { items, replace: true } : { items }),
+    }).then((response) => response.json()),
   saveDevice: (body: unknown): Promise<void> =>
     request('/api/device', { method: 'POST', body: JSON.stringify(body) }).then(() => undefined),
   saveLan: (body: unknown): Promise<void> =>
     request('/api/lan', { method: 'POST', body: JSON.stringify(body) }).then(() => undefined),
-  ask: async (dataset: 'dns' | 'wifi' | 'bookmarks' | 'search' | 'browsing', question: string): Promise<string> => {
+  ask: async (dataset: 'wifi' | 'search' | 'browsing', question: string): Promise<string> => {
     const body = await request('/api/ask', { method: 'POST', body: JSON.stringify({ dataset, question }) }).then((response) => response.json() as Promise<{ answer: string }>)
     return body.answer
   },

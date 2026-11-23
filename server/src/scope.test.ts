@@ -73,20 +73,14 @@ try {
   assert.equal((await store.searchWifi(userB.id, { zip: '98109', state: null, city: null })).length, 0)
   assert.equal((await store.searchWifi(userA.id, { zip: null, state: 'CA', city: null })).length, 0)
 
-  await store.insertDns(userA.id, [{ observedAt: '2026-11-23T15:04:00.000Z', name: 'only-a.example', type: 'A', rcode: null }])
-  await store.insertDns(userB.id, [{ observedAt: '2026-11-23T15:04:00.000Z', name: 'only-b.example', type: 'A', rcode: null }])
-  const dnsA = await store.dnsWindow(userA.id, '2026-11-23T00:00:00.000Z', '2026-11-24T00:00:00.000Z')
-  assert.deepEqual(dnsA.map((row) => row.name), ['only-a.example'])
-
-  await store.saveBookmarks(userA.id, [{ title: 'A bookmark', url: 'https://a.example/path' }])
-  await store.saveBookmarks(userB.id, [{ title: 'B bookmark', url: 'https://b.example/path' }])
-  assert.deepEqual((await store.listBookmarks(userA.id, 'a.example')).map((row) => row.url), ['https://a.example/path'])
-  assert.equal((await store.listBookmarks(userB.id, 'a.example')).length, 0)
-
   await store.saveSearches(userA.id, [{ query: 'secret phrase a', engine: 'Google', queriedAt: '2026-11-20T00:00:00.000Z' }])
   await store.saveVisits(userA.id, [{ url: 'https://private-a.example/page', title: 'Private A', visitedAt: '2026-11-20T00:00:00.000Z' }])
   await store.saveSearches(userB.id, [{ query: 'secret phrase b', engine: 'Google', queriedAt: '2026-11-20T00:00:00.000Z' }])
   await store.saveVisits(userB.id, [{ url: 'https://private-b.example/page', title: 'Private B', visitedAt: '2026-11-20T00:00:00.000Z' }])
+  assert.deepEqual((await store.listSearches(userA.id, 'secret phrase a')).map((row) => row.query), ['secret phrase a'])
+  assert.equal((await store.listSearches(userB.id, 'secret phrase a')).length, 0)
+  assert.deepEqual((await store.listVisits(userA.id, 'private-a')).map((row) => row.url), ['https://private-a.example/page'])
+  assert.equal((await store.listVisits(userB.id, 'private-a')).length, 0)
 
   await activate(userA.id, `cus_scope_a_${stamp.replace(/-/g, '').slice(0, 8)}`)
   await activate(userB.id, `cus_scope_b_${stamp.replace(/-/g, '').slice(0, 8)}`)
@@ -96,8 +90,6 @@ try {
   assert.doesNotMatch(answerA.answer, /Other Only B/)
   assert.match(answerB.answer, /Other Only B/)
   assert.doesNotMatch(answerB.answer, /Cafe Only A/)
-  const dnsAnswer = await askAccount(store, userB.id, { dataset: 'dns', question: 'only-a' }, async (_question, excerpt) => excerpt)
-  assert.doesNotMatch(dnsAnswer.answer, /only-a\.example/)
   const searchAnswer = await askAccount(store, userB.id, { dataset: 'search', question: 'secret phrase a' }, async (_question, excerpt) => excerpt)
   assert.doesNotMatch(searchAnswer.answer, /secret phrase a/)
   const visitAnswer = await askAccount(store, userA.id, { dataset: 'browsing', question: 'private-b' }, async (_question, excerpt) => excerpt)
@@ -106,13 +98,14 @@ try {
   const unpaid = await store.upsertUser(`scope-test-${stamp}-free@example.com`)
   await store.acceptLegal(unpaid.id, '1991-01-01', TOS_VERSION, PRIVACY_VERSION)
   await assert.rejects(
-    () => askAccount(store, unpaid.id, { dataset: 'dns', question: 'names' }, async () => 'no'),
+    () => askAccount(store, unpaid.id, { dataset: 'search', question: 'names' }, async () => 'no'),
     (error: unknown) => error instanceof ApiError && error.status === 402,
   )
 
   await store.wipe(userA.id)
   assert.equal((await store.searchWifi(userA.id, { zip: '98109', state: null, city: null })).length, 0)
-  assert.equal((await store.dnsWindow(userA.id, '2026-11-23T00:00:00.000Z', '2026-11-24T00:00:00.000Z')).length, 0)
+  assert.equal((await store.listSearches(userA.id, '')).length, 0)
+  assert.equal((await store.listVisits(userA.id, '')).length, 0)
   assert.equal((await store.searchWifi(userB.id, { zip: '98101', state: null, city: null })).length, 1)
 } finally {
   await pool.query('DELETE FROM users WHERE email LIKE $1', [`scope-test-${stamp}-%@example.com`])

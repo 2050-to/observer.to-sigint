@@ -1,23 +1,5 @@
 import assert from 'node:assert/strict'
-import { parseBookmarks, parseBrowsingHistory, parseSearchHistory, searchFromUrl } from '../../shared/imports.js'
-
-const html = '<DL><DT><A HREF="https://example.com/a">Example</A></DT><DT><A HREF="https://example.com/a#part">Again</A></DT></DL>'
-const bookmarks = parseBookmarks(html)
-assert.equal(bookmarks.length, 1)
-assert.equal(bookmarks[0]?.title, 'Example')
-assert.equal(bookmarks[0]?.url, 'https://example.com/a')
-
-const chrome = JSON.stringify({
-  roots: {
-    bookmark_bar: {
-      children: [
-        { type: 'url', name: 'News', url: 'https://news.example/path' },
-        { type: 'folder', name: 'Folder', children: [] },
-      ],
-    },
-  },
-})
-assert.equal(parseBookmarks(chrome)[0]?.title, 'News')
+import { parseBrowsingHistory, parseSearchHistory, searchFromUrl } from '../../shared/imports.js'
 
 const searches = parseSearchHistory(JSON.stringify([
   { title: 'Searched for harbor seals', titleUrl: 'https://www.google.com/search?q=harbor+seals', time: '2026-11-01T00:00:00Z' },

@@ -1,11 +1,11 @@
 # Terms of Service
 
 Last updated: 23 November 2026
-Version: 2026-11-23
+Version: 2026-11-23.2
 
 These terms are a contract between you and Observer.to. They cover the Mac app, the Android app, the website, and the account API. If you do not agree, do not create an account, do not use the apps, and do not view stored data.
 
-Observer.to is a purple-team observer for a place you are responsible for. It records public Wi-Fi beacons and public Bluetooth advertisements, and, after you accept these terms, it can record DNS lookups that this device itself sends. It can also store files you choose to import. It does not join networks, open cameras, try passwords, or intercept another person's communications.
+Observer.to is a purple-team observer for a place you are responsible for. It records public Wi-Fi beacons and public Bluetooth advertisements. It can also store search or browsing history you import from a file or, on the Mac app, from browsers on that Mac after you click Import from this Mac. It does not join networks, open cameras, try passwords, or intercept another person's communications.
 
 ## 1. Who may use Observer.to
 
@@ -19,25 +19,25 @@ You must read these Terms and the Privacy Policy through to the end and accept t
 
 Sign-in uses a magic link sent to your email. The link expires quickly and works once. You are responsible for the email account and for keeping the session on your devices private.
 
-The free account can run drives, review range, the map, open networks, the log, enrichment, exports, the owned-network check, your DNS log, and files you import.
+The free account can run drives, review range, the map, open networks, the log, enrichment, exports, the owned-network check, and files you import.
 
 A $5 monthly plan, when billing is configured, adds one weekly email about the public beacons in your own catalog and lets you ask questions about your own records. Payment is handled by Stripe. Taxes are not collected until a tax registration exists. You can cancel in the billing portal. The plan stays off until Stripe reports an active subscription.
 
 ## 3. What you may record
 
-You may record public Wi-Fi beacons and public Bluetooth advertisements around a place you are responsible for. You may record DNS lookups that the device running Observer.to sends. You may inventory addresses on a network you own, and you may save details of that device, after you turn those checks on.
+You may record public Wi-Fi beacons and public Bluetooth advertisements around a place you are responsible for. You may inventory addresses on a network you own, and you may save details of that device, after you turn those checks on.
 
-You may import bookmarks, search history, and browsing history only from a file you choose. Observer.to does not read browser profile folders on its own.
+You may import search history and browsing history from a file you choose on the website and the Android app. On the Mac app, you may import search history and browsing history from the browsers on that Mac after you click Import from this Mac. Observer.to does not read passwords, cookies, payment cards, or form data. It does not open browser profile folders until you click Import from this Mac.
 
 ZIP, state, and city search on the map uses networks your account heard in the United States. An empty result means your account has no match.
 
 ## 4. Your records stay on your account
 
-Search and questions stay inside the signed-in account. You cannot search, map, export, or ask about another account's DNS, networks, Bluetooth advertisements, bookmarks, search history, browsing history, device details, or local network inventory. Another account cannot do those things with your records.
+Search and questions stay inside the signed-in account. You cannot search, map, export, or ask about another account's networks, Bluetooth advertisements, search history, browsing history, device details, or local network inventory. Another account cannot do those things with your records.
 
 Questions on the paid plan are answered from an excerpt of your own rows. The model does not receive another account's rows, email, or identifier, and it does not receive a way to query the database on its own.
 
-There is no control that publishes your history to other people. Importing a file stores it for you.
+There is no control that publishes your history to other people. Importing a file, or clicking Import from this Mac, stores that history for you.
 
 ## 5. Prohibited use
 
@@ -48,7 +48,7 @@ You may not:
 - Capture cellular subscriber identities such as IMSI or TMSI.
 - Transmit, jam, or spoof radio signals.
 - Track a person from a hardware address, or try to follow someone across places.
-- Upload bookmarks, search history, browsing history, or any other file you do not have the right to store.
+- Upload search history, browsing history, or any other file you do not have the right to store, or import browser history from a Mac you are not allowed to use.
 - Attempt to read, infer, or extract another account's data, including through a question to the assistant.
 - Probe, scan, or disrupt the service except through the features it offers to your own account.
 - Use the service for stalking, harassment, fraud, or any other unlawful purpose.
@@ -57,15 +57,13 @@ Observer.to may refuse, suspend, or delete an account that breaks these terms. D
 
 ## 6. Your responsibilities
 
-You decide when a drive runs, when DNS recording runs, when an owned-network check runs, and which files to import. You confirm that you are allowed to collect that information where you are.
+You decide when a drive runs, when an owned-network check runs, which files to import, and when the Mac app reads browser history. You confirm that you are allowed to collect that information where you are.
 
 Public beacons do not prove who owns a device, which firmware is installed, or that a vulnerability applies. Enrichment is public research about a name or advertisement. It is not an instruction to attack a device. A passive scan cannot see the installed firmware.
 
-DNS recording sees cleartext lookups this device sends. Lookups that the system sends over encrypted DNS are not visible. The log is a record of names this device asked for. It is not a full copy of network traffic.
-
 ## 7. Deletion
 
-Delete all data removes that account's scans, names, DNS log, imported bookmarks, search history, browsing history, device details, and local network inventory from the device and from the server when the server can be reached. It does not delete the account itself or the record that you accepted these terms. If the server is offline, the app tells you that the server copy may remain until a later delete succeeds.
+Delete all data removes that account's scans, names, search history, browsing history, device details, and local network inventory from the device and from the server when the server can be reached. It does not delete the account itself or the record that you accepted these terms. If the server is offline, the app tells you that the server copy may remain until a later delete succeeds.
 
 An acceptance attempt from someone under 18 deletes the new account and its tokens. Those details are not kept.
 

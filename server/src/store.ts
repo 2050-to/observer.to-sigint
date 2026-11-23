@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { Redis } from 'ioredis'
 import pg from 'pg'
+import { COMP_EMAILS, entitledStatus } from './comp.js'
 import { bssidHmac, decryptJson, encryptJson } from './crypto.js'
 import { circleFor, snapshotFrom } from '../../shared/range.js'
 import { cellKeyOf, collapseCells, collapseDevices, mergeCell, mergeDevice } from '../../shared/radios.js'
@@ -20,13 +21,9 @@ import {
   askExcerpt,
   consentFor,
   deleteUser,
-  dnsWindow,
-  insertDns,
-  listBookmarks,
   listSearches,
   listVisits,
   replaceLanHosts,
-  saveBookmarks,
   saveDeviceProfile,
   saveSearches,
   saveVisits,
@@ -35,7 +32,6 @@ import {
   upsertWifiPlaces,
   usPlace,
   wipePersonal,
-  type DnsQueryRow,
 } from './personal.js'
 import { mergeRecord, collapseScan, normalizeBssid } from './merge.js'
 import { addPostalCode, postalCellKey, samePostalCell } from '../../shared/postal.js'
@@ -133,6 +129,21 @@ function enrichmentErrorMessage(error: unknown): string {
   if (/invalid JSON/i.test(message)) return 'DeepSeek returned invalid JSON'
   if (/no evidence/i.test(message)) return 'DeepSeek search returned no evidence'
   return 'device enrichment failed'
+}
+
+async function withTransaction<T>(db: pg.Pool, run: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  const client = await db.connect()
+  try {
+    await client.query('BEGIN')
+    const value = await run(client)
+    await client.query('COMMIT')
+    return value
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined)
+    throw error
+  } finally {
+    client.release()
+  }
 }
 
 export class Store {
@@ -773,13 +784,20 @@ export class Store {
     currentPeriodEnd: string | null
   }> {
     const result = await this.db.query<{
-      status: string
+      email: string
+      status: string | null
       stripe_customer_id: string | null
       stripe_subscription_id: string | null
       current_period_end: Date | null
     }>(
-      `SELECT status, stripe_customer_id, stripe_subscription_id, current_period_end
-       FROM subscriptions WHERE user_id = $1`,
+      `SELECT users.email,
+              subscriptions.status,
+              subscriptions.stripe_customer_id,
+              subscriptions.stripe_subscription_id,
+              subscriptions.current_period_end
+       FROM users
+       LEFT JOIN subscriptions ON subscriptions.user_id = users.id
+       WHERE users.id = $1`,
       [userId],
     )
     const row = result.rows[0]
@@ -787,7 +805,7 @@ export class Store {
       return { status: 'none', stripeCustomerId: null, stripeSubscriptionId: null, currentPeriodEnd: null }
     }
     return {
-      status: row.status,
+      status: entitledStatus(row.email, row.status),
       stripeCustomerId: row.stripe_customer_id,
       stripeSubscriptionId: row.stripe_subscription_id,
       currentPeriodEnd: row.current_period_end ? new Date(row.current_period_end).toISOString() : null,
@@ -833,11 +851,15 @@ export class Store {
     const result = await this.db.query<{ id: string; email: string; last_alert_at: Date | null }>(
       `SELECT users.id, users.email, users.last_alert_at
        FROM users
-       JOIN subscriptions ON subscriptions.user_id = users.id
-       WHERE subscriptions.status = 'active'
+       LEFT JOIN subscriptions ON subscriptions.user_id = users.id
+       WHERE (
+         subscriptions.status = 'active'
+         OR lower(users.email) = ANY($1::text[])
+       )
          AND (users.last_alert_at IS NULL OR users.last_alert_at < now() - interval '7 days')
        ORDER BY users.last_alert_at NULLS FIRST
        LIMIT 50`,
+      [COMP_EMAILS],
     )
     return result.rows.map((row) => ({
       id: row.id,
@@ -926,43 +948,29 @@ export class Store {
     await replaceLanHosts(this.db, userId, hosts)
   }
 
-  async insertDns(userId: string, queries: DnsQueryRow[]): Promise<number> {
-    return insertDns(this.db, userId, queries)
-  }
-
-  async dnsWindow(userId: string, from: string, to: string): Promise<DnsQueryRow[]> {
-    return dnsWindow(this.db, userId, from, to)
-  }
-
   async searchWifi(userId: string, filter: { zip: string | null; state: string | null; city: string | null }) {
     return searchWifi(this.db, userId, filter)
   }
 
-  async saveBookmarks(userId: string, items: { title: string; url: string }[]) {
-    return saveBookmarks(this.db, userId, items)
-  }
-
-  async listBookmarks(userId: string, q: string) {
-    return listBookmarks(this.db, userId, q)
-  }
-
-  async saveSearches(userId: string, items: { query: string; engine: string | null; queriedAt: string }[]) {
-    return saveSearches(this.db, userId, items)
+  async saveSearches(userId: string, items: { query: string; engine: string | null; queriedAt: string }[], replace = false) {
+    if (!replace) return saveSearches(this.db, userId, items)
+    return withTransaction(this.db, (client) => saveSearches(client, userId, items, true))
   }
 
   async listSearches(userId: string, q: string) {
     return listSearches(this.db, userId, q)
   }
 
-  async saveVisits(userId: string, items: { url: string; title: string | null; visitedAt: string }[]) {
-    return saveVisits(this.db, userId, items)
+  async saveVisits(userId: string, items: { url: string; title: string | null; visitedAt: string }[], replace = false) {
+    if (!replace) return saveVisits(this.db, userId, items)
+    return withTransaction(this.db, (client) => saveVisits(client, userId, items, true))
   }
 
   async listVisits(userId: string, q: string) {
     return listVisits(this.db, userId, q)
   }
 
-  async askExcerpt(userId: string, dataset: 'dns' | 'wifi' | 'bookmarks' | 'search' | 'browsing', question: string) {
+  async askExcerpt(userId: string, dataset: 'wifi' | 'search' | 'browsing', question: string) {
     return askExcerpt(this.db, userId, dataset, question)
   }
 

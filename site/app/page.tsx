@@ -21,7 +21,7 @@ export default function Page() {
       </header>
 
       <p className="lede">
-        Observer.to records the wireless presence around a place you are responsible for. It is a purple-team observer: the same evidence for the people who defend a site and the people who test it. It records public beacons, and the Mac app can record that Mac's own DNS lookups. It does not join networks or record anyone else's traffic.
+        Observer.to records the wireless presence around a place you are responsible for. It is a purple-team observer: the same evidence for the people who defend a site and the people who test it. It records public beacons. It does not join networks or record anyone else's traffic.
       </p>
 
       <section id="how-it-works" aria-labelledby="how-heading">

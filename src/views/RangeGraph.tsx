@@ -165,7 +165,7 @@ export function RangeGraph({
   const services = bluetooth ? [...new Set(bluetooth.devices.flatMap((device) => device.serviceUuids))] : []
 
   return (
-    <div className="panel">
+    <div className="panel fill-view">
       <div ref={host} className="graph" />
       {heardAps.length === 0 && heardGroups.length === 0 && <p className="empty">Nothing heard in the latest scan.</p>}
       <SignalLegend />

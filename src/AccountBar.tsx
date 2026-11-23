@@ -65,7 +65,7 @@ export function UpgradeBanner({ account }: { account: Account | null }) {
 export function AccountBar({ account }: { account: Account }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const canManage = account.alerts.status !== 'none'
+  const canManage = account.alerts.portal
 
   async function openPortal() {
     setBusy(true)
