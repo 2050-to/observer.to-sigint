@@ -1,9 +1,7 @@
 import { spawn } from 'node:child_process'
-import { timingSafeEqual } from 'node:crypto'
-import { createReadStream, createWriteStream, mkdirSync, renameSync, rmSync, statSync } from 'node:fs'
+import { createReadStream, statSync } from 'node:fs'
 import { createServer, request as httpRequest } from 'node:http'
 import { dirname, join, resolve } from 'node:path'
-import { pipeline } from 'node:stream/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -13,7 +11,6 @@ const nextPort = 10002
 const hsts = 'max-age=15552000; includeSubDomains'
 const dmgUrlPath = '/release/Observer.to.dmg'
 const dmgMissing = 'Observer.to.dmg is not available.'
-const maxDmgBytes = 800 * 1024 * 1024
 const isDirectRun = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(resolve(process.argv[1])).href
 
 const children = []
@@ -75,21 +72,6 @@ function dmgFile() {
   return null
 }
 
-function dmgDestination() {
-  const configured = process.env.MAC_DMG_PATH
-  if (typeof configured === 'string' && configured.length > 0) return configured
-  return '/var/observer/Observer.to.dmg'
-}
-
-function uploadAuthorized(req) {
-  const token = process.env.MAC_DMG_UPLOAD_TOKEN
-  if (typeof token !== 'string' || token.length < 16) return false
-  const expected = Buffer.from(`Bearer ${token}`)
-  const given = Buffer.from(header(req, 'authorization') || '')
-  if (expected.length !== given.length) return false
-  return timingSafeEqual(expected, given)
-}
-
 function serveDmg(req, res) {
   const method = req.method || 'GET'
   if (method !== 'GET' && method !== 'HEAD') {
@@ -127,40 +109,6 @@ function serveDmg(req, res) {
   stream.pipe(res)
 }
 
-function storeDmg(req, res) {
-  if (!uploadAuthorized(req)) {
-    text(res, 404, dmgMissing)
-    return
-  }
-  const length = Number(header(req, 'content-length'))
-  if (!Number.isInteger(length) || length < 1 || length > maxDmgBytes) {
-    text(res, 411, 'Content-Length is required.')
-    return
-  }
-  const dest = dmgDestination()
-  const partial = `${dest}.partial`
-  mkdirSync(dirname(dest), { recursive: true })
-  const out = createWriteStream(partial, { flags: 'w' })
-  pipeline(req, out).then(() => {
-    if (out.bytesWritten !== length) {
-      rmSync(partial, { force: true })
-      text(res, 400, 'Upload size did not match.')
-      return
-    }
-    renameSync(partial, dest)
-    res.writeHead(204, { 'Strict-Transport-Security': hsts })
-    res.end()
-  }).catch((error) => {
-    console.error(error)
-    rmSync(partial, { force: true })
-    if (res.headersSent) {
-      res.destroy()
-      return
-    }
-    text(res, 500, dmgMissing)
-  })
-}
-
 function handleRequest(req, res) {
   if (forwardedProto(req) === 'http') {
     const host = header(req, 'x-forwarded-host') || header(req, 'host') || 'observer.to'
@@ -173,10 +121,6 @@ function handleRequest(req, res) {
   }
   const url = new URL(req.url || '/', 'http://127.0.0.1')
   if (url.pathname === dmgUrlPath) {
-    if ((req.method || 'GET') === 'PUT') {
-      storeDmg(req, res)
-      return
-    }
     serveDmg(req, res)
     return
   }
