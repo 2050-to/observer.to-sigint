@@ -383,6 +383,8 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #303237; }
   border-radius: 16px;
 }
 .prompt p { margin: 4px 0 0; color: var(--text-secondary); }
+.location-prompt { margin: 12px 0; }
+.location-prompt h3 { margin: 0; font-size: 16px; font-weight: 650; }
 .host-scroll { max-height: 320px; overflow: auto; }
 .host-flagged td { background: rgba(231, 179, 172, 0.18); }
 .host-notice { display: block; font-weight: 600; }

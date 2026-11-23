@@ -5,7 +5,7 @@ import { AccountBar, UpgradeBanner, alertLabel, useAccount } from './AccountBar'
 import { sessionToken } from './session'
 import { loadView, type RefreshMode } from './localCatalog'
 import { AskBox, type AskDataset } from './AskBox'
-import { onDevice, onMacApp, Wardrive } from './native/drive'
+import { onDevice, onMacApp, promptLocation, Wardrive } from './native/drive'
 import { clearOwnedPrefs } from './ownedPrefs'
 import type { EnrichmentQueueStatus, MapState, OpenRow, RangeSnapshot } from './types'
 import { DriveMap } from './views/DriveMap'
@@ -306,7 +306,17 @@ export function App() {
         <p className="note">Stripe has not confirmed the subscription yet. Alerts turn on after that confirmation, not from this page.</p>
       )}
       {billing === 'cancel' && <p className="note">Checkout was canceled. {account ? alertLabel(account.alerts.status) : 'Weekly alerts stay off.'}</p>}
-      {note && <p className="note">{note}</p>}
+      {note.includes('Allow Location') ? (
+        <div className="prompt location-prompt" role="alertdialog" aria-labelledby="location-prompt-title">
+          <div>
+            <h3 id="location-prompt-title">Allow Location</h3>
+            <p>{note}</p>
+          </div>
+          <div className="actions">
+            <button type="button" onClick={() => promptLocation()}>Allow Location</button>
+          </div>
+        </div>
+      ) : note && <p className="note">{note}</p>}
       {error && <p className="warn">{error}</p>}
       <nav>
         {TABS.map((item) => (

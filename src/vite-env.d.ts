@@ -38,6 +38,7 @@ interface MacWardriveBridge {
     skipped: string[]
   }>
   promptFullDiskAccess(): Promise<void>
+  promptLocation(): Promise<void>
   addListener(eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void): Promise<{ remove: () => Promise<void> }>
 }
 

@@ -103,14 +103,14 @@ static BOOL AsksFor(NSString *status, NSString *permission) {
 @property(nonatomic, strong) dispatch_source_t timer;
 @property(nonatomic, assign) BOOL active;
 @property(nonatomic, assign) BOOL scanning;
-@property(nonatomic, assign) BOOL askedWhenInUse;
-@property(nonatomic, assign) BOOL openedLocationSettings;
 @property(nonatomic, assign) BOOL askedBluetooth;
 @property(nonatomic, assign) BOOL openedBluetoothSettings;
 @property(nonatomic, assign) int periodMs;
 - (void)startScanning;
 - (void)stop;
 - (void)setPeriod:(int)ms;
+- (void)promptLocation;
+- (NSString *)locationStatus;
 @end
 
 @implementation RadioScanner
@@ -134,16 +134,10 @@ static BOOL AsksFor(NSString *status, NSString *permission) {
 - (void)startScanning {
   self.active = YES;
   self.referenceAltitude = nil;
-  self.askedWhenInUse = NO;
-  self.openedLocationSettings = NO;
   self.askedBluetooth = NO;
   self.openedBluetoothSettings = NO;
   dispatch_async(dispatch_get_main_queue(), ^{
     [self ensureRadios];
-    [NSApp activateIgnoringOtherApps:YES];
-    if ([self.locationManager authorizationStatus] == kCLAuthorizationStatusNotDetermined) {
-      [self.locationManager requestWhenInUseAuthorization];
-    }
     [self.locationManager startUpdatingLocation];
     if (self.central.state == CBManagerStatePoweredOn) {
       [self.central scanForPeripheralsWithServices:nil options:@{CBCentralManagerScanOptionAllowDuplicatesKey: @YES}];
@@ -297,25 +291,57 @@ static BOOL AsksFor(NSString *status, NSString *permission) {
   [[NSWorkspace sharedWorkspace] openURL:url configuration:[NSWorkspaceOpenConfiguration configuration] completionHandler:nil];
 }
 
-- (void)promptLocationOnMain {
-  [self ensureRadios];
-  CLAuthorizationStatus status = self.locationManager.authorizationStatus;
-  if (LocationGranted(status)) {
-    self.openedLocationSettings = NO;
+- (void)openLocationSettings {
+  NSURL *modern = [NSURL URLWithString:@"x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_LocationServices"];
+  if (!modern) {
+    [self openPrivacyPane:@"Privacy_LocationServices"];
     return;
   }
+  __weak RadioScanner *weakSelf = self;
+  [[NSWorkspace sharedWorkspace] openURL:modern configuration:[NSWorkspaceOpenConfiguration configuration] completionHandler:^(NSRunningApplication *application, NSError *error) {
+    if (application && !error) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [weakSelf openPrivacyPane:@"Privacy_LocationServices"];
+    });
+  }];
+}
+
+- (void)askForLocationAuthorization {
+  [self ensureRadios];
+  CLAuthorizationStatus status = self.locationManager.authorizationStatus;
+  if (LocationGranted(status)) return;
   if (status == kCLAuthorizationStatusNotDetermined) {
-    if (!self.askedWhenInUse) {
-      self.askedWhenInUse = YES;
-      [NSApp activateIgnoringOtherApps:YES];
-    }
     [self.locationManager requestWhenInUseAuthorization];
     return;
   }
-  if (self.openedLocationSettings) return;
-  self.openedLocationSettings = YES;
-  [NSApp activateIgnoringOtherApps:YES];
-  [self openPrivacyPane:@"Privacy_LocationServices"];
+  [self openLocationSettings];
+}
+
+- (void)promptLocation {
+  void (^ask)(void) = ^{
+    [self ensureRadios];
+    [NSApp activateIgnoringOtherApps:YES];
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [self askForLocationAuthorization];
+    });
+  };
+  if ([NSThread isMainThread]) ask();
+  else dispatch_async(dispatch_get_main_queue(), ask);
+}
+
+- (NSString *)locationStatus {
+  __block NSString *value = @"not-determined";
+  void (^read)(void) = ^{
+    [self ensureRadios];
+    CLAuthorizationStatus status = self.locationManager.authorizationStatus;
+    if (LocationGranted(status)) value = @"granted";
+    else if (status == kCLAuthorizationStatusDenied) value = @"denied";
+    else if (status == kCLAuthorizationStatusRestricted) value = @"restricted";
+    else value = @"not-determined";
+  };
+  if ([NSThread isMainThread]) read();
+  else dispatch_sync(dispatch_get_main_queue(), read);
+  return value;
 }
 
 - (void)promptBluetoothOnMain {
@@ -342,12 +368,9 @@ static BOOL AsksFor(NSString *status, NSString *permission) {
 }
 
 - (void)promptForStatus:(NSString *)status {
-  BOOL location = AsksFor(status, @"Allow Location");
-  BOOL bluetooth = AsksFor(status, @"Allow Bluetooth");
-  if (!location && !bluetooth) return;
+  if (!AsksFor(status, @"Allow Bluetooth")) return;
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (location) [self promptLocationOnMain];
-    if (bluetooth) [self promptBluetoothOnMain];
+    [self promptBluetoothOnMain];
   });
 }
 
@@ -410,11 +433,7 @@ static BOOL AsksFor(NSString *status, NSString *permission) {
 }
 
 - (void)locationManagerDidChangeAuthorization:(CLLocationManager *)manager {
-  CLAuthorizationStatus status = manager.authorizationStatus;
-  if (LocationGranted(status)) {
-    self.openedLocationSettings = NO;
-    if (self.active) [manager startUpdatingLocation];
-  }
+  if (LocationGranted(manager.authorizationStatus) && self.active) [manager startUpdatingLocation];
 }
 
 - (void)locationManager:(CLLocationManager *)manager didUpdateLocations:(NSArray<CLLocation *> *)locations {
@@ -532,10 +551,20 @@ static void SetPeriod(const Napi::CallbackInfo &info) {
   [SharedScanner() setPeriod:ms];
 }
 
+static void PromptLocation(const Napi::CallbackInfo &) {
+  [SharedScanner() promptLocation];
+}
+
+static Napi::Value LocationStatus(const Napi::CallbackInfo &info) {
+  return Napi::String::New(info.Env(), [SharedScanner() locationStatus].UTF8String);
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("start", Napi::Function::New(env, Start));
   exports.Set("stop", Napi::Function::New(env, Stop));
   exports.Set("setPeriod", Napi::Function::New(env, SetPeriod));
+  exports.Set("promptLocation", Napi::Function::New(env, PromptLocation));
+  exports.Set("locationStatus", Napi::Function::New(env, LocationStatus));
   return exports;
 }
 

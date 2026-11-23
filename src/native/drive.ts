@@ -140,6 +140,7 @@ interface MacBridge {
   importHistory(options: { consent: boolean }): Promise<LocalHistoryImport>
   apiOrigin(): Promise<string>
   promptFullDiskAccess(): Promise<void>
+  promptLocation(): Promise<void>
   addListener(eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void): Promise<PluginListenerHandle>
 }
 
@@ -218,6 +219,10 @@ export const Wardrive: WardrivePlugin = desktop
 
 export function promptFullDiskAccess(): void {
   void macBridge()?.promptFullDiskAccess()
+}
+
+export function promptLocation(): void {
+  void macBridge()?.promptLocation()
 }
 
 export function onDevice(): boolean {

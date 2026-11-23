@@ -22,6 +22,8 @@ interface ScannerModule {
   start(callback: (json: string) => void): void
   stop(): void
   setPeriod(ms: number): void
+  promptLocation(): void
+  locationStatus(): string
 }
 
 interface NativeScan {
@@ -63,6 +65,7 @@ let flushAgain = false
 let discarding = false
 let chain = Promise.resolve()
 let serverClose: (() => Promise<void>) | null = null
+let promptedLocationStatus: string | null = null
 
 function exclusive<T>(fn: () => T): Promise<T> {
   const run = chain.then(fn, fn)
@@ -142,6 +145,25 @@ function waitingStatus(count: number): string {
 function permissionNotice(text: string | undefined): boolean {
   if (!text) return false
   return text.includes('Allow Location') || text.includes('Allow Bluetooth')
+}
+
+function focusObserver(): void {
+  window?.show()
+  window?.focus()
+  app.focus({ steal: true })
+}
+
+function maybePromptLocation(text: string): void {
+  if (!text.includes('Allow Location')) {
+    promptedLocationStatus = null
+    return
+  }
+  if (!scanner) return
+  const status = scanner.locationStatus()
+  if (status === 'granted' || status === promptedLocationStatus) return
+  promptedLocationStatus = status
+  focusObserver()
+  scanner.promptLocation()
 }
 
 function revealMacPrivacy(anchor: string): void {
@@ -305,6 +327,7 @@ async function onNativeScan(json: string): Promise<void> {
   applyPeriod()
   const networks = (Array.isArray(payload.networks) ? payload.networks : []).filter((network) => network.bssid?.trim())
   if (!networks.length) {
+    maybePromptLocation(message)
     window?.webContents.send('wardrive:queued', {})
     return
   }
@@ -316,6 +339,7 @@ async function onNativeScan(json: string): Promise<void> {
     if (!heard && !permissionNotice(message)) message = waitingStatus(store.unuploaded().length)
     return heard
   })
+  maybePromptLocation(message)
   window?.webContents.send('wardrive:queued', {})
   if (saved) await flush()
 }
@@ -360,6 +384,7 @@ function registerIpc(): void {
     if (!scanner) throw new Error('The Wi-Fi scanner is unavailable')
     apiUrl = nextUrl
     token = nextToken
+    promptedLocationStatus = null
     running = true
     radiusM = 91.4
     lastSpeed = null
@@ -372,9 +397,14 @@ function registerIpc(): void {
   })
   ipcMain.handle('wardrive:stop', async () => {
     running = false
+    promptedLocationStatus = null
     message = 'Drive is stopped.'
     holdAwake(false)
     scanner?.stop()
+  })
+  ipcMain.handle('wardrive:prompt-location', () => {
+    focusObserver()
+    scanner?.promptLocation()
   })
   ipcMain.handle('wardrive:status', async () => ({ running, message }))
   ipcMain.handle('wardrive:catalog', async () => exclusive(() => ({
@@ -419,6 +449,7 @@ function registerIpc(): void {
   })
   ipcMain.handle('wardrive:clear', async () => {
     running = false
+    promptedLocationStatus = null
     message = 'Drive is stopped.'
     holdAwake(false)
     scanner?.stop()

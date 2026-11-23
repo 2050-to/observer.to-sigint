@@ -45,8 +45,8 @@
       "hardenedRuntime": true,
       "category": "public.app-category.utilities",
       "extendInfo": {
-        "NSLocationUsageDescription": "Observer.to records where this Mac heard each network and advertisement.",
-        "NSLocationWhenInUseUsageDescription": "Observer.to records where this Mac heard each network and advertisement.",
+        "NSLocationUsageDescription": "Observer.to uses your location to show network names and addresses.",
+        "NSLocationWhenInUseUsageDescription": "Observer.to uses your location to show network names and addresses.",
         "NSBluetoothAlwaysUsageDescription": "Observer.to reads public Bluetooth advertisements. It does not connect to devices.",
         "NSBluetoothPeripheralUsageDescription": "Observer.to reads public Bluetooth advertisements. It does not connect to devices.",
         "NSLocalNetworkUsageDescription": "Observer.to checks this network for cameras and recorders after you allow it. It does not open video or audio."
