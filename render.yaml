@@ -1,0 +1,71 @@
+projects:
+  - name: observer
+    environments:
+      - name: production
+        services:
+          - type: web
+            name: observer
+            runtime: node
+            plan: 0.5c-512mb
+            region: oregon
+            branch: main
+            healthCheckPath: /health
+            domains:
+              - observer.to
+            buildCommand: npm ci && npm ci --prefix server && npm ci --prefix site && npm run build && node scripts/copy-spa.mjs && npm run build --prefix site
+            startCommand: node scripts/render-start.mjs
+            disk:
+              name: observer-release
+              mountPath: /var/observer
+              sizeGB: 1
+            envVars:
+              - key: NODE_VERSION
+                value: "22"
+              - key: APP_ORIGIN
+                value: https://observer.to
+              - key: DATABASE_URL
+                fromDatabase:
+                  name: observer-db
+                  property: connectionString
+              - key: REDIS_URL
+                fromService:
+                  name: observer-cache
+                  type: keyvalue
+                  property: connectionString
+              - key: JWT_SECRET
+                sync: false
+              - key: DATA_KEY
+                sync: false
+              - key: HMAC_KEY
+                sync: false
+              - key: RESEND_API_KEY
+                sync: false
+              - key: EMAIL_FROM
+                sync: false
+              - key: STRIPE_SECRET_KEY
+                sync: false
+              - key: STRIPE_WEBHOOK_SECRET
+                sync: false
+              - key: STRIPE_PRICE_ID
+                sync: false
+              - key: DEEPSEEK_API_KEY
+                sync: false
+              - key: DEEPSEEK_MODEL
+                sync: false
+              - key: MAC_DMG_PATH
+                value: /var/observer/Observer.to.dmg
+          - type: keyvalue
+            name: observer-cache
+            plan: free
+            region: oregon
+            maxmemoryPolicy: allkeys-lru
+            ipAllowList: []
+        databases:
+          - name: observer-db
+            plan: 0.1c-256mb
+            region: oregon
+            postgresMajorVersion: "17"
+            databaseName: observer
+            user: observer
+            diskSizeGB: 1
+            ipAllowList: []

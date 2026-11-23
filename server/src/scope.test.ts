@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import pg from 'pg'
 import { askAccount } from './ask.js'
-import { bssidHmac } from './crypto.js'
+import { bssidHmac, encryptJson } from './crypto.js'
 import { ApiError } from './http.js'
 import { Store } from './store.js'
 import { PRIVACY_VERSION, TOS_VERSION } from '../../shared/legal.js'
@@ -31,6 +31,7 @@ await store.migrate()
 const stamp = crypto.randomUUID()
 const userA = await store.upsertUser(`scope-test-${stamp}-a@example.com`)
 const userB = await store.upsertUser(`scope-test-${stamp}-b@example.com`)
+const createdIds = [userA.id, userB.id]
 
 async function activate(userId: string, customerId: string): Promise<void> {
   await store.saveStripeCustomer(userId, customerId)
@@ -56,18 +57,8 @@ try {
   await store.acceptLegal(userA.id, '1990-04-02', TOS_VERSION, PRIVACY_VERSION)
   await store.acceptLegal(userB.id, '1988-08-08', TOS_VERSION, PRIVACY_VERSION)
 
-  await pool.query(
-    `INSERT INTO wifi_places (
-       user_id, bssid_hmac, bssid, ssid, channel, security, lat, lon, city, state, zip, first_seen, last_seen
-     ) VALUES ($1, $2, $3, $4, 6, 'wpa2', 47.62, -122.35, 'Seattle', 'WA', '98109', now(), now())`,
-    [userA.id, bssidHmac('aa:bb:cc:dd:ee:41'), 'aa:bb:cc:dd:ee:41', 'Cafe Only A'],
-  )
-  await pool.query(
-    `INSERT INTO wifi_places (
-       user_id, bssid_hmac, bssid, ssid, channel, security, lat, lon, city, state, zip, first_seen, last_seen
-     ) VALUES ($1, $2, $3, $4, 11, 'wpa2', 47.61, -122.33, 'Seattle', 'WA', '98101', now(), now())`,
-    [userB.id, bssidHmac('aa:bb:cc:dd:ee:42'), 'aa:bb:cc:dd:ee:42', 'Other Only B'],
-  )
+  await insertPlace(userA.id, 'aa:bb:cc:dd:ee:41', 'Cafe Only A', 6, 47.62, -122.35, '98109')
+  await insertPlace(userB.id, 'aa:bb:cc:dd:ee:42', 'Other Only B', 11, 47.61, -122.33, '98101')
   const found = await store.searchWifi(userA.id, { zip: '98109', state: 'WA', city: 'Seattle' })
   assert.deepEqual(found.map((row) => row.ssid), ['Cafe Only A'])
   assert.equal((await store.searchWifi(userB.id, { zip: '98109', state: null, city: null })).length, 0)
@@ -77,6 +68,16 @@ try {
   await store.saveVisits(userA.id, [{ url: 'https://private-a.example/page', title: 'Private A', visitedAt: '2026-11-20T00:00:00.000Z' }])
   await store.saveSearches(userB.id, [{ query: 'secret phrase b', engine: 'Google', queriedAt: '2026-11-20T00:00:00.000Z' }])
   await store.saveVisits(userB.id, [{ url: 'https://private-b.example/page', title: 'Private B', visitedAt: '2026-11-20T00:00:00.000Z' }])
+  const storedSearch = await pool.query<{ payload: Buffer }>(
+    'SELECT payload FROM search_queries WHERE user_id = $1',
+    [userA.id],
+  )
+  assert.equal(storedSearch.rows[0]?.payload.includes(Buffer.from('secret phrase a')), false)
+  const emailColumn = await pool.query(
+    `SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'email'`,
+  )
+  assert.equal(emailColumn.rowCount, 0)
   assert.deepEqual((await store.listSearches(userA.id, 'secret phrase a')).map((row) => row.query), ['secret phrase a'])
   assert.equal((await store.listSearches(userB.id, 'secret phrase a')).length, 0)
   assert.deepEqual((await store.listVisits(userA.id, 'private-a')).map((row) => row.url), ['https://private-a.example/page'])
@@ -96,6 +97,7 @@ try {
   assert.doesNotMatch(visitAnswer.answer, /private-b\.example/)
 
   const unpaid = await store.upsertUser(`scope-test-${stamp}-free@example.com`)
+  createdIds.push(unpaid.id)
   await store.acceptLegal(unpaid.id, '1991-01-01', TOS_VERSION, PRIVACY_VERSION)
   await assert.rejects(
     () => askAccount(store, unpaid.id, { dataset: 'search', question: 'names' }, async () => 'no'),
@@ -108,9 +110,36 @@ try {
   assert.equal((await store.listVisits(userA.id, '')).length, 0)
   assert.equal((await store.searchWifi(userB.id, { zip: '98101', state: null, city: null })).length, 1)
 } finally {
-  await pool.query('DELETE FROM users WHERE email LIKE $1', [`scope-test-${stamp}-%@example.com`])
+  await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [createdIds])
   await pool.end()
   await store.close()
+}
+
+async function insertPlace(
+  userId: string,
+  bssid: string,
+  ssid: string,
+  channel: number,
+  lat: number,
+  lon: number,
+  zip: string,
+): Promise<void> {
+  const sealed = encryptJson({
+    bssid,
+    ssid,
+    channel,
+    security: 'wpa2',
+    lat,
+    lon,
+    city: 'Seattle',
+    state: 'WA',
+    zip,
+  })
+  await pool.query(
+    `INSERT INTO wifi_places (user_id, bssid_hmac, payload, nonce, first_seen, last_seen)
+     VALUES ($1, $2, $3, $4, now(), now())`,
+    [userId, bssidHmac(bssid), sealed.payload, sealed.nonce],
+  )
 }
 
 console.log('scope checks passed')

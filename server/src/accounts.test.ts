@@ -7,6 +7,7 @@ import pg from 'pg'
 import { deliverDueAlerts } from './alerts.js'
 import { askAccount } from './ask.js'
 import { loginToken } from './auth.js'
+import { emailHmac } from './crypto.js'
 import { Store, type ScanInput } from './store.js'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
@@ -82,6 +83,7 @@ await store.migrate()
 const stamp = crypto.randomUUID()
 const userA = await store.upsertUser(`accounts-test-${stamp}-a@example.com`)
 const userB = await store.upsertUser(`accounts-test-${stamp}-b@example.com`)
+const createdIds = [userA.id, userB.id]
 
 try {
   const applied = await store.ingest(userA.id, scan('Cafe WiFi', 'aa:bb:cc:dd:ee:91'))
@@ -181,8 +183,8 @@ try {
 
   const compEmail = 'ben@2050.to'
   const priorComp = await pool.query<{ id: string; last_alert_at: Date | null }>(
-    'SELECT id, last_alert_at FROM users WHERE email = $1',
-    [compEmail],
+    'SELECT id, last_alert_at FROM users WHERE email_hmac = $1',
+    [emailHmac(compEmail)],
   )
   const existingComp = priorComp.rows[0]
   const createdComp = !existingComp
@@ -191,6 +193,7 @@ try {
     const comp = await store.subscriptionFor(compId)
     assert.equal(comp.status, 'active')
     const plain = await store.upsertUser(`accounts-test-${stamp}-plain@example.com`)
+    createdIds.push(plain.id)
     assert.equal((await store.subscriptionFor(plain.id)).status, 'none')
     const due = await store.alertCandidates()
     if (!due.some((user) => user.id === compId)) {
@@ -212,7 +215,7 @@ try {
     if (createdComp) await pool.query('DELETE FROM users WHERE id = $1', [compId])
   }
 } finally {
-  await pool.query('DELETE FROM users WHERE email LIKE $1', [`accounts-test-${stamp}-%@example.com`])
+  await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [createdIds])
   await redis.quit()
   await pool.end()
   await store.close()

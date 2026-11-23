@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('wifiMapping', {
     catalogSubnet: (options: { consent: boolean }) => ipcRenderer.invoke('wardrive:subnet', options),
     deviceDetails: (options: { consent: boolean; browser: string }) => ipcRenderer.invoke('wardrive:details', options),
     importHistory: (options: { consent: boolean }) => ipcRenderer.invoke('wardrive:history', options),
+    apiOrigin: () => ipcRenderer.invoke('wardrive:api-origin'),
     promptFullDiskAccess: () => ipcRenderer.invoke('wardrive:full-disk-access'),
     addListener: (eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void) => {
       const channel = eventName === 'scansSynced' ? 'wardrive:synced' : 'wardrive:queued'

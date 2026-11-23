@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs'
 import { Redis } from 'ioredis'
 import pg from 'pg'
 import { COMP_EMAILS, entitledStatus } from './comp.js'
-import { bssidHmac, decryptJson, encryptJson } from './crypto.js'
+import { sealPlaintextColumns } from './atRest.js'
+import { bssidHmac, decryptJson, emailHmac, encryptJson } from './crypto.js'
 import { circleFor, snapshotFrom } from '../../shared/range.js'
 import { cellKeyOf, collapseCells, collapseDevices, mergeCell, mergeDevice } from '../../shared/radios.js'
 import { inferScene, pingFrom, stripPing, trimHistory } from '../../shared/scene.js'
@@ -153,24 +154,28 @@ export class Store {
   ) {}
 
   static async connect(): Promise<Store> {
+    const connectionString = process.env.DATABASE_URL ?? ''
+    const redisUrl = process.env.REDIS_URL ?? ''
+    if (!connectionString) throw new Error('DATABASE_URL is required')
+    if (!redisUrl) throw new Error('REDIS_URL is required')
     const caPath = process.env.PGSSLROOTCERT
     const redisCa = process.env.REDIS_CA
-    if (!caPath || !redisCa) throw new Error('PGSSLROOTCERT and REDIS_CA are required')
-    const ca = readFileSync(caPath)
-    const connectionString = (process.env.DATABASE_URL ?? '').replace(/([?&])sslmode=[^&]*/g, '$1').replace(/[?&]$/, '')
-    const db = new Pool({
-      connectionString,
-      ssl: {
-        ca,
-        rejectUnauthorized: true,
-        servername: 'localhost',
-      },
-    })
+    if (Boolean(caPath) !== Boolean(redisCa)) throw new Error('PGSSLROOTCERT and REDIS_CA must be set together')
+    const db = new Pool(caPath
+      ? {
+          connectionString: connectionString.replace(/([?&])sslmode=[^&]*/g, '$1').replace(/[?&]$/, ''),
+          ssl: {
+            ca: readFileSync(caPath),
+            rejectUnauthorized: true,
+            servername: 'localhost',
+          },
+        }
+      : { connectionString })
     db.on('error', (error: Error) => {
       console.error(error.message || 'database connection dropped')
     })
-    const redis = new Redis(process.env.REDIS_URL ?? '', {
-      tls: { ca: readFileSync(redisCa), servername: 'localhost' },
+    const redis = new Redis(redisUrl, {
+      ...(redisCa ? { tls: { ca: readFileSync(redisCa), servername: 'localhost' } } : {}),
       maxRetriesPerRequest: 2,
       lazyConnect: true,
     })
@@ -209,6 +214,7 @@ export class Store {
     }
     const sql = readFileSync(new URL('../schema.sql', import.meta.url), 'utf8')
     await this.db.query(sql)
+    await sealPlaintextColumns(this.db)
     await this.redis.config('SET', 'save', '').catch(() => undefined)
     await this.redis.config('SET', 'appendonly', 'no').catch(() => undefined)
   }
@@ -652,7 +658,7 @@ export class Store {
 
   async rememberPostalCode(userId: string, lat: number, lon: number, code: string | null): Promise<void> {
     try {
-      await this.redis.set(userKey(userId, `postal:${postalCellKey(lat, lon)}`), code ?? '', 'EX', 30 * 24 * 60 * 60)
+      await this.redis.set(userKey(userId, `postal:${postalCellKey(lat, lon)}`), pack({ code }), 'EX', 30 * 24 * 60 * 60)
     } catch {
       return
     }
@@ -737,22 +743,27 @@ export class Store {
   }
 
   async upsertUser(email: string): Promise<{ id: string; email: string }> {
-    const result = await this.db.query<{ id: string; email: string }>(
-      `INSERT INTO users (id, email)
-       VALUES ($1, $2)
-       ON CONFLICT (email) DO UPDATE SET email = users.email
-       RETURNING id, email`,
-      [randomUUID(), email],
+    const normalized = email.trim().toLowerCase()
+    const sealed = encryptJson(normalized)
+    const result = await this.db.query<{ id: string; email_payload: Buffer; email_nonce: Buffer }>(
+      `INSERT INTO users (id, email_hmac, email_payload, email_nonce)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (email_hmac) DO UPDATE SET email_hmac = users.email_hmac
+       RETURNING id, email_payload, email_nonce`,
+      [randomUUID(), emailHmac(normalized), sealed.payload, sealed.nonce],
     )
-    return result.rows[0]
+    const row = result.rows[0]
+    return { id: row.id, email: decryptJson<string>(row.email_payload, row.email_nonce) }
   }
 
   async userById(id: string): Promise<{ id: string; email: string } | null> {
-    const result = await this.db.query<{ id: string; email: string }>(
-      'SELECT id, email FROM users WHERE id = $1',
+    const result = await this.db.query<{ id: string; email_payload: Buffer; email_nonce: Buffer }>(
+      'SELECT id, email_payload, email_nonce FROM users WHERE id = $1',
       [id],
     )
-    return result.rows[0] ?? null
+    const row = result.rows[0]
+    if (!row) return null
+    return { id: row.id, email: decryptJson<string>(row.email_payload, row.email_nonce) }
   }
 
   async saveLoginToken(userId: string, tokenHmac: Buffer, expiresAt: Date): Promise<void> {
@@ -763,7 +774,7 @@ export class Store {
   }
 
   async consumeLoginToken(tokenHmac: Buffer): Promise<{ id: string; email: string } | null> {
-    const result = await this.db.query<{ id: string; email: string }>(
+    const result = await this.db.query<{ id: string; email_payload: Buffer; email_nonce: Buffer }>(
       `UPDATE login_tokens AS token
        SET used_at = now()
        FROM users
@@ -771,10 +782,12 @@ export class Store {
          AND token.user_id = users.id
          AND token.used_at IS NULL
          AND token.expires_at > now()
-       RETURNING users.id, users.email`,
+       RETURNING users.id, users.email_payload, users.email_nonce`,
       [tokenHmac],
     )
-    return result.rows[0] ?? null
+    const row = result.rows[0]
+    if (!row) return null
+    return { id: row.id, email: decryptJson<string>(row.email_payload, row.email_nonce) }
   }
 
   async subscriptionFor(userId: string): Promise<{
@@ -784,13 +797,15 @@ export class Store {
     currentPeriodEnd: string | null
   }> {
     const result = await this.db.query<{
-      email: string
+      email_payload: Buffer
+      email_nonce: Buffer
       status: string | null
       stripe_customer_id: string | null
       stripe_subscription_id: string | null
       current_period_end: Date | null
     }>(
-      `SELECT users.email,
+      `SELECT users.email_payload,
+              users.email_nonce,
               subscriptions.status,
               subscriptions.stripe_customer_id,
               subscriptions.stripe_subscription_id,
@@ -805,7 +820,7 @@ export class Store {
       return { status: 'none', stripeCustomerId: null, stripeSubscriptionId: null, currentPeriodEnd: null }
     }
     return {
-      status: entitledStatus(row.email, row.status),
+      status: entitledStatus(decryptJson<string>(row.email_payload, row.email_nonce), row.status),
       stripeCustomerId: row.stripe_customer_id,
       stripeSubscriptionId: row.stripe_subscription_id,
       currentPeriodEnd: row.current_period_end ? new Date(row.current_period_end).toISOString() : null,
@@ -848,22 +863,29 @@ export class Store {
   }
 
   async alertCandidates(): Promise<{ id: string; email: string; lastAlertAt: string | null }[]> {
-    const result = await this.db.query<{ id: string; email: string; last_alert_at: Date | null }>(
-      `SELECT users.id, users.email, users.last_alert_at
+    const hmacs = COMP_EMAILS.map((email) => emailHmac(email))
+    const comp = hmacs.map((_, index) => `users.email_hmac = $${index + 1}`).join(' OR ')
+    const result = await this.db.query<{
+      id: string
+      email_payload: Buffer
+      email_nonce: Buffer
+      last_alert_at: Date | null
+    }>(
+      `SELECT users.id, users.email_payload, users.email_nonce, users.last_alert_at
        FROM users
        LEFT JOIN subscriptions ON subscriptions.user_id = users.id
        WHERE (
          subscriptions.status = 'active'
-         OR lower(users.email) = ANY($1::text[])
+         OR ${comp}
        )
          AND (users.last_alert_at IS NULL OR users.last_alert_at < now() - interval '7 days')
        ORDER BY users.last_alert_at NULLS FIRST
        LIMIT 50`,
-      [COMP_EMAILS],
+      hmacs,
     )
     return result.rows.map((row) => ({
       id: row.id,
-      email: row.email,
+      email: decryptJson<string>(row.email_payload, row.email_nonce),
       lastAlertAt: row.last_alert_at ? new Date(row.last_alert_at).toISOString() : null,
     }))
   }
@@ -903,9 +925,15 @@ export class Store {
     const key = userKey(userId, `geo:${postalCellKey(lat, lon)}`)
     try {
       const cached = await this.redis.get(key)
-      if (cached != null) return cached ? JSON.parse(cached) as PlaceParts : null
+      if (cached != null) {
+        try {
+          return unpack<PlaceParts>(cached)
+        } catch {
+          await this.redis.del(key)
+        }
+      }
       const parts = await lookupPlaceParts(lat, lon)
-      await this.redis.set(key, JSON.stringify(parts), 'EX', 30 * 24 * 60 * 60)
+      await this.redis.set(key, pack(parts), 'EX', 30 * 24 * 60 * 60)
       return parts
     } catch {
       return null

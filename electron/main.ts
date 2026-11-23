@@ -12,7 +12,8 @@ import { catalogLocalSubnet, localDeviceDetails } from './ownedNetwork'
 import { listen } from './server'
 
 const require = createRequire(__filename)
-const API_ORIGIN = 'https://127.0.0.1:9453'
+const CLOUD_API = 'https://observer.to'
+const LOCAL_API = 'https://127.0.0.1:9453'
 const MIN_PERIOD_MS = 30_000
 const V_SLOW = 0.82
 const V_MAX = 44.704
@@ -73,6 +74,21 @@ function scannerPath(): string {
   const packed = join(process.resourcesPath, 'app.asar.unpacked', 'macos', 'addon', 'build', 'Release', 'scanner.node')
   const dev = join(app.getAppPath(), 'macos', 'addon', 'build', 'Release', 'scanner.node')
   return existsSync(packed) ? packed : dev
+}
+
+function apiOrigin(): string {
+  const override = process.env.OBSERVER_API_ORIGIN?.trim().replace(/\/$/, '')
+  if (override?.startsWith('https://')) return override
+  return app.isPackaged ? CLOUD_API : LOCAL_API
+}
+
+function localHost(hostname: string): boolean {
+  return hostname === '127.0.0.1' || hostname === 'localhost'
+}
+
+function readDevCa(): Buffer | undefined {
+  const ca = caPath()
+  return ca ? readFileSync(ca) : undefined
 }
 
 function caPath(): string | null {
@@ -178,7 +194,7 @@ function postScan(scan: StoredScan): Promise<ScanReply | null> {
       return
     }
     const payload = Buffer.from(JSON.stringify(body))
-    const ca = caPath()
+    const devCa = localHost(target.hostname) ? readDevCa() : undefined
     const req = httpsRequest({
       protocol: target.protocol,
       hostname: target.hostname,
@@ -190,9 +206,9 @@ function postScan(scan: StoredScan): Promise<ScanReply | null> {
         'Content-Type': 'application/json',
         'Content-Length': payload.length,
       },
-      servername: 'localhost',
-      ca: ca ? readFileSync(ca) : undefined,
       rejectUnauthorized: true,
+      ...(localHost(target.hostname) ? { servername: 'localhost' } : {}),
+      ...(devCa ? { ca: devCa } : {}),
       timeout: 15000,
     }, (res) => {
       const chunks: Buffer[] = []
@@ -393,6 +409,7 @@ function registerIpc(): void {
     if (options?.consent !== true) throw new Error('Device details stay off until you allow them for a network you own.')
     return localDeviceDetails(options?.browser ?? '')
   })
+  ipcMain.handle('wardrive:api-origin', () => apiOrigin())
   ipcMain.handle('wardrive:history', async (_event, options: { consent?: boolean }) => {
     if (options?.consent !== true) throw new Error('Browser history stays unread until you import it.')
     return readLocalBrowserHistory()
@@ -423,13 +440,15 @@ async function openWindow(): Promise<void> {
   mkdirSync(directory, { recursive: true })
   store = new CatalogStore(join(directory, 'catalog.json'), join(directory, 'journal.json'))
   scanner = loadScanner()
-  const ca = caPath()
+  const origin = apiOrigin()
+  const hostname = new URL(origin).hostname
+  const devCa = localHost(hostname) ? readDevCa() : undefined
   const agent = new Agent({
-    ca: ca ? readFileSync(ca) : undefined,
     rejectUnauthorized: true,
-    servername: 'localhost',
+    ...(localHost(hostname) ? { servername: 'localhost' } : {}),
+    ...(devCa ? { ca: devCa } : {}),
   })
-  const ui = await listen(join(app.getAppPath(), 'dist'), API_ORIGIN, agent)
+  const ui = await listen(join(app.getAppPath(), 'dist'), origin, agent)
   serverClose = ui.close
   uiPort = ui.port
   window = new BrowserWindow({

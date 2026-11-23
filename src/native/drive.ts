@@ -32,6 +32,7 @@ interface WardrivePlugin {
   catalogSubnet(options: { consent: boolean }): Promise<SubnetCatalog>
   deviceDetails(options: { consent: boolean; browser: string }): Promise<DeviceDetails>
   importHistory(options: { consent: boolean }): Promise<LocalHistoryImport>
+  apiOrigin(): Promise<string>
   addListener(eventName: 'scanQueued', listenerFunc: () => void): Promise<PluginListenerHandle>
   addListener(eventName: 'scansSynced', listenerFunc: (event: { count: number }) => void): Promise<PluginListenerHandle>
 }
@@ -40,6 +41,12 @@ class WardriveWeb extends WebPlugin implements WardrivePlugin {
   private running = false
   private catalog = ''
   private journal = '[]'
+
+  async apiOrigin(): Promise<string> {
+    const configured = import.meta.env.VITE_DEVICE_API_URL
+    if (configured?.startsWith('https://')) return configured
+    return import.meta.env.DEV ? 'https://127.0.0.1:9453' : 'https://observer.to'
+  }
 
   async startDrive(): Promise<void> {
     this.running = true
@@ -131,6 +138,7 @@ interface MacBridge {
   catalogSubnet(options: { consent: boolean }): Promise<SubnetCatalog>
   deviceDetails(options: { consent: boolean; browser: string }): Promise<DeviceDetails>
   importHistory(options: { consent: boolean }): Promise<LocalHistoryImport>
+  apiOrigin(): Promise<string>
   promptFullDiskAccess(): Promise<void>
   addListener(eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void): Promise<PluginListenerHandle>
 }
@@ -186,6 +194,10 @@ class WardriveMac extends WebPlugin {
 
   importHistory(options: { consent: boolean }): Promise<LocalHistoryImport> {
     return this.bridge.importHistory(options)
+  }
+
+  apiOrigin(): Promise<string> {
+    return this.bridge.apiOrigin()
   }
 
   addListener(eventName: 'scanQueued' | 'scansSynced', listenerFunc: (event?: { count?: number }) => void): Promise<PluginListenerHandle> {

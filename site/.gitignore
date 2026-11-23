@@ -42,3 +42,4 @@ next-env.d.ts
 
 # Mac disk image linked from the repo release build
 /public/release
+/public/assets

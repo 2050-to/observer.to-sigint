@@ -1,7 +1,7 @@
 # Privacy Policy
 
 Last updated: 23 November 2026
-Version: 2026-11-23.2
+Version: 2026-11-23.3
 
 This policy explains what Observer.to stores, who can see it, and how to delete it. It covers the Mac app, the Android app, the website, and the account API. Read it with the Terms of Service. You must accept the current version of both before an app opens your data or the website shows stored data.
 
@@ -42,11 +42,11 @@ Place text is about the location of a public beacon your account heard. It is no
 
 ## 5. What is stored, and how
 
-The database is Postgres. Each row is tied to your account.
+The database is Postgres. Each row is tied to your account. The database disks and their backups are encrypted at rest. Observer.to also encrypts account fields with a server key before writing them.
 
-Scan catalogs, device details, and local network hosts are encrypted with a server key before they are stored. Time, and the fields needed to find your own rows, are indexed. Wi-Fi place search stores SSID, channel, security, coordinates, city, state, and ZIP on your rows so your map can filter them. Search text and page addresses are stored so you can search and, on the paid plan, ask about your own imports.
+The email address is stored as a keyed hash, so sign-in can find the account, and as ciphertext. Date of birth is ciphertext. Scan catalogs, device details, local network hosts, Wi-Fi place fields, Bluetooth place fields, search text, and page addresses are ciphertext. The server decrypts a field only to answer the signed-in account, including a map filter or a paid question. Time stays indexed so your own rows can be ordered. Hardware-address lookups use a keyed hash, not the address in the clear.
 
-A short-lived copy of recent catalog data may sit in Redis for the signed-in account. The Mac and Android apps also keep a local catalog so a drive can continue while the server is unreachable. Protect those devices.
+A short-lived Redis copy uses the same server key. The Mac and Android apps also keep a local catalog so a drive can continue while the server is unreachable. Protect those devices.
 
 Hardware addresses are not used to follow a person. Bluetooth rows keep the first time, the last time, and the last United States place your account heard that advertisement. They do not keep a movement trail.
 
@@ -89,7 +89,7 @@ An under-18 attempt is deleted rather than stored.
 
 ## 10. Security
 
-The API uses TLS. Session tokens are signed. Magic links are stored as keyed hashes and expire. Private observation payloads are encrypted at rest. Access checks reject a request that has not accepted the current Terms and Privacy Policy, and every read of stored rows is limited to the signed-in account.
+The website and the API are served over HTTPS. Session tokens are signed. Magic links are stored as keyed hashes and expire. Account data is encrypted at rest on the database disks and again with the server key described above. Access checks reject a request that has not accepted the current Terms and Privacy Policy, and every read of stored rows is limited to the signed-in account.
 
 No method of storage is perfect. You should protect the devices where the local catalog and the session are saved.
 

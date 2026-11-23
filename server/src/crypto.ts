@@ -20,6 +20,10 @@ export function bssidHmac(bssid: string): Buffer {
   return createHmac('sha256', hmacKey()).update(bssid.toLowerCase()).digest()
 }
 
+export function emailHmac(email: string): Buffer {
+  return createHmac('sha256', hmacKey()).update(`email:${email.trim().toLowerCase()}`).digest()
+}
+
 export function encryptJson(value: unknown): { payload: Buffer; nonce: Buffer } {
   const nonce = randomBytes(12)
   const cipher = createCipheriv('aes-256-gcm', dataKey(), nonce)

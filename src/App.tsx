@@ -3,7 +3,6 @@ import { useLabels } from './labels'
 import { api } from './api'
 import { AccountBar, UpgradeBanner, alertLabel, useAccount } from './AccountBar'
 import { sessionToken } from './session'
-import { sampleScans } from './fixture'
 import { loadView, type RefreshMode } from './localCatalog'
 import { AskBox, type AskDataset } from './AskBox'
 import { onDevice, onMacApp, Wardrive } from './native/drive'
@@ -25,12 +24,6 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'log', label: 'Log' },
   { id: 'search', label: 'Search history' },
   { id: 'browsing', label: 'Browsing history' },
-]
-
-const SPEEDS = [
-  { id: 'walk', label: 'Slow walk', mps: 0.82 },
-  { id: 'car', label: 'Car 85 mph', mps: 38 },
-  { id: 'drone', label: 'Drone 100 mph', mps: 44.704 },
 ]
 
 const NO_HEARD: RangeSnapshot['heard'] = []
@@ -71,7 +64,6 @@ export function App() {
   const [waiting, setWaiting] = useState(0)
   const [syncedCount, setSyncedCount] = useState(0)
   const [running, setRunning] = useState(false)
-  const [speed, setSpeed] = useState(SPEEDS[2].mps)
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
   const [enrichmentStatus, setEnrichmentStatus] = useState<EnrichmentQueueStatus | null>(null)
@@ -178,24 +170,6 @@ export function App() {
     }
   }, [refresh])
 
-  async function loadSample() {
-    setError('')
-    const scans = sampleScans(speed)
-    try {
-      let last: Awaited<ReturnType<typeof api.scan>> | null = null
-      for (const scan of scans) last = await api.scan(scan)
-      await refresh('sync')
-      const kept = last?.heard.find((network) => network.bssid === 'aa:bb:cc:dd:ee:01')
-      setNote(kept
-        ? `Sample applied. Duplicate Cafe WiFi radio kept at ${kept.bestRssi} dBm, seen ${kept.seenCount} time${kept.seenCount === 1 ? '' : 's'}.`
-        : 'Sample applied.')
-    } catch {
-      await Wardrive.enqueue({ scans: JSON.stringify(scans) })
-      await refresh('local')
-      setNote('Sample saved on this device. It will sync when a saved network is in range.')
-    }
-  }
-
   async function toggleDrive() {
     setError('')
     if (running) {
@@ -206,8 +180,13 @@ export function App() {
       return
     }
     const token = sessionToken()
+    const configured = import.meta.env.VITE_DEVICE_API_URL
+    const deviceApi = configured?.startsWith('https://')
+      ? configured
+      : (import.meta.env.DEV ? 'https://127.0.0.1:9453' : 'https://observer.to')
+    const macApi = onMacApp() ? await Wardrive.apiOrigin() : ''
     const apiUrl = onDevice()
-      ? (import.meta.env.VITE_DEVICE_API_URL || 'https://127.0.0.1:9453')
+      ? (macApi.startsWith('https://') ? macApi : deviceApi)
       : window.location.origin
     try {
       await Wardrive.startDrive({ apiUrl, token })
@@ -282,19 +261,10 @@ export function App() {
         </div>
         {account && <AccountBar account={account} />}
         <div className="actions">
-          <button type="button" onClick={() => void toggleDrive()}>{running ? 'Stop drive' : 'Start drive'}</button>
-          {!onDevice() && (
-            <>
-              <label>
-                Speed
-                <select value={speed} onChange={(event) => setSpeed(Number(event.target.value))}>
-                  {SPEEDS.map((item) => <option key={item.id} value={item.mps}>{item.label}</option>)}
-                </select>
-              </label>
-              <button type="button" onClick={() => void loadSample().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Sample failed'))}>
-                Load sample drive
-              </button>
-            </>
+          {onDevice() ? (
+            <button type="button" onClick={() => void toggleDrive()}>{running ? 'Stop drive' : 'Start drive'}</button>
+          ) : (
+            <p className="note">Wi-Fi, Bluetooth, GPS, search history, and browsing history are captured by the Mac app. This site shows what that app has already uploaded.</p>
           )}
           {eraseStep === 0 && (
             <button type="button" className="danger" onClick={() => setEraseStep(1)}>Delete all data</button>

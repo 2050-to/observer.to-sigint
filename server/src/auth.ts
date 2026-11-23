@@ -17,7 +17,11 @@ export function normalizeEmail(value: unknown): string | null {
 }
 
 export function appOrigin(): string {
-  return (process.env.APP_ORIGIN || 'http://localhost:5173').replace(/\/$/, '')
+  const origin = (process.env.APP_ORIGIN || 'http://localhost:5173').replace(/\/$/, '')
+  if (process.env.RENDER === 'true' && !origin.startsWith('https://')) {
+    throw new Error('APP_ORIGIN must use https on Render')
+  }
+  return origin
 }
 
 function jwtSecret(): Uint8Array {

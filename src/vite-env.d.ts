@@ -30,6 +30,7 @@ interface MacWardriveBridge {
     hostname: string
     collectedAt: string
   }>
+  apiOrigin(): Promise<string>
   importHistory(options: { consent: boolean }): Promise<{
     visits: { url: string; title: string | null; visitedAt: string }[]
     searches: { query: string; engine: string | null; queriedAt: string }[]

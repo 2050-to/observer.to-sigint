@@ -11,6 +11,8 @@ android/local.properties
 server/node_modules
 .local
 release/
+!site/app/release/
+!site/app/release/**
 electron/dist/
 macos/addon/build/
 macos/addon/node_modules/

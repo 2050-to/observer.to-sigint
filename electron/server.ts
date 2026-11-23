@@ -76,7 +76,7 @@ function proxy(req: IncomingMessage, res: ServerResponse, origin: string, url: U
       path: target.pathname + target.search,
       headers,
       agent,
-      servername: 'localhost',
+      ...(target.hostname === '127.0.0.1' || target.hostname === 'localhost' ? { servername: 'localhost' } : {}),
     }
     const outbound = (target.protocol === 'https:' ? httpsRequest : httpRequest)(options, (upstream) => {
       res.writeHead(upstream.statusCode ?? 502, upstream.headers)

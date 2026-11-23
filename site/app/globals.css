@@ -152,6 +152,12 @@ ul {
   color: var(--text-secondary);
 }
 
+.header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 a.button {
   justify-self: start;
   display: inline-flex;
@@ -183,6 +189,11 @@ a.button:focus-visible {
     align-items: start;
   }
 
+  .header-actions {
+    width: 100%;
+  }
+
+  .header-actions a.button,
   a.button {
     justify-self: stretch;
     justify-content: center;

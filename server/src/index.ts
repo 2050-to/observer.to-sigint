@@ -2,8 +2,8 @@ import { readFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PRIVACY_VERSION, TOS_VERSION, isAdult, routeNeedsConsent } from '../../shared/legal.js'
-import { createServer } from 'node:https'
-import type { IncomingMessage, ServerResponse } from 'node:http'
+import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { createServer as createHttpsServer } from 'node:https'
 import { catalogBundleCsv } from '../../shared/csv.js'
 import { catalogForensicsMarkdown } from '../../shared/forensics.js'
 import { AlertWorker } from './alerts.js'
@@ -198,7 +198,7 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
   }
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Strict-Transport-Security', 'max-age=15552000')
+  res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains')
   if (req.method === 'OPTIONS') {
     res.writeHead(204)
     res.end()
@@ -454,7 +454,7 @@ function legalDocuments(): {
 async function main(): Promise<void> {
   const cert = process.env.TLS_CERT
   const key = process.env.TLS_KEY
-  if (!cert || !key) throw new Error('TLS_CERT and TLS_KEY are required')
+  if (Boolean(cert) !== Boolean(key)) throw new Error('TLS_CERT and TLS_KEY must be set together')
   if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET is required')
   const store = await Store.connect()
   await store.migrate()
@@ -473,19 +473,19 @@ async function main(): Promise<void> {
     : null
   const alertWorker = new AlertWorker(store)
   const port = Number(process.env.PORT ?? 8443)
-  const server = createServer(
-    { cert: readFileSync(cert), key: readFileSync(key), minVersion: 'TLSv1.2' },
-    (req, res) => {
-      handle(store, Boolean(enrichmentWorker), req, res).catch((error: unknown) => {
-        const status = error instanceof ApiError ? error.status : 500
-        const message = error instanceof Error ? error.message : 'request failed'
-        if (status === 500) console.error(error)
-        if (!res.headersSent) send(res, status, { error: message })
-        else res.end()
-      })
-    },
-  )
-  server.listen(port, '0.0.0.0', () => {
+  const onRequest = (req: IncomingMessage, res: ServerResponse) => {
+    handle(store, Boolean(enrichmentWorker), req, res).catch((error: unknown) => {
+      const status = error instanceof ApiError ? error.status : 500
+      const message = error instanceof Error ? error.message : 'request failed'
+      if (status === 500) console.error(error)
+      if (!res.headersSent) send(res, status, { error: message })
+      else res.end()
+    })
+  }
+  const server = cert && key
+    ? createHttpsServer({ cert: readFileSync(cert), key: readFileSync(key), minVersion: 'TLSv1.2' }, onRequest)
+    : createHttpServer(onRequest)
+  server.listen(port, process.env.BIND_HOST || '0.0.0.0', () => {
     console.log(`listening on ${port}`)
     enrichmentWorker?.start()
     alertWorker.start()
