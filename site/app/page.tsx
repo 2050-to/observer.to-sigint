@@ -1,7 +1,7 @@
-const downloadHref = "/release/Observer.to.dmg";
+const macAppHref = "https://github.com/2050-to/observer.to-sigint";
 
 const steps = [
-  "Download the free Mac app and drag Observer.to to Applications.",
+  "Get the Mac app from the GitHub repository.",
   "Sign in with a magic link. You can sign in here or in the Mac app.",
   "Start a drive on the Mac. It records Wi-Fi networks, public Bluetooth advertisements, and its own GPS, altitude, and speed. It does not connect to Bluetooth devices. Import search history and browsing history from that Mac when you want them saved.",
   "Sign in on this site to review what the Mac has uploaded: range, a map, open networks, a log, search history, and browsing history.",
@@ -17,8 +17,8 @@ export default function Page() {
         </div>
         <div className="header-actions">
           <a className="button" href="/app">Sign in</a>
-          <a className="button" href={downloadHref}>
-            Download free for Mac
+          <a className="button" href={macAppHref}>
+            Mac app on GitHub
           </a>
         </div>
       </header>
@@ -59,14 +59,11 @@ export default function Page() {
         <article id="download">
           <h2>Free</h2>
           <p>
-            The Mac app is free to download. Sign in and use the observer: drives, range, map, open networks, log, enrichment, exports, and the owned-network check.
+            The Mac app is free. Sign in and use the observer: drives, range, map, open networks, log, enrichment, exports, and the owned-network check.
           </p>
-          <a className="button" href={downloadHref}>
-            Download Observer.to.dmg
+          <a className="button" href={macAppHref}>
+            Mac app on GitHub
           </a>
-          <p className="note">
-            The disk image is not notarized. On another Mac, Control-click the app and choose Open.
-          </p>
         </article>
         <article id="subscribe">
           <h2>$5 per month</h2>
