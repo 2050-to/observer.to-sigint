@@ -21,7 +21,7 @@ export default function Page() {
       </header>
 
       <p className="lede">
-        Observer.to records the wireless presence around a place you are responsible for. It is a purple-team observer: the same evidence for the people who defend a site and the people who test it, collected from public beacons only. It does not join networks or capture traffic.
+        Observer.to records the wireless presence around a place you are responsible for. It is a purple-team observer: the same evidence for the people who defend a site and the people who test it. It records public beacons, and the Mac app can record that Mac's own DNS lookups. It does not join networks or record anyone else's traffic.
       </p>
 
       <section id="how-it-works" aria-labelledby="how-heading">
@@ -81,8 +81,15 @@ export default function Page() {
           <li>It does not capture subscriber identities such as IMSI or TMSI.</li>
           <li>It does not transmit, jam, or spoof.</li>
           <li>It does not track a person from a hardware address.</li>
+          <li>Search and questions stay inside the signed-in account.</li>
+          <li>The observer and stored data open only after you read and accept the current Terms and Privacy Policy. You must be 18 or older.</li>
         </ul>
       </section>
+      <p className="note">
+        <a href="/terms">Terms of Service</a>
+        {" · "}
+        <a href="/privacy">Privacy Policy</a>
+      </p>
     </main>
   );
 }

@@ -9,12 +9,25 @@ import { onDevice, Wardrive } from './native/drive'
 import { clearOwnedPrefs } from './ownedPrefs'
 import type { EnrichmentQueueStatus, MapState, OpenRow, RangeSnapshot } from './types'
 import { DriveMap } from './views/DriveMap'
+import { DnsView } from './views/DnsView'
 import { LogView } from './views/LogView'
 import { OwnedNetwork } from './views/OwnedNetwork'
 import { OpenList } from './views/OpenList'
 import { RangeGraph } from './views/RangeGraph'
+import { RecordView } from './views/RecordView'
 
-type Tab = 'range' | 'map' | 'open' | 'log'
+type Tab = 'range' | 'map' | 'open' | 'log' | 'dns' | 'bookmarks' | 'search' | 'browsing'
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'range', label: 'In range' },
+  { id: 'map', label: 'Map' },
+  { id: 'open', label: 'Open' },
+  { id: 'log', label: 'Log' },
+  { id: 'dns', label: 'DNS' },
+  { id: 'bookmarks', label: 'Bookmarks' },
+  { id: 'search', label: 'Search history' },
+  { id: 'browsing', label: 'Browsing history' },
+]
 
 const SPEEDS = [
   { id: 'walk', label: 'Slow walk', mps: 0.82 },
@@ -112,6 +125,16 @@ export function App() {
       window.clearTimeout(timer)
     }
   }, [enrichmentStatus, refresh])
+
+  useEffect(() => {
+    const bridge = window.wifiMapping?.wardrive
+    if (!bridge?.startDns || !sessionToken()) return
+    const apiUrl = import.meta.env.VITE_DEVICE_API_URL || 'https://127.0.0.1:9453'
+    void bridge.startDns({ apiUrl, token: sessionToken() })
+    return () => {
+      void bridge.stopDns()
+    }
+  }, [])
 
   useEffect(() => {
     let stop = false
@@ -288,7 +311,7 @@ export function App() {
             <h2 id="erase-title">{eraseStep === 1 ? 'Delete all saved data?' : 'Delete everything permanently?'}</h2>
             <p>
               {eraseStep === 1
-                ? 'This removes every saved network, scan, device, cell, and custom name on this device and on the server.'
+                ? 'This removes every saved network, scan, device, cell, DNS log, import, and custom name on this device and on the server.'
                 : 'There is no undo. The catalog will be empty, and a running drive will stop.'}
             </p>
           </div>
@@ -320,9 +343,9 @@ export function App() {
       {note && <p className="note">{note}</p>}
       {error && <p className="warn">{error}</p>}
       <nav>
-        {(['range', 'map', 'open', 'log'] as Tab[]).map((item) => (
-          <button key={item} type="button" className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>
-            {item === 'range' ? 'In range' : item === 'map' ? 'Map' : item === 'open' ? 'Open' : 'Log'}
+        {TABS.map((item) => (
+          <button key={item.id} type="button" className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>
+            {item.label}
           </button>
         ))}
       </nav>
@@ -343,6 +366,7 @@ export function App() {
           map={map}
           focus={focus}
           onPlaceSaved={() => void refresh(running ? 'pull' : 'sync')}
+          subscribed={account?.alerts.status === 'active'}
           nameFor={nameFor}
           nameForGroup={nameForGroup}
           draftFor={draftFor}
@@ -381,6 +405,10 @@ export function App() {
           rename={rename}
         />
       )}
+      {tab === 'dns' && <DnsView subscribed={account?.alerts.status === 'active'} />}
+      {tab === 'bookmarks' && <RecordView kind="bookmarks" subscribed={account?.alerts.status === 'active'} />}
+      {tab === 'search' && <RecordView kind="search" subscribed={account?.alerts.status === 'active'} />}
+      {tab === 'browsing' && <RecordView kind="browsing" subscribed={account?.alerts.status === 'active'} />}
       <OwnedNetwork active={onDevice()} resetToken={ownedReset} />
     </main>
   )

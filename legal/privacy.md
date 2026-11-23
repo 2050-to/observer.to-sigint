@@ -1,0 +1,108 @@
+# Privacy Policy
+
+Last updated: 23 November 2026
+Version: 2026-11-23
+
+This policy explains what Observer.to stores, who can see it, and how to delete it. It covers the Mac app, the Android app, the website, and the account API. Read it with the Terms of Service. You must accept the current version of both before an app opens your data or the website shows stored data.
+
+Observer.to does not sell personal information. It does not let one account search or ask questions about another account.
+
+## 1. Who this policy is for
+
+The service is for adults. You must be 18 or older. If a date of birth shows an age under 18, the new account is deleted, tokens are deleted, and the catalog is not kept. Observer.to does not knowingly keep information from anyone under 18.
+
+The public marketing pages and the Terms and Privacy Policy can be read without an account. They do not show stored observations.
+
+## 2. Information you provide
+
+- Email address, used to send the magic link and, on the paid plan, the weekly review.
+- Date of birth, used only to confirm that you are 18 or older and to decide when you must accept the current terms again. It is not shown to other accounts.
+- The versions of the Terms and Privacy Policy you accepted, and the time you accepted them.
+- Billing identifiers from Stripe if you start a subscription. Observer.to does not store a full card number.
+- Bookmarks, search history, and browsing history from a file you select. Passwords, cookies, payment cards, and form data are not read. The apps do not open your browser profile folders unless you pick a file yourself.
+
+Imported history is stored for that account. There is no switch that shares it with other people.
+
+## 3. Information collected from the device you use
+
+After you accept, a drive can record:
+
+- Public Wi-Fi beacon fields the device hears, such as SSID, BSSID, channel, security, and signal strength.
+- Public Bluetooth advertisement fields, such as the identifier the operating system provides, a name if one is advertised, and signal strength. macOS does not reveal a Bluetooth hardware address. Observer.to does not connect to Bluetooth devices.
+- This device's GPS, altitude, and speed while a drive runs, so the observation can be placed.
+- Cell tower identifiers the phone reports during normal operation, such as mobile country and network codes, area, and cell id. Observer.to does not collect IMSI, TMSI, or call content.
+
+On the Mac app, DNS recording stores lookups this Mac sends in cleartext: the name, the record type, the response code when it is visible, and the time. The capture is limited to packets whose source is this Mac. It does not turn on promiscuous mode and it does not record other devices on the local network. Encrypted DNS, such as DNS over HTTPS or DNS over TLS, is not visible and is not stored.
+
+If you turn on the owned-network check, Observer.to stores the current device description you allowed (operating system, browser string, memory, processor, and hostname) and the address inventory of a network you own (address, role, announced name, and related service names). Those rows are saved to your account. They are not a record of other people's traffic.
+
+## 4. Place fields
+
+When a drive has coordinates, the server may ask Nominatim, a public OpenStreetMap service, for a place description, and Open-Meteo for ground elevation. From a United States result, your account stores city, state, and ZIP on the networks and advertisements that drive heard, so you can filter your own map. Sightings outside the United States stay in your private catalog and are not added to that place index.
+
+Place text is about the location of a public beacon your account heard. It is not a profile of a person.
+
+## 5. What is stored, and how
+
+The database is Postgres. Each row is tied to your account.
+
+Scan catalogs, device details, local network hosts, and DNS questions are encrypted with a server key before they are stored. Time, and the fields needed to find your own rows, are indexed. Wi-Fi place search stores SSID, channel, security, coordinates, city, state, and ZIP on your rows so your map can filter them. Bookmark URLs, search text, and page addresses are stored so you can search and, on the paid plan, ask about your own imports.
+
+A short-lived copy of recent catalog data may sit in Redis for the signed-in account. The Mac and Android apps also keep a local catalog so a drive can continue while the server is unreachable. Protect those devices.
+
+Hardware addresses are not used to follow a person. Bluetooth rows keep the first time, the last time, and the last United States place your account heard that advertisement. They do not keep a movement trail.
+
+## 6. Who can see your information
+
+You can, when you are signed in and you have accepted the current documents.
+
+People who operate the service can access the database to run and protect it. They do not use one account's records to answer another account.
+
+These processors receive only what they need:
+
+- Resend, or the server log when email is not configured, receives your email address and the message text for sign-in and weekly reviews.
+- Stripe receives the billing details required to charge the monthly plan and to open the customer portal.
+- DeepSeek receives a question you submit and a bounded excerpt of your own rows for that question, when the assistant is enabled. It does not receive another account's rows, your password (there is none), or a database login. Observer.to does not send the assistant your email address.
+- Nominatim and Open-Meteo receive coordinates from a place your account is already recording, so the server can attach an address, elevation, or United States city, state, and ZIP.
+
+Observer.to does not let customers query across accounts. Search, exports, the map, DNS review, imports, and assistant questions all require your session and your user id.
+
+## 7. The assistant
+
+The assistant is part of the paid plan. A question names one of your datasets: DNS, Wi-Fi places, bookmarks, search history, or browsing history. The server loads a limited excerpt of your rows and asks DeepSeek to answer from that excerpt. If the excerpt does not contain the answer, the reply should say so. The assistant is not a source of records about other people, and it is not a substitute for your own judgment.
+
+If the DeepSeek key is not configured, questions are unavailable. That does not open the rest of the account to anyone else.
+
+## 8. How long information is kept
+
+Records stay until you delete them, you delete the account's data, or the account is removed. Acceptance of these documents is kept so the service can require a new acceptance when the text changes.
+
+Weekly review mail is sent only for an active plan, and not more than about once a week.
+
+Server logs may keep operational errors for as long as the host keeps process logs. Those logs are not a second catalog.
+
+## 9. Deletion and access
+
+Delete all data in the app removes your scans and the records described in the Terms from the device and, when the server is reachable, from the server. You can export a CSV and a markdown report of your beacon catalog while you are signed in.
+
+You may ask for a copy of the email and acceptance record associated with your account by using the contact below. Imports and DNS logs are available in the app after you sign in.
+
+An under-18 attempt is deleted rather than stored.
+
+## 10. Security
+
+The API uses TLS. Session tokens are signed. Magic links are stored as keyed hashes and expire. Private observation payloads are encrypted at rest. Access checks reject a request that has not accepted the current Terms and Privacy Policy, and every read of stored rows is limited to the signed-in account.
+
+No method of storage is perfect. You should protect the devices where the local catalog and the session are saved.
+
+## 11. Cookies and local storage
+
+The website and apps store the session token in local storage on the device. That token is what proves the session. Observer.to does not use a third-party advertising cookie. A dismissed upgrade note may be stored on the device so the banner stays closed.
+
+## 12. Changes
+
+When this policy or the Terms change, the version changes with them. The apps and data views close until you read and accept the new text. The public legal pages show the current text before you accept.
+
+## 13. Contact
+
+Privacy questions can be sent to the address used for sign-in email when that mailbox is monitored, or to the contact published on the Observer.to website.

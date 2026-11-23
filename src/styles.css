@@ -333,6 +333,31 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #303237; }
 .owned-network .meta { margin: 0; }
 .owned-network .meta dd { overflow-wrap: anywhere; }
 
+.legal-gate { display: grid; gap: 16px; }
+.legal-columns { display: grid; gap: 12px; }
+.legal-columns section { display: grid; gap: 8px; }
+.legal-scroll {
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 14px;
+  color: var(--text-secondary);
+}
+.ask { display: grid; gap: 8px; }
+.ask input, .file input, .signin input[type="date"] {
+  background: var(--background);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font: inherit;
+}
+.ask input { min-width: 240px; }
+.answer { white-space: pre-wrap; }
+.file { display: grid; gap: 6px; color: var(--text-muted); }
+
 .leaflet-tooltip.map-label {
   background: var(--background);
   color: var(--text);

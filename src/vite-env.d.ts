@@ -30,6 +30,9 @@ interface MacWardriveBridge {
     hostname: string
     collectedAt: string
   }>
+  startDns(options: { apiUrl: string; token: string }): Promise<{ running: boolean; message: string }>
+  stopDns(): Promise<{ running: boolean; message: string }>
+  dnsStatus(): Promise<{ running: boolean; message: string }>
   addListener(eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void): Promise<{ remove: () => Promise<void> }>
 }
 

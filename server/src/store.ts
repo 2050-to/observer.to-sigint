@@ -14,7 +14,29 @@ import {
   isEnrichmentInput,
   type EnrichmentInput,
 } from './enrichment/input.js'
-import { lookupPostalCode } from './geocode.js'
+import { lookupPlaceParts, type PlaceParts } from './geocode.js'
+import {
+  acceptLegal,
+  askExcerpt,
+  consentFor,
+  deleteUser,
+  dnsWindow,
+  insertDns,
+  listBookmarks,
+  listSearches,
+  listVisits,
+  replaceLanHosts,
+  saveBookmarks,
+  saveDeviceProfile,
+  saveSearches,
+  saveVisits,
+  searchWifi,
+  upsertBluetoothPlaces,
+  upsertWifiPlaces,
+  usPlace,
+  wipePersonal,
+  type DnsQueryRow,
+} from './personal.js'
 import { mergeRecord, collapseScan, normalizeBssid } from './merge.js'
 import { addPostalCode, postalCellKey, samePostalCell } from '../../shared/postal.js'
 import { openRows } from './security.js'
@@ -211,15 +233,16 @@ export class Store {
     const devices = collapseDevices(scan.devices ?? [])
     const cells = collapseCells(scan.cells ?? [])
     const previous = await this.readSnapshot(userId)
-    const postalCode = await this.cachedPostalCode(userId, scan.lat, scan.lon)
+    const placeParts = await this.cachedPlaceParts(userId, scan.lat, scan.lon)
+    const postalCode = placeParts?.postalCode ?? null
     const bestCodes = new Map<string, Promise<string | null>>()
-    const bestPostalCode = (lat: number | null, lon: number | null): Promise<string | null> => {
+      const bestPostalCode = (lat: number | null, lon: number | null): Promise<string | null> => {
       if (lat == null || lon == null) return Promise.resolve(null)
       if (scan.lat != null && scan.lon != null && samePostalCell(scan.lat, scan.lon, lat, lon)) return Promise.resolve(postalCode)
       const key = postalCellKey(lat, lon)
       const pending = bestCodes.get(key)
       if (pending) return pending
-      const lookup = this.cachedPostalCode(userId, lat, lon)
+      const lookup = this.cachedPlaceParts(userId, lat, lon).then((parts) => parts?.postalCode ?? null)
       bestCodes.set(key, lookup)
       return lookup
     }
@@ -280,6 +303,8 @@ export class Store {
         )
         observedDevices.push(merged)
       }
+      await upsertWifiPlaces(client, userId, heard, usPlace(placeParts))
+      await upsertBluetoothPlaces(client, userId, observedDevices, usPlace(placeParts))
       for (const cell of cells) {
         const hmac = bssidHmac(cellKeyOf(cell))
         const existingRow = await client.query<{ payload: Buffer; nonce: Buffer }>(
@@ -847,15 +872,19 @@ export class Store {
   }
 
   private async cachedPostalCode(userId: string, lat: number | null, lon: number | null): Promise<string | null> {
+    const parts = await this.cachedPlaceParts(userId, lat, lon)
+    return parts?.postalCode ?? null
+  }
+
+  private async cachedPlaceParts(userId: string, lat: number | null, lon: number | null): Promise<PlaceParts | null> {
     if (lat == null || lon == null) return null
-    const key = userKey(userId, `postal:${postalCellKey(lat, lon)}`)
+    const key = userKey(userId, `geo:${postalCellKey(lat, lon)}`)
     try {
       const cached = await this.redis.get(key)
-      if (cached != null) return cached || null
-      const result = await lookupPostalCode(lat, lon)
-      if (!result.lookedUp) return null
-      await this.redis.set(key, result.code ?? '', 'EX', 30 * 24 * 60 * 60)
-      return result.code
+      if (cached != null) return cached ? JSON.parse(cached) as PlaceParts : null
+      const parts = await lookupPlaceParts(lat, lon)
+      await this.redis.set(key, JSON.stringify(parts), 'EX', 30 * 24 * 60 * 60)
+      return parts
     } catch {
       return null
     }
@@ -873,6 +902,68 @@ export class Store {
     await this.db.query('DELETE FROM cells WHERE user_id = $1', [userId])
     await this.db.query('DELETE FROM applied_scans WHERE user_id = $1', [userId])
     await this.db.query('DELETE FROM range_snapshot WHERE user_id = $1', [userId])
+    await wipePersonal(this.db, userId)
+  }
+
+  async consentFor(userId: string) {
+    return consentFor(this.db, userId)
+  }
+
+  async acceptLegal(userId: string, bornOn: string, tosVersion: string, privacyVersion: string) {
+    return acceptLegal(this.db, userId, bornOn, tosVersion, privacyVersion)
+  }
+
+  async deleteAccount(userId: string): Promise<void> {
+    await this.wipe(userId)
+    await deleteUser(this.db, userId)
+  }
+
+  async saveDeviceProfile(userId: string, details: unknown): Promise<void> {
+    await saveDeviceProfile(this.db, userId, details)
+  }
+
+  async replaceLanHosts(userId: string, hosts: { ip: string }[]): Promise<void> {
+    await replaceLanHosts(this.db, userId, hosts)
+  }
+
+  async insertDns(userId: string, queries: DnsQueryRow[]): Promise<number> {
+    return insertDns(this.db, userId, queries)
+  }
+
+  async dnsWindow(userId: string, from: string, to: string): Promise<DnsQueryRow[]> {
+    return dnsWindow(this.db, userId, from, to)
+  }
+
+  async searchWifi(userId: string, filter: { zip: string | null; state: string | null; city: string | null }) {
+    return searchWifi(this.db, userId, filter)
+  }
+
+  async saveBookmarks(userId: string, items: { title: string; url: string }[]) {
+    return saveBookmarks(this.db, userId, items)
+  }
+
+  async listBookmarks(userId: string, q: string) {
+    return listBookmarks(this.db, userId, q)
+  }
+
+  async saveSearches(userId: string, items: { query: string; engine: string | null; queriedAt: string }[]) {
+    return saveSearches(this.db, userId, items)
+  }
+
+  async listSearches(userId: string, q: string) {
+    return listSearches(this.db, userId, q)
+  }
+
+  async saveVisits(userId: string, items: { url: string; title: string | null; visitedAt: string }[]) {
+    return saveVisits(this.db, userId, items)
+  }
+
+  async listVisits(userId: string, q: string) {
+    return listVisits(this.db, userId, q)
+  }
+
+  async askExcerpt(userId: string, dataset: 'dns' | 'wifi' | 'bookmarks' | 'search' | 'browsing', question: string) {
+    return askExcerpt(this.db, userId, dataset, question)
   }
 
   async summary(userId: string): Promise<{

@@ -4,7 +4,8 @@ import { labelIds } from '../../shared/accessPoints'
 import { estimateLabelSize, labelEdgeTowardAnchor, leaderIsClear, spreadLabels } from '../../shared/labelLayout'
 import { placeCovers, postalCellKey, postalLabel, samePostalCell, unionPostalCodes } from '../../shared/postal'
 import { roomSignals, SIGNAL_COLORS, stackFor, stackSignals, type SignalRow } from '../../shared/sources'
-import { api } from '../api'
+import { api, type WifiPlace } from '../api'
+import { AskBox } from '../AskBox'
 import { floorLabel, gpsGround, plottedHeight } from '../height'
 import { SignalLegend, SignalStack } from '../SignalStack'
 import { streetTiles } from '../tiles'
@@ -216,6 +217,7 @@ export function DriveMap({
   map,
   focus,
   onPlaceSaved,
+  subscribed,
   nameFor,
   nameForGroup,
   draftFor,
@@ -224,6 +226,7 @@ export function DriveMap({
   map: MapState | null
   focus: { lat: number; lon: number; label: string } | null
   onPlaceSaved?: () => void
+  subscribed: boolean
   nameFor: (id: string, fallback: string) => string
   nameForGroup: (ids: string[], fallback: string) => string
   draftFor: (id: string, fallback: string) => string
@@ -232,6 +235,12 @@ export function DriveMap({
   const host = useRef<HTMLDivElement>(null)
   const leaflet = useRef<L.Map | null>(null)
   const layer = useRef<L.LayerGroup | null>(null)
+  const searchLayer = useRef<L.LayerGroup | null>(null)
+  const [zip, setZip] = useState('')
+  const [stateName, setStateName] = useState('')
+  const [city, setCity] = useState('')
+  const [results, setResults] = useState<WifiPlace[]>([])
+  const [searchNote, setSearchNote] = useState('')
   const pins = useRef<MapPin[]>([])
   const [card, setCard] = useState<PlaceCard | null>(null)
   const refreshKey = useRef<string | null>(null)
@@ -276,6 +285,7 @@ export function DriveMap({
     streetTiles().addTo(next)
     next.setView([47.62, -122.35], 15)
     layer.current = L.layerGroup().addTo(next)
+    searchLayer.current = L.layerGroup().addTo(next)
     leaflet.current = next
     const observer = new ResizeObserver(() => next.invalidateSize())
     observer.observe(host.current)
@@ -511,8 +521,55 @@ export function DriveMap({
     ?? card?.title
     ?? 'Selection'
 
+  useEffect(() => {
+    const group = searchLayer.current
+    const mapView = leaflet.current
+    if (!group || !mapView) return
+    group.clearLayers()
+    const spots = results.filter((row): row is WifiPlace & { lat: number; lon: number } => row.lat != null && row.lon != null)
+    for (const row of spots) {
+      L.circleMarker([row.lat, row.lon], {
+        radius: 8,
+        color: '#f5d76e',
+        fillColor: '#f5d76e',
+        fillOpacity: 0.95,
+      }).addTo(group).bindTooltip([row.ssid, row.city, row.state, row.zip].filter(Boolean).join(' '))
+    }
+    if (spots.length > 0) mapView.fitBounds(L.latLngBounds(spots.map((row) => [row.lat, row.lon])), { maxZoom: 14, padding: [24, 24] })
+  }, [results])
+
+  async function searchPlace(event: { preventDefault: () => void }) {
+    event.preventDefault()
+    setSearchNote('')
+    try {
+      const networks = await api.wifiSearch({ zip, state: stateName, city })
+      setResults(networks)
+      setSearchNote(networks.length === 0 ? 'No networks in this account match that place.' : `${networks.length} network${networks.length === 1 ? '' : 's'} in this account.`)
+    } catch (reason: unknown) {
+      setResults([])
+      setSearchNote(reason instanceof Error ? reason.message : 'The search failed')
+    }
+  }
+
   return (
     <div className="panel">
+      <form className="signin" onSubmit={(event) => void searchPlace(event)}>
+        <label>
+          ZIP
+          <input value={zip} onChange={(event) => setZip(event.target.value)} placeholder="98109" />
+        </label>
+        <label>
+          State
+          <input value={stateName} onChange={(event) => setStateName(event.target.value)} placeholder="WA" />
+        </label>
+        <label>
+          City
+          <input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Seattle" />
+        </label>
+        <button type="submit">Search my networks</button>
+      </form>
+      {searchNote && <p className="note">{searchNote}</p>}
+      <AskBox dataset="wifi" subscribed={subscribed} />
       <SignalLegend />
       <div ref={host} className="map" />
       {pickedSignals.length > 0 && (

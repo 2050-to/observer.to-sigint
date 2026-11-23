@@ -142,6 +142,16 @@ ul {
   font-size: 14px;
 }
 
+.note a,
+.legal-copy a {
+  color: #86b7ff;
+}
+
+.legal-copy {
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+}
+
 a.button {
   justify-self: start;
   display: inline-flex;

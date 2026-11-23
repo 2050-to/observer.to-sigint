@@ -19,7 +19,31 @@ interface NominatimResponse {
     town?: string
     village?: string
     hamlet?: string
+    state?: string
     postcode?: string
+    country_code?: string
+  }
+}
+
+export interface PlaceParts {
+  postalCode: string | null
+  city: string | null
+  state: string | null
+  countryCode: string | null
+}
+
+export function placePartsFrom(body: unknown): PlaceParts {
+  const empty = { postalCode: null, city: null, state: null, countryCode: null }
+  if (!body || typeof body !== 'object') return empty
+  const address = (body as NominatimResponse).address
+  if (!address) return { ...empty, postalCode: postalCodeFrom(body) }
+  const city = address.city || address.town || address.village || address.hamlet || null
+  const country = typeof address.country_code === 'string' ? address.country_code.trim().toUpperCase() : null
+  return {
+    postalCode: postalCodeFrom(body),
+    city: city?.trim() || null,
+    state: address.state?.trim() || null,
+    countryCode: country || null,
   }
 }
 
@@ -59,6 +83,11 @@ export async function lookupPostalCode(lat: number, lon: number): Promise<{ code
   } catch {
     return { code: null, lookedUp: false }
   }
+}
+
+export async function lookupPlaceParts(lat: number, lon: number): Promise<PlaceParts | null> {
+  const body = await fetchNominatim(lat, lon)
+  return placePartsFrom(body)
 }
 
 async function groundElevation(lat: number, lon: number): Promise<number | null> {

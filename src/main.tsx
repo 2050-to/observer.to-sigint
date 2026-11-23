@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import 'leaflet/dist/leaflet.css'
 import { App } from './App'
+import { LegalGate } from './LegalGate'
 import { Verify } from './Verify'
 import './styles.css'
 
@@ -14,7 +15,11 @@ function Root() {
   }, [])
   const normalized = path.replace(/\/$/, '') || '/'
   if (normalized === '/auth/verify') return <Verify />
-  return <App />
+  return (
+    <LegalGate>
+      <App />
+    </LegalGate>
+  )
 }
 
 createRoot(document.getElementById('root')!).render(

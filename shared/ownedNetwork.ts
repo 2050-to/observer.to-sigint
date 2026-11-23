@@ -1,7 +1,7 @@
 import { recorderPorts, recorderServices } from './recorders.js'
 import { normalizeMac, parseIpv4, type AddressRole, type SubnetPlan } from './subnet.js'
 
-export const OWNED_NETWORK_DISCLAIMER = 'These optional features are intended only for a network you own. Turn them on only while this device is joined to a network you own or are allowed to inventory. Address lists and device details stay on this device.'
+export const OWNED_NETWORK_DISCLAIMER = 'These optional features are intended only for a network you own. Turn them on only while this device is joined to a network you own or are allowed to inventory. Address lists and device details are saved to this account. Other accounts cannot see them.'
 
 export type OwnedPrompt = 'addresses' | 'details'
 

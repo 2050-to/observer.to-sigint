@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { api } from '../api'
+import { sessionToken } from '../session'
 import { Wardrive } from '../native/drive'
 import { EMPTY_OWNED, readOwnedPrefs, writeOwnedPrefs, type OwnedPrefs } from '../ownedPrefs'
 import {
@@ -61,6 +63,13 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
         return next
       })
       setStatus(catalogStatus(catalog))
+      if (sessionToken()) {
+        try {
+          await api.saveLan(catalog)
+        } catch {
+          if (current === catalogLife.current) setError('Saved on this device. The account copy could not be updated.')
+        }
+      }
     } catch (reason: unknown) {
       if (current !== catalogLife.current) return
       setError(reason instanceof Error ? reason.message : 'The subnet could not be cataloged')
@@ -86,6 +95,13 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
         writeOwnedPrefs(next)
         return next
       })
+      if (sessionToken()) {
+        try {
+          await api.saveDevice(device)
+        } catch {
+          if (current === detailsLife.current) setError('Saved on this device. The account copy could not be updated.')
+        }
+      }
     } catch (reason: unknown) {
       if (current !== detailsLife.current) return
       setError(reason instanceof Error ? reason.message : 'Device details could not be read')

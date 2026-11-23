@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path'
 import { request as httpsRequest } from 'node:https'
 import { app, BrowserWindow, ipcMain, powerSaveBlocker } from 'electron'
 import { CatalogStore, type StoredScan } from './catalog'
+import { DnsCapture } from './dnsCapture'
 import { catalogLocalSubnet, localDeviceDetails } from './ownedNetwork'
 import { listen } from './server'
 
@@ -60,6 +61,7 @@ let flushAgain = false
 let discarding = false
 let chain = Promise.resolve()
 let serverClose: (() => Promise<void>) | null = null
+const dnsCapture = new DnsCapture()
 
 function exclusive<T>(fn: () => T): Promise<T> {
   const run = chain.then(fn, fn)
@@ -381,6 +383,15 @@ function registerIpc(): void {
     if (options?.consent !== true) throw new Error('Device details stay off until you allow them for a network you own.')
     return localDeviceDetails(options?.browser ?? '')
   })
+  ipcMain.handle('dns:start', async (_event, options: { apiUrl?: string; token?: string }) => {
+    const nextUrl = options?.apiUrl ?? ''
+    const nextToken = options?.token ?? ''
+    if (!nextUrl.startsWith('https://')) throw new Error('apiUrl must be https')
+    if (!nextToken) throw new Error('Sign in before recording DNS.')
+    return dnsCapture.start({ apiUrl: nextUrl, token: nextToken, ca: caPath() })
+  })
+  ipcMain.handle('dns:stop', async () => dnsCapture.stop())
+  ipcMain.handle('dns:status', async () => dnsCapture.status())
   ipcMain.handle('wardrive:clear', async () => {
     running = false
     message = 'Drive is stopped.'
@@ -467,5 +478,6 @@ app.on('before-quit', () => {
   running = false
   holdAwake(false)
   scanner?.stop()
+  dnsCapture.stop()
   void serverClose?.()
 })

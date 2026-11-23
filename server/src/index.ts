@@ -1,13 +1,16 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { PRIVACY_VERSION, TOS_VERSION, isAdult, routeNeedsConsent } from '../../shared/legal.js'
 import { createServer } from 'node:https'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { catalogBundleCsv } from '../../shared/csv.js'
 import { catalogForensicsMarkdown } from '../../shared/forensics.js'
 import { AlertWorker } from './alerts.js'
 import { appOrigin, normalizeEmail, requestLogin, verifyLogin, verifySession } from './auth.js'
+import { askAccount } from './ask.js'
 import { acceptWebhook, startCheckout, startPortal } from './billing.js'
+import { asBookmarkBody, asDnsBody, asOwnedDevice, asOwnedLan, asPlaceFilter, asSearchBody, asVisitBody } from './intake.js'
 import { DeepSeekEnrichmentClient } from './enrichment/deepseek.js'
 import { EnrichmentWorker } from './enrichment/worker.js'
 import { lookupPlace } from './geocode.js'
@@ -239,16 +242,47 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
     send(res, 200, await verifyLogin(store, body.token))
     return
   }
+  if (req.method === 'GET' && url.pathname === '/api/legal') {
+    send(res, 200, legalDocuments())
+    return
+  }
   const session = await verifySession(typeof req.headers.authorization === 'string' ? req.headers.authorization : undefined)
   if (!session || !UUID.test(session.id)) throw new ApiError(401, 'unauthorized')
   const user = await store.userById(session.id)
   if (!user) throw new ApiError(401, 'unauthorized')
+  if (req.method === 'POST' && url.pathname === '/api/legal/accept') {
+    const body = JSON.parse(await readBody(req)) as { bornOn?: unknown; tosVersion?: unknown; privacyVersion?: unknown }
+    const bornOn = typeof body.bornOn === 'string' ? body.bornOn : ''
+    if (!isAdult(bornOn)) {
+      await store.deleteAccount(user.id)
+      throw new ApiError(403, 'age restricted')
+    }
+    if (body.tosVersion !== TOS_VERSION || body.privacyVersion !== PRIVACY_VERSION) {
+      throw new ApiError(409, 'terms have changed')
+    }
+    await store.acceptLegal(user.id, bornOn, TOS_VERSION, PRIVACY_VERSION)
+    send(res, 200, { ok: true })
+    return
+  }
+  if (routeNeedsConsent(req.method ?? 'GET', url.pathname)) {
+    const consent = await store.consentFor(user.id)
+    if (!consent.accepted) throw new ApiError(403, 'consent required')
+  }
   if (req.method === 'GET' && (url.pathname === '/api/me' || url.pathname === '/api/billing')) {
+    const consent = await store.consentFor(user.id)
     const alerts = await store.subscriptionFor(user.id)
     send(res, 200, {
       id: user.id,
       email: user.email,
       alerts: { status: alerts.status, currentPeriodEnd: alerts.currentPeriodEnd },
+      consent: {
+        accepted: consent.accepted,
+        bornOn: consent.bornOn,
+        tosVersion: consent.tosVersion,
+        privacyVersion: consent.privacyVersion,
+        currentTosVersion: TOS_VERSION,
+        currentPrivacyVersion: PRIVACY_VERSION,
+      },
     })
     return
   }
@@ -337,6 +371,66 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
     send(res, 200, await store.enrichmentStatus(enrichmentEnabled))
     return
   }
+  if (req.method === 'GET' && url.pathname === '/api/wifi') {
+    send(res, 200, { networks: await store.searchWifi(user.id, asPlaceFilter(url)) })
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/dns') {
+    const from = url.searchParams.get('from')
+    const to = url.searchParams.get('to')
+    if (!from || !to || Number.isNaN(Date.parse(from)) || Number.isNaN(Date.parse(to))) {
+      throw new ApiError(400, 'from and to are required')
+    }
+    send(res, 200, { queries: await store.dnsWindow(user.id, from, to) })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/dns') {
+    const count = await store.insertDns(user.id, asDnsBody(JSON.parse(await readBody(req)) as unknown))
+    send(res, 200, { count })
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/bookmarks') {
+    send(res, 200, { items: await store.listBookmarks(user.id, url.searchParams.get('q') ?? '') })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/bookmarks') {
+    const count = await store.saveBookmarks(user.id, asBookmarkBody(JSON.parse(await readBody(req)) as unknown))
+    send(res, 200, { count })
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/search-history') {
+    send(res, 200, { items: await store.listSearches(user.id, url.searchParams.get('q') ?? '') })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/search-history') {
+    const count = await store.saveSearches(user.id, asSearchBody(JSON.parse(await readBody(req)) as unknown))
+    send(res, 200, { count })
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/browsing-history') {
+    send(res, 200, { items: await store.listVisits(user.id, url.searchParams.get('q') ?? '') })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/browsing-history') {
+    const count = await store.saveVisits(user.id, asVisitBody(JSON.parse(await readBody(req)) as unknown))
+    send(res, 200, { count })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/device') {
+    await store.saveDeviceProfile(user.id, asOwnedDevice(JSON.parse(await readBody(req)) as unknown))
+    send(res, 200, { ok: true })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/lan') {
+    const catalog = asOwnedLan(JSON.parse(await readBody(req)) as unknown)
+    await store.replaceLanHosts(user.id, catalog.hosts)
+    send(res, 200, { count: catalog.hosts.length })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/ask') {
+    send(res, 200, await askAccount(store, user.id, JSON.parse(await readBody(req)) as unknown))
+    return
+  }
   if (req.method === 'GET' && url.pathname === '/api/export.csv') {
     const snapshot = await store.range(user.id)
     send(res, 200, catalogBundleCsv(await store.catalog(user.id), {
@@ -358,6 +452,20 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
     return
   }
   send(res, 404, { error: 'not found' })
+}
+
+function legalDocuments(): {
+  tosVersion: string
+  privacyVersion: string
+  terms: string
+  privacy: string
+} {
+  return {
+    tosVersion: TOS_VERSION,
+    privacyVersion: PRIVACY_VERSION,
+    terms: readFileSync(resolve(repoRoot, 'legal/terms.md'), 'utf8'),
+    privacy: readFileSync(resolve(repoRoot, 'legal/privacy.md'), 'utf8'),
+  }
 }
 
 async function main(): Promise<void> {
