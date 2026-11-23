@@ -1,0 +1,88 @@
+const downloadHref = "/release/Observer.to.dmg";
+
+const steps = [
+  "Download the free Mac app and drag Observer.to to Applications.",
+  "Sign in with a magic link.",
+  "Start a drive. The Mac records Wi-Fi networks, public Bluetooth advertisements, and its own GPS, altitude, and speed. It does not connect to Bluetooth devices.",
+  "Review what the Mac heard. The observer shows range, a map, open networks, and a log.",
+];
+
+export default function Page() {
+  return (
+    <main>
+      <header>
+        <div>
+          <p className="eyebrow">Legal purple team</p>
+          <h1>Observer.to</h1>
+        </div>
+        <a className="button" href={downloadHref}>
+          Download free for Mac
+        </a>
+      </header>
+
+      <p className="lede">
+        Observer.to records the wireless presence around a place you are responsible for. It is a purple-team observer: the same evidence for the people who defend a site and the people who test it, collected from public beacons only. It does not join networks or capture traffic.
+      </p>
+
+      <section id="how-it-works" aria-labelledby="how-heading">
+        <h2 id="how-heading">How it works</h2>
+        <ol className="steps">
+          {steps.map((step, index) => (
+            <li key={step}>
+              <span className="step-index">{index + 1}</span>
+              <span>{step}</span>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section id="review" aria-labelledby="review-heading">
+        <h2 id="review-heading">What you can review</h2>
+        <ul>
+          <li>Range, a map, open networks, and a log of the public beacons the drive heard.</li>
+          <li>
+            An owned-network check lists addresses and announced names on a network you own. It does not open video, try passwords, or record traffic.
+          </li>
+          <li>
+            Enrichment ties observed Wi-Fi and Bluetooth names to public support pages, vendor advisories, CVE and NVD records, and CISA KEV. It prepares vendor-supported remediation guidance and does not download exploit code.
+          </li>
+          <li>
+            A passive scan does not reveal installed firmware. Findings stay labeled as potentially applicable until the exact model and installed version are verified.
+          </li>
+        </ul>
+      </section>
+
+      <section className="price" aria-label="Plans">
+        <article id="download">
+          <h2>Free</h2>
+          <p>
+            The Mac app is free to download. Sign in and use the observer: drives, range, map, open networks, log, enrichment, exports, and the owned-network check.
+          </p>
+          <a className="button" href={downloadHref}>
+            Download Observer.to.dmg
+          </a>
+          <p className="note">
+            The disk image is not notarized. On another Mac, Control-click the app and choose Open.
+          </p>
+        </article>
+        <article id="subscribe">
+          <h2>$5 per month</h2>
+          <p>
+            One email each week laying out vulnerabilities and patch guidance for the local Wi-Fi and Bluetooth devices in your saved catalog. The review covers open networks, high-risk public research, and what is new since the last review.
+          </p>
+          <p>Subscribe from inside the app after you sign in.</p>
+        </article>
+      </section>
+
+      <section id="limits" aria-labelledby="limits-heading">
+        <h2 id="limits-heading">What it will not do</h2>
+        <ul>
+          <li>It does not intercept protected Wi-Fi, active Bluetooth connections, or cellular calls and messages.</li>
+          <li>It does not capture subscriber identities such as IMSI or TMSI.</li>
+          <li>It does not transmit, jam, or spoof.</li>
+          <li>It does not track a person from a hardware address.</li>
+        </ul>
+      </section>
+    </main>
+  );
+}
