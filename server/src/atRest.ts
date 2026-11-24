@@ -52,37 +52,6 @@ async function sealUsers(db: Db): Promise<void> {
   await db.query('ALTER TABLE users DROP COLUMN born_on CASCADE')
 }
 
-async function sealPayloadTable(
-  db: Db,
-  table: string,
-  plaintextColumns: string[],
-  timeColumn: string,
-): Promise<void> {
-  const marker = plaintextColumns[0]
-  if (!marker || !(await hasColumn(db, table, marker))) return
-  await db.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS payload bytea`)
-  await db.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS nonce bytea`)
-  const columns = ['id', ...plaintextColumns, timeColumn].filter((column, index, all) => all.indexOf(column) === index)
-  const listed = columns.map((column) => column === timeColumn ? `${column}::text AS ${column}` : column).join(', ')
-  const rows = await db.query<Record<string, unknown>>(
-    `SELECT ${listed} FROM ${table} WHERE payload IS NULL`,
-  )
-  for (const row of rows.rows) {
-    const body: Record<string, unknown> = {}
-    for (const column of plaintextColumns) body[column] = row[column] ?? null
-    const sealed = encryptJson(body)
-    await db.query(
-      `UPDATE ${table} SET payload = $2, nonce = $3 WHERE id = $1`,
-      [row.id, sealed.payload, sealed.nonce],
-    )
-  }
-  await db.query(`ALTER TABLE ${table} ALTER COLUMN payload SET NOT NULL`)
-  await db.query(`ALTER TABLE ${table} ALTER COLUMN nonce SET NOT NULL`)
-  for (const column of plaintextColumns) {
-    await db.query(`ALTER TABLE ${table} DROP COLUMN IF EXISTS ${column} CASCADE`)
-  }
-}
-
 async function sealKeyedPlaces(
   db: Db,
   table: string,
@@ -125,6 +94,4 @@ export async function sealPlaintextColumns(db: Db): Promise<void> {
     'name', 'lat', 'lon', 'city', 'state', 'zip',
   ])
   await sealKeyedPlaces(db, 'bookmarks', 'url_hmac', ['title', 'url'])
-  await sealPayloadTable(db, 'search_queries', ['query', 'engine'], 'queried_at')
-  await sealPayloadTable(db, 'page_visits', ['url', 'title', 'host'], 'visited_at')
 }

@@ -22,14 +22,10 @@ import {
   askExcerpt,
   consentFor,
   deleteUser,
-  listSearches,
-  listVisits,
   ownedConsentFor,
   replaceLanHosts,
   saveDeviceProfile,
   saveOwnedConsent,
-  saveSearches,
-  saveVisits,
   searchWifi,
   upsertBluetoothPlaces,
   upsertWifiPlaces,
@@ -132,21 +128,6 @@ function enrichmentErrorMessage(error: unknown): string {
   if (/invalid JSON/i.test(message)) return 'DeepSeek returned invalid JSON'
   if (/no evidence/i.test(message)) return 'DeepSeek search returned no evidence'
   return 'device enrichment failed'
-}
-
-async function withTransaction<T>(db: pg.Pool, run: (client: pg.PoolClient) => Promise<T>): Promise<T> {
-  const client = await db.connect()
-  try {
-    await client.query('BEGIN')
-    const value = await run(client)
-    await client.query('COMMIT')
-    return value
-  } catch (error) {
-    await client.query('ROLLBACK').catch(() => undefined)
-    throw error
-  } finally {
-    client.release()
-  }
 }
 
 export class Store {
@@ -990,25 +971,7 @@ export class Store {
     return searchWifi(this.db, userId, filter)
   }
 
-  async saveSearches(userId: string, items: { query: string; engine: string | null; queriedAt: string }[], replace = false) {
-    if (!replace) return saveSearches(this.db, userId, items)
-    return withTransaction(this.db, (client) => saveSearches(client, userId, items, true))
-  }
-
-  async listSearches(userId: string, q: string) {
-    return listSearches(this.db, userId, q)
-  }
-
-  async saveVisits(userId: string, items: { url: string; title: string | null; visitedAt: string }[], replace = false) {
-    if (!replace) return saveVisits(this.db, userId, items)
-    return withTransaction(this.db, (client) => saveVisits(client, userId, items, true))
-  }
-
-  async listVisits(userId: string, q: string) {
-    return listVisits(this.db, userId, q)
-  }
-
-  async askExcerpt(userId: string, dataset: 'wifi' | 'search' | 'browsing', question: string) {
+  async askExcerpt(userId: string, dataset: 'wifi', question: string) {
     return askExcerpt(this.db, userId, dataset, question)
   }
 

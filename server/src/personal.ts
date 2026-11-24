@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import type pg from 'pg'
 import { bssidHmac, decryptJson, encryptJson } from './crypto.js'
 import { consentMatches, isAdult } from '../../shared/legal.js'
@@ -35,9 +34,9 @@ export interface UsPlace {
   countryCode: string | null
 }
 
-const DATASETS = new Set(['wifi', 'search', 'browsing'])
+const DATASETS = new Set(['wifi'])
 
-export function isAskDataset(value: unknown): value is 'wifi' | 'search' | 'browsing' {
+export function isAskDataset(value: unknown): value is 'wifi' {
   return typeof value === 'string' && DATASETS.has(value)
 }
 
@@ -274,114 +273,27 @@ export async function searchWifi(
   }).slice(0, 200)
 }
 
-export async function saveSearches(
-  db: Db,
-  userId: string,
-  items: { query: string; engine: string | null; queriedAt: string }[],
-  replace = false,
-): Promise<number> {
-  if (replace) await db.query('DELETE FROM search_queries WHERE user_id = $1', [userId])
-  let count = 0
-  for (const item of items.slice(0, 2000)) {
-    const sealed = encryptJson({ query: item.query, engine: item.engine })
-    await db.query(
-      `INSERT INTO search_queries (id, user_id, payload, nonce, queried_at)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [randomUUID(), userId, sealed.payload, sealed.nonce, item.queriedAt],
-    )
-    count += 1
-  }
-  return count
-}
-
-export async function listSearches(db: Db, userId: string, q: string): Promise<{ query: string; engine: string | null; queriedAt: string }[]> {
-  const needle = q.trim().toLowerCase()
-  const result = await db.query<{ payload: Buffer; nonce: Buffer; queried_at: Date }>(
-    `SELECT payload, nonce, queried_at FROM search_queries
-     WHERE user_id = $1
-     ORDER BY queried_at DESC`,
-    [userId],
-  )
-  return result.rows.flatMap((row) => {
-    const body = decryptJson<{ query: string; engine: string | null }>(row.payload, row.nonce)
-    if (needle && !body.query.toLowerCase().includes(needle)) return []
-    return [{
-      query: body.query,
-      engine: body.engine,
-      queriedAt: new Date(row.queried_at).toISOString(),
-    }]
-  }).slice(0, 200)
-}
-
-export async function saveVisits(
-  db: Db,
-  userId: string,
-  items: { url: string; title: string | null; visitedAt: string }[],
-  replace = false,
-): Promise<number> {
-  if (replace) await db.query('DELETE FROM page_visits WHERE user_id = $1', [userId])
-  let count = 0
-  for (const item of items.slice(0, 2000)) {
-    const sealed = encryptJson({ url: item.url, title: item.title, host: hostOf(item.url) })
-    await db.query(
-      `INSERT INTO page_visits (id, user_id, payload, nonce, visited_at)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [randomUUID(), userId, sealed.payload, sealed.nonce, item.visitedAt],
-    )
-    count += 1
-  }
-  return count
-}
-
-export async function listVisits(db: Db, userId: string, q: string): Promise<{ url: string; title: string | null; visitedAt: string }[]> {
-  const needle = q.trim().toLowerCase()
-  const result = await db.query<{ payload: Buffer; nonce: Buffer; visited_at: Date }>(
-    `SELECT payload, nonce, visited_at FROM page_visits
-     WHERE user_id = $1
-     ORDER BY visited_at DESC`,
-    [userId],
-  )
-  return result.rows.flatMap((row) => {
-    const body = decryptJson<{ url: string; title: string | null; host: string | null }>(row.payload, row.nonce)
-    const haystack = `${body.url} ${body.title ?? ''} ${body.host ?? ''}`.toLowerCase()
-    if (needle && !haystack.includes(needle)) return []
-    return [{
-      url: body.url,
-      title: body.title,
-      visitedAt: new Date(row.visited_at).toISOString(),
-    }]
-  }).slice(0, 200)
-}
-
 export async function askExcerpt(
   db: Db,
   userId: string,
-  dataset: 'wifi' | 'search' | 'browsing',
+  _dataset: 'wifi',
   question: string,
 ): Promise<string> {
   const tokens = question.toLowerCase().split(/[^a-z0-9.-]+/).filter((token) => token.length > 2).slice(0, 8)
-  if (dataset === 'wifi') {
-    const result = await db.query<{ payload: Buffer; nonce: Buffer }>(
-      `SELECT payload, nonce FROM wifi_places
-       WHERE user_id = $1
-       ORDER BY last_seen DESC
-       LIMIT 80`,
-      [userId],
-    )
-    const rows = result.rows.map((row) => decryptJson<WifiBody>(row.payload, row.nonce))
-    const matched = rows.filter((row) => {
-      const blob = [row.ssid, row.city, row.state, row.zip, row.security].join(' ').toLowerCase()
-      return tokens.some((token) => blob.includes(token))
-    })
-    const chosen = (matched.length > 0 ? matched : rows).slice(0, 40)
-    return lines(chosen.map((row) => [row.ssid, row.city, row.state, row.zip, row.security, row.channel].filter(Boolean).join(' ')))
-  }
-  if (dataset === 'search') {
-    const rows = await listSearches(db, userId, tokens[0] ?? '')
-    return lines(rows.slice(0, 40).map((row) => `${row.queriedAt} ${row.engine ?? ''} ${row.query}`))
-  }
-  const rows = await listVisits(db, userId, tokens[0] ?? '')
-  return lines(rows.slice(0, 40).map((row) => `${row.visitedAt} ${row.title ?? ''} ${row.url}`))
+  const result = await db.query<{ payload: Buffer; nonce: Buffer }>(
+    `SELECT payload, nonce FROM wifi_places
+     WHERE user_id = $1
+     ORDER BY last_seen DESC
+     LIMIT 80`,
+    [userId],
+  )
+  const rows = result.rows.map((row) => decryptJson<WifiBody>(row.payload, row.nonce))
+  const matched = rows.filter((row) => {
+    const blob = [row.ssid, row.city, row.state, row.zip, row.security].join(' ').toLowerCase()
+    return tokens.some((token) => blob.includes(token))
+  })
+  const chosen = (matched.length > 0 ? matched : rows).slice(0, 40)
+  return lines(chosen.map((row) => [row.ssid, row.city, row.state, row.zip, row.security, row.channel].filter(Boolean).join(' ')))
 }
 
 export async function wipePersonal(db: Db, userId: string): Promise<void> {
@@ -396,8 +308,6 @@ export async function wipePersonal(db: Db, userId: string): Promise<void> {
     'wifi_places',
     'bluetooth_places',
     'bookmarks',
-    'search_queries',
-    'page_visits',
   ]) {
     await db.query(`DELETE FROM ${table} WHERE user_id = $1`, [userId])
   }
@@ -410,14 +320,6 @@ function numberOrNull(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null
   }
   return null
-}
-
-function hostOf(url: string): string | null {
-  try {
-    return new URL(url).hostname.slice(0, 253)
-  } catch {
-    return null
-  }
 }
 
 function lines(rows: string[]): string {

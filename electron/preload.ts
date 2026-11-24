@@ -13,12 +13,10 @@ contextBridge.exposeInMainWorld('wifiMapping', {
     replaceLocal: (options: { catalog: string; journal: string }) => ipcRenderer.invoke('wardrive:replace', options),
     catalogSubnet: (options: { consent: boolean }) => ipcRenderer.invoke('wardrive:subnet', options),
     deviceDetails: (options: { consent: boolean; browser: string }) => ipcRenderer.invoke('wardrive:details', options),
-    importHistory: (options: { consent: boolean }) => ipcRenderer.invoke('wardrive:history', options),
     getOwnedPrefs: () => ipcRenderer.invoke('wardrive:owned-get'),
     setOwnedPrefs: (options: { addresses: boolean; details: boolean }) => ipcRenderer.invoke('wardrive:owned-set', options),
     clearOwnedPrefs: () => ipcRenderer.invoke('wardrive:owned-clear'),
     apiOrigin: () => ipcRenderer.invoke('wardrive:api-origin'),
-    promptFullDiskAccess: () => ipcRenderer.invoke('wardrive:full-disk-access'),
     promptLocation: () => ipcRenderer.invoke('wardrive:prompt-location'),
     addListener: (eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void) => {
       const channel = eventName === 'scansSynced' ? 'wardrive:synced' : 'wardrive:queued'

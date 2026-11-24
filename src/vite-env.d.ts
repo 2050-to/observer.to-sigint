@@ -31,17 +31,9 @@ interface MacWardriveBridge {
     collectedAt: string
   }>
   apiOrigin(): Promise<string>
-  importHistory(options: { consent: boolean }): Promise<{
-    visits: { url: string; title: string | null; visitedAt: string }[]
-    searches: { query: string; engine: string | null; queriedAt: string }[]
-    sources: string[]
-    skipped: string[]
-    accessDenied: boolean
-  }>
   getOwnedPrefs(): Promise<{ addresses: boolean; details: boolean } | null>
   setOwnedPrefs(options: { addresses: boolean; details: boolean }): Promise<{ addresses: boolean; details: boolean }>
   clearOwnedPrefs(): Promise<void>
-  promptFullDiskAccess(): Promise<void>
   promptLocation(): Promise<void>
   addListener(eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void): Promise<{ remove: () => Promise<void> }>
 }

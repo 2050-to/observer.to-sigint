@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -7,7 +6,6 @@ import { join, resolve } from 'node:path'
 import { request as httpsRequest } from 'node:https'
 import { app, BrowserWindow, ipcMain, powerSaveBlocker } from 'electron'
 import { CatalogStore, type StoredScan } from './catalog'
-import { readLocalBrowserHistory } from './browserHistory'
 import { catalogLocalSubnet, localDeviceDetails } from './ownedNetwork'
 import { listen } from './server'
 
@@ -190,11 +188,6 @@ function maybePromptLocation(text: string): void {
   promptedLocationStatus = status
   focusObserver()
   scanner.promptLocation()
-}
-
-function revealMacPrivacy(anchor: string): void {
-  if (process.platform !== 'darwin') return
-  execFile('open', [`x-apple.systempreferences:com.apple.preference.security?${anchor}`], () => undefined)
 }
 
 function hearsSaved(networks: { bssid?: string }[], saved: string[]): boolean {
@@ -466,17 +459,10 @@ function registerIpc(): void {
     return localDeviceDetails(options?.browser ?? '')
   })
   ipcMain.handle('wardrive:api-origin', () => apiOrigin())
-  ipcMain.handle('wardrive:history', async (_event, options: { consent?: boolean }) => {
-    if (options?.consent !== true) throw new Error('Browser history stays unread until you import it.')
-    return readLocalBrowserHistory()
-  })
   ipcMain.handle('wardrive:owned-get', () => readOwnedChoice())
   ipcMain.handle('wardrive:owned-set', (_event, options: { addresses?: boolean; details?: boolean }) => writeOwnedChoice(options ?? {}))
   ipcMain.handle('wardrive:owned-clear', () => {
     rmSync(ownedPrefsPath(), { force: true })
-  })
-  ipcMain.handle('wardrive:full-disk-access', () => {
-    revealMacPrivacy('Privacy_AllFiles')
   })
   ipcMain.handle('wardrive:clear', async () => {
     running = false

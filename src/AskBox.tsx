@@ -1,18 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { api } from './api'
 
-export type AskDataset = 'wifi' | 'search' | 'browsing'
+export type AskDataset = 'wifi'
 
 const DATASET_NAME: Record<AskDataset, string> = {
   wifi: 'Networks',
-  search: 'Search history',
-  browsing: 'Browsing history',
 }
 
 const DATASET_RECORDS: Record<AskDataset, string> = {
   wifi: 'networks',
-  search: 'search history',
-  browsing: 'browsing history',
 }
 
 type RailSize = 'min' | 'normal' | 'max'

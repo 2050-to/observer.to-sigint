@@ -31,7 +31,7 @@ export function Home() {
           <li>It does not capture subscriber identities such as IMSI or TMSI.</li>
           <li>It does not transmit, jam, or spoof.</li>
           <li>It does not track a person from a hardware address.</li>
-          <li>Search and questions stay inside the signed-in account. You cannot read another account's networks or history.</li>
+          <li>Search and questions stay inside the signed-in account. You cannot read another account's networks.</li>
           <li>The observer opens only after you read and accept the current Terms and Privacy Policy, and only if you are 18 or older.</li>
         </ul>
       </section>

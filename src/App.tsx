@@ -13,17 +13,14 @@ import { LogView } from './views/LogView'
 import { OwnedNetwork } from './views/OwnedNetwork'
 import { OpenList } from './views/OpenList'
 import { RangeGraph } from './views/RangeGraph'
-import { RecordView } from './views/RecordView'
 
-type Tab = 'range' | 'map' | 'open' | 'log' | 'search' | 'browsing'
+type Tab = 'range' | 'map' | 'open' | 'log'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'range', label: 'In range' },
   { id: 'map', label: 'Map' },
   { id: 'open', label: 'Open' },
   { id: 'log', label: 'Log' },
-  { id: 'search', label: 'Search history' },
-  { id: 'browsing', label: 'Browsing history' },
 ]
 
 const ASK_CONTEXT: Record<Tab, { dataset: AskDataset; scope: string; source: string }> = {
@@ -31,8 +28,6 @@ const ASK_CONTEXT: Record<Tab, { dataset: AskDataset; scope: string; source: str
   map: { dataset: 'wifi', scope: 'the networks on the map', source: 'Map' },
   open: { dataset: 'wifi', scope: 'the open networks', source: 'Open' },
   log: { dataset: 'wifi', scope: 'the catalog', source: 'Catalog' },
-  search: { dataset: 'search', scope: 'your search history', source: 'Search history' },
-  browsing: { dataset: 'browsing', scope: 'your browsing history', source: 'Browsing history' },
 }
 
 const NO_HEARD: RangeSnapshot['heard'] = []
@@ -267,7 +262,7 @@ export function App() {
           {onDevice() ? (
             <button type="button" onClick={() => void toggleDrive()}>{running ? 'Stop drive' : 'Start drive'}</button>
           ) : (
-            <p className="note">Wi-Fi, Bluetooth, GPS, search history, and browsing history are captured by the Mac app. This site shows what that app has already uploaded.</p>
+            <p className="note">Wi-Fi, Bluetooth, and GPS are captured by the Mac app. This site shows what that app has already uploaded.</p>
           )}
           {eraseStep === 0 && (
             <button type="button" className="danger" onClick={() => setEraseStep(1)}>Delete all data</button>
@@ -280,7 +275,7 @@ export function App() {
             <h2 id="erase-title">{eraseStep === 1 ? 'Delete all saved data?' : 'Delete everything permanently?'}</h2>
             <p>
               {eraseStep === 1
-                ? 'This removes every saved network, scan, device, cell, import, and custom name on this device and on the server.'
+                ? 'This removes every saved network, scan, device, cell, and custom name on this device and on the server.'
                 : 'There is no undo. The catalog will be empty, and a running drive will stop.'}
             </p>
           </div>
@@ -392,8 +387,6 @@ export function App() {
           rename={rename}
         />
       )}
-      {tab === 'search' && <RecordView kind="search" subscribed={account?.alerts.status === 'active'} />}
-      {tab === 'browsing' && <RecordView kind="browsing" subscribed={account?.alerts.status === 'active'} />}
       <OwnedNetwork active={onDevice()} resetToken={ownedReset} />
       </div>
       {macApp && (

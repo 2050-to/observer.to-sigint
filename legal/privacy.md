@@ -1,7 +1,7 @@
 # Privacy Policy
 
 Last updated: 23 November 2026
-Version: 2026-11-23.3
+Version: 2026-11-23.4
 
 This policy explains what Observer.to stores, who can see it, and how to delete it. It covers the Mac app, the Android app, the website, and the account API. Read it with the Terms of Service. You must accept the current version of both before an app opens your data or the website shows stored data.
 
@@ -19,9 +19,6 @@ The public marketing pages and the Terms and Privacy Policy can be read without 
 - Date of birth, used only to confirm that you are 18 or older and to decide when you must accept the current terms again. It is not shown to other accounts.
 - The versions of the Terms and Privacy Policy you accepted, and the time you accepted them.
 - Billing identifiers from Stripe if you start a subscription. Observer.to does not store a full card number.
-- Search history and browsing history from a file you select on the website and the Android app. On the Mac app, search history and browsing history from the browsers on that Mac after you click Import from this Mac. Passwords, cookies, payment cards, and form data are not read. The Mac app does not open browser profile folders until you click that button.
-
-Imported history is stored for that account. There is no switch that shares it with other people.
 
 ## 3. Information collected from the device you use
 
@@ -44,7 +41,7 @@ Place text is about the location of a public beacon your account heard. It is no
 
 The database is Postgres. Each row is tied to your account. The database disks and their backups are encrypted at rest. Observer.to also encrypts account fields with a server key before writing them.
 
-The email address is stored as a keyed hash, so sign-in can find the account, and as ciphertext. Date of birth is ciphertext. Scan catalogs, device details, local network hosts, Wi-Fi place fields, Bluetooth place fields, search text, and page addresses are ciphertext. The server decrypts a field only to answer the signed-in account, including a map filter or a paid question. Time stays indexed so your own rows can be ordered. Hardware-address lookups use a keyed hash, not the address in the clear.
+The email address is stored as a keyed hash, so sign-in can find the account, and as ciphertext. Date of birth is ciphertext. Scan catalogs, device details, local network hosts, Wi-Fi place fields, and Bluetooth place fields are ciphertext. The server decrypts a field only to answer the signed-in account, including a map filter or a paid question. Time stays indexed so your own rows can be ordered. Hardware-address lookups use a keyed hash, not the address in the clear.
 
 A short-lived Redis copy uses the same server key. The Mac and Android apps also keep a local catalog so a drive can continue while the server is unreachable. Protect those devices.
 
@@ -63,11 +60,11 @@ These processors receive only what they need:
 - DeepSeek receives a question you submit and a bounded excerpt of your own rows for that question, when the assistant is enabled. It does not receive another account's rows, your password (there is none), or a database login. Observer.to does not send the assistant your email address.
 - Nominatim and Open-Meteo receive coordinates from a place your account is already recording, so the server can attach an address, elevation, or United States city, state, and ZIP.
 
-Observer.to does not let customers query across accounts. Search, exports, the map, imports, and assistant questions all require your session and your user id.
+Observer.to does not let customers query across accounts. Place search, exports, the map, and assistant questions all require your session and your user id.
 
 ## 7. The assistant
 
-The assistant is part of the paid plan. A question names one of your datasets: Wi-Fi places, search history, or browsing history. The server loads a limited excerpt of your rows and asks DeepSeek to answer from that excerpt. If the excerpt does not contain the answer, the reply should say so. The assistant is not a source of records about other people, and it is not a substitute for your own judgment.
+The assistant is part of the paid plan. A question is about your own Wi-Fi places. The server loads a limited excerpt of those rows and asks DeepSeek to answer from that excerpt. If the excerpt does not contain the answer, the reply should say so. The assistant is not a source of records about other people, and it is not a substitute for your own judgment.
 
 If the DeepSeek key is not configured, questions are unavailable. That does not open the rest of the account to anyone else.
 
@@ -83,7 +80,7 @@ Server logs may keep operational errors for as long as the host keeps process lo
 
 Delete all data in the app removes your scans and the records described in the Terms from the device and, when the server is reachable, from the server. You can export a CSV and a markdown report of your beacon catalog while you are signed in.
 
-You may ask for a copy of the email and acceptance record associated with your account by using the contact below. Imports are available in the app after you sign in.
+You may ask for a copy of the email and acceptance record associated with your account by using the contact below.
 
 An under-18 attempt is deleted rather than stored.
 

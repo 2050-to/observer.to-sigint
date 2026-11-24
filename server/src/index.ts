@@ -10,7 +10,7 @@ import { AlertWorker } from './alerts.js'
 import { appOrigin, normalizeEmail, requestLogin, verifyLogin, verifySession } from './auth.js'
 import { askAccount } from './ask.js'
 import { acceptWebhook, startCheckout, startPortal } from './billing.js'
-import { asOwnedDevice, asOwnedLan, asPlaceFilter, asSearchBody, asVisitBody } from './intake.js'
+import { asOwnedDevice, asOwnedLan, asPlaceFilter } from './intake.js'
 import { DeepSeekEnrichmentClient } from './enrichment/deepseek.js'
 import { EnrichmentWorker } from './enrichment/worker.js'
 import { lookupPlace } from './geocode.js'
@@ -378,26 +378,6 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
   }
   if (req.method === 'GET' && url.pathname === '/api/wifi') {
     send(res, 200, { networks: await store.searchWifi(user.id, asPlaceFilter(url)) })
-    return
-  }
-  if (req.method === 'GET' && url.pathname === '/api/search-history') {
-    send(res, 200, { items: await store.listSearches(user.id, url.searchParams.get('q') ?? '') })
-    return
-  }
-  if (req.method === 'POST' && url.pathname === '/api/search-history') {
-    const body = asSearchBody(JSON.parse(await readBody(req)) as unknown)
-    const count = await store.saveSearches(user.id, body.items, body.replace)
-    send(res, 200, { count })
-    return
-  }
-  if (req.method === 'GET' && url.pathname === '/api/browsing-history') {
-    send(res, 200, { items: await store.listVisits(user.id, url.searchParams.get('q') ?? '') })
-    return
-  }
-  if (req.method === 'POST' && url.pathname === '/api/browsing-history') {
-    const body = asVisitBody(JSON.parse(await readBody(req)) as unknown)
-    const count = await store.saveVisits(user.id, body.items, body.replace)
-    send(res, 200, { count })
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/owned') {

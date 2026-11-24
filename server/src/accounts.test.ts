@@ -202,15 +202,9 @@ try {
     }
     if (createdComp) {
       assert.equal(comp.stripeCustomerId, null)
-      const answer = await askAccount(store, compId, { dataset: 'search', question: 'anything' }, async () => 'comp answer')
+      const answer = await askAccount(store, compId, { dataset: 'wifi', question: 'anything' }, async () => 'comp answer')
       assert.equal(answer.answer, 'comp answer')
     }
-    await store.saveSearches(plain.id, [{ query: 'old query', engine: null, queriedAt: '2026-11-01T00:00:00.000Z' }])
-    await store.saveSearches(plain.id, [{ query: 'new query', engine: 'Google', queriedAt: '2026-11-02T00:00:00.000Z' }], true)
-    assert.deepEqual((await store.listSearches(plain.id, '')).map((row) => row.query), ['new query'])
-    await store.saveVisits(plain.id, [{ url: 'https://old.example/', title: 'Old', visitedAt: '2026-11-01T00:00:00.000Z' }])
-    await store.saveVisits(plain.id, [{ url: 'https://new.example/', title: 'New', visitedAt: '2026-11-02T00:00:00.000Z' }], true)
-    assert.deepEqual((await store.listVisits(plain.id, '')).map((row) => row.url), ['https://new.example/'])
   } finally {
     if (createdComp) await pool.query('DELETE FROM users WHERE id = $1', [compId])
   }

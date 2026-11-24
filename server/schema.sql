@@ -156,24 +156,5 @@ CREATE TABLE IF NOT EXISTS bookmarks (
   PRIMARY KEY (user_id, url_hmac)
 );
 
-CREATE TABLE IF NOT EXISTS search_queries (
-  id uuid PRIMARY KEY,
-  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  payload bytea NOT NULL,
-  nonce bytea NOT NULL,
-  queried_at timestamptz NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS search_queries_user_time
-  ON search_queries (user_id, queried_at);
-
-CREATE TABLE IF NOT EXISTS page_visits (
-  id uuid PRIMARY KEY,
-  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  payload bytea NOT NULL,
-  nonce bytea NOT NULL,
-  visited_at timestamptz NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS page_visits_user_time
-  ON page_visits (user_id, visited_at);
+DROP TABLE IF EXISTS search_queries;
+DROP TABLE IF EXISTS page_visits;

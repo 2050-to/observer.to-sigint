@@ -3,8 +3,8 @@ const macAppHref = "https://github.com/2050-to/observer.to-sigint";
 const steps = [
   "Get the Mac app from the GitHub repository.",
   "Sign in with a magic link. You can sign in here or in the Mac app.",
-  "Start a drive on the Mac. It records Wi-Fi networks, public Bluetooth advertisements, and its own GPS, altitude, and speed. It does not connect to Bluetooth devices. Import search history and browsing history from that Mac when you want them saved.",
-  "Sign in on this site to review what the Mac has uploaded: range, a map, open networks, a log, search history, and browsing history.",
+  "Start a drive on the Mac. It records Wi-Fi networks, public Bluetooth advertisements, and its own GPS, altitude, and speed. It does not connect to Bluetooth devices.",
+  "Sign in on this site to review what the Mac has uploaded: range, a map, open networks, and a log.",
 ];
 
 export default function Page() {
@@ -24,7 +24,7 @@ export default function Page() {
       </header>
 
       <p className="lede">
-        Observer.to records the wireless presence around a place you are responsible for. It is a purple-team observer: the same evidence for the people who defend a site and the people who test it. It records public beacons. It does not join networks or record anyone else's traffic. The Mac app captures Wi-Fi, Bluetooth, GPS, search history, and browsing history. This site is where you sign in and review what that Mac has already uploaded.
+        Observer.to records the wireless presence around a place you are responsible for. It is a purple-team observer: the same evidence for the people who defend a site and the people who test it. It records public beacons. It does not join networks or record anyone else's traffic. The Mac app captures Wi-Fi, Bluetooth, and GPS. This site is where you sign in and review what that Mac has already uploaded.
       </p>
 
       <section id="how-it-works" aria-labelledby="how-heading">
@@ -68,7 +68,7 @@ export default function Page() {
         <article id="subscribe">
           <h2>$5 per month</h2>
           <p>
-            One email each week laying out vulnerabilities and patch guidance for the local Wi-Fi and Bluetooth devices in your saved catalog. The review covers open networks, high-risk public research, and what is new since the last review. The same subscription lets you ask questions about your own Wi-Fi places, search history, and browsing history.
+            One email each week laying out vulnerabilities and patch guidance for the local Wi-Fi and Bluetooth devices in your saved catalog. The review covers open networks, high-risk public research, and what is new since the last review. The same subscription lets you ask questions about your own Wi-Fi places.
           </p>
           <p>Subscribe from this site or from the Mac app after you sign in.</p>
         </article>

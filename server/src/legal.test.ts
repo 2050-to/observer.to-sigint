@@ -25,7 +25,7 @@ assert.equal(consentMatches({
 }, now), false)
 
 assert.equal(routeNeedsConsent('GET', '/api/map'), true)
-assert.equal(routeNeedsConsent('GET', '/api/search-history'), true)
+assert.equal(routeNeedsConsent('GET', '/api/wifi'), true)
 assert.equal(routeNeedsConsent('POST', '/api/ask'), true)
 assert.equal(routeNeedsConsent('GET', '/api/me'), false)
 assert.equal(routeNeedsConsent('GET', '/api/legal'), false)

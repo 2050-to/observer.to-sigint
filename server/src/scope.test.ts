@@ -64,24 +64,11 @@ try {
   assert.equal((await store.searchWifi(userB.id, { zip: '98109', state: null, city: null })).length, 0)
   assert.equal((await store.searchWifi(userA.id, { zip: null, state: 'CA', city: null })).length, 0)
 
-  await store.saveSearches(userA.id, [{ query: 'secret phrase a', engine: 'Google', queriedAt: '2026-11-20T00:00:00.000Z' }])
-  await store.saveVisits(userA.id, [{ url: 'https://private-a.example/page', title: 'Private A', visitedAt: '2026-11-20T00:00:00.000Z' }])
-  await store.saveSearches(userB.id, [{ query: 'secret phrase b', engine: 'Google', queriedAt: '2026-11-20T00:00:00.000Z' }])
-  await store.saveVisits(userB.id, [{ url: 'https://private-b.example/page', title: 'Private B', visitedAt: '2026-11-20T00:00:00.000Z' }])
-  const storedSearch = await pool.query<{ payload: Buffer }>(
-    'SELECT payload FROM search_queries WHERE user_id = $1',
-    [userA.id],
-  )
-  assert.equal(storedSearch.rows[0]?.payload.includes(Buffer.from('secret phrase a')), false)
   const emailColumn = await pool.query(
     `SELECT 1 FROM information_schema.columns
      WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'email'`,
   )
   assert.equal(emailColumn.rowCount, 0)
-  assert.deepEqual((await store.listSearches(userA.id, 'secret phrase a')).map((row) => row.query), ['secret phrase a'])
-  assert.equal((await store.listSearches(userB.id, 'secret phrase a')).length, 0)
-  assert.deepEqual((await store.listVisits(userA.id, 'private-a')).map((row) => row.url), ['https://private-a.example/page'])
-  assert.equal((await store.listVisits(userB.id, 'private-a')).length, 0)
 
   await activate(userA.id, `cus_scope_a_${stamp.replace(/-/g, '').slice(0, 8)}`)
   await activate(userB.id, `cus_scope_b_${stamp.replace(/-/g, '').slice(0, 8)}`)
@@ -91,23 +78,17 @@ try {
   assert.doesNotMatch(answerA.answer, /Other Only B/)
   assert.match(answerB.answer, /Other Only B/)
   assert.doesNotMatch(answerB.answer, /Cafe Only A/)
-  const searchAnswer = await askAccount(store, userB.id, { dataset: 'search', question: 'secret phrase a' }, async (_question, excerpt) => excerpt)
-  assert.doesNotMatch(searchAnswer.answer, /secret phrase a/)
-  const visitAnswer = await askAccount(store, userA.id, { dataset: 'browsing', question: 'private-b' }, async (_question, excerpt) => excerpt)
-  assert.doesNotMatch(visitAnswer.answer, /private-b\.example/)
 
   const unpaid = await store.upsertUser(`scope-test-${stamp}-free@example.com`)
   createdIds.push(unpaid.id)
   await store.acceptLegal(unpaid.id, '1991-01-01', TOS_VERSION, PRIVACY_VERSION)
   await assert.rejects(
-    () => askAccount(store, unpaid.id, { dataset: 'search', question: 'names' }, async () => 'no'),
+    () => askAccount(store, unpaid.id, { dataset: 'wifi', question: 'names' }, async () => 'no'),
     (error: unknown) => error instanceof ApiError && error.status === 402,
   )
 
   await store.wipe(userA.id)
   assert.equal((await store.searchWifi(userA.id, { zip: '98109', state: null, city: null })).length, 0)
-  assert.equal((await store.listSearches(userA.id, '')).length, 0)
-  assert.equal((await store.listVisits(userA.id, '')).length, 0)
   assert.equal((await store.searchWifi(userB.id, { zip: '98101', state: null, city: null })).length, 1)
   assert.deepEqual(await store.ownedConsentFor(userA.id), { addresses: false, details: false })
   assert.deepEqual(await store.saveOwnedConsent(userA.id, { addresses: true, details: true }), { addresses: true, details: true })

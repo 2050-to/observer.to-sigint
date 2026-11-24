@@ -110,31 +110,13 @@ export const api = {
     const body = await request(`/api/wifi?${params}`).then((response) => response.json() as Promise<{ networks: WifiPlace[] }>)
     return body.networks
   },
-  searches: async (q: string): Promise<{ query: string; engine: string | null; queriedAt: string }[]> => {
-    const body = await request(`/api/search-history?q=${encodeURIComponent(q)}`).then((response) => response.json() as Promise<{ items: { query: string; engine: string | null; queriedAt: string }[] }>)
-    return body.items
-  },
-  saveSearches: (items: { query: string; engine: string | null; queriedAt: string }[], replace = false): Promise<{ count: number }> =>
-    request('/api/search-history', {
-      method: 'POST',
-      body: JSON.stringify(replace ? { items, replace: true } : { items }),
-    }).then((response) => response.json()),
-  visits: async (q: string): Promise<{ url: string; title: string | null; visitedAt: string }[]> => {
-    const body = await request(`/api/browsing-history?q=${encodeURIComponent(q)}`).then((response) => response.json() as Promise<{ items: { url: string; title: string | null; visitedAt: string }[] }>)
-    return body.items
-  },
-  saveVisits: (items: { url: string; title: string | null; visitedAt: string }[], replace = false): Promise<{ count: number }> =>
-    request('/api/browsing-history', {
-      method: 'POST',
-      body: JSON.stringify(replace ? { items, replace: true } : { items }),
-    }).then((response) => response.json()),
   saveDevice: (body: unknown): Promise<void> =>
     request('/api/device', { method: 'POST', body: JSON.stringify(body) }).then(() => undefined),
   saveOwned: (body: { addresses: boolean; details: boolean }): Promise<{ addresses: boolean; details: boolean }> =>
     request('/api/owned', { method: 'POST', body: JSON.stringify(body) }).then((response) => response.json()),
   saveLan: (body: unknown): Promise<void> =>
     request('/api/lan', { method: 'POST', body: JSON.stringify(body) }).then(() => undefined),
-  ask: async (dataset: 'wifi' | 'search' | 'browsing', question: string): Promise<string> => {
+  ask: async (dataset: 'wifi', question: string): Promise<string> => {
     const body = await request('/api/ask', { method: 'POST', body: JSON.stringify({ dataset, question }) }).then((response) => response.json() as Promise<{ answer: string }>)
     return body.answer
   },
