@@ -27,28 +27,42 @@ export function SignInForm({ action = 'Start free' }: { action?: string }) {
 
   if (sent) {
     return (
-      <p className="note">
-        Check your email for a sign-in link. It expires in 15 minutes and works once.
-        {macApp() ? ' On this Mac, the link opens Observer.to.' : ''}
-      </p>
+      <div className="signin-block">
+        <p className="note">
+          Check your email for a sign-in link. It expires in 15 minutes and works once.
+          {macApp() ? ' On this Mac, the link opens Observer.to.' : ''}
+        </p>
+        <Agreement />
+      </div>
     )
   }
 
   return (
-    <form className="signin" onSubmit={(event) => void submit(event)}>
-      <label>
-        Email
-        <input
-          type="email"
-          name="email"
-          autoComplete="email"
-          required
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-        />
-      </label>
-      <button type="submit" disabled={busy}>{busy ? 'Sending…' : action}</button>
-      {error && <p className="warn">{error}</p>}
-    </form>
+    <div className="signin-block">
+      <form className="signin" onSubmit={(event) => void submit(event)}>
+        <label>
+          Email
+          <input
+            type="email"
+            name="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </label>
+        <button type="submit" disabled={busy}>{busy ? 'Sending…' : action}</button>
+        {error && <p className="warn">{error}</p>}
+      </form>
+      <Agreement />
+    </div>
+  )
+}
+
+function Agreement() {
+  return (
+    <p className="note">
+      Signing in agrees to the <a href="https://observer.to/terms">Terms of Service</a> and <a href="https://observer.to/privacy">Privacy Policy</a>.
+    </p>
   )
 }

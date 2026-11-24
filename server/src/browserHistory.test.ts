@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { browserTime, searchesFromBrowserRows, visitsFromBrowserRows } from '../../shared/browserHistory.js'
-import { readBrowserHistoryFrom } from '../../electron/browserHistory.js'
+import { lookupHistoryFiles, readBrowserHistoryFrom } from '../../electron/browserHistory.js'
 
 const instant = Date.parse('2026-11-01T00:00:00.000Z')
 const firefox = String(instant * 1000)
@@ -108,7 +108,22 @@ try {
     INSERT INTO history_items (id, url) VALUES (1, 'https://www.bing.com/search?q=towers');
     INSERT INTO history_visits (history_item, visit_time, title) VALUES (1, ${safariSeconds}, 'Bing');
   `)
+  writeFileSync(join(chrome, 'History-shm'), 'lock bytes that must not be opened')
+  const chromeRoot = join(home, 'Library/Application Support/Google/Chrome')
+  const probed = lookupHistoryFiles(chromeRoot, 'History', () => {
+    throw Object.assign(new Error('denied'), { code: 'EPERM' })
+  })
+  assert.deepEqual(probed.files, [join(chrome, 'History')])
+  assert.equal(probed.denied, false)
+  const blockedRoot = join(home, 'Library/Application Support/Blocked')
+  mkdirSync(blockedRoot)
+  const blocked = lookupHistoryFiles(blockedRoot, 'History', () => {
+    throw Object.assign(new Error('denied'), { code: 'EPERM' })
+  })
+  assert.deepEqual(blocked.files, [])
+  assert.equal(blocked.denied, true)
   const imported = await readBrowserHistoryFrom(home)
+  assert.equal(imported.accessDenied, false)
   assert.deepEqual(imported.sources, ['Chrome', 'Firefox', 'Safari'])
   assert.deepEqual(imported.skipped, [])
   assert.deepEqual(imported.visits.map((item) => item.url).sort(), [

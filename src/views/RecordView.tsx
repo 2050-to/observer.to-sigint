@@ -72,13 +72,13 @@ export function RecordView({ kind, subscribed }: { kind: Kind; subscribed: boole
     try {
       const history = await Wardrive.importHistory({ consent: true })
       if (history.sources.length === 0) {
-        publishImport(importNote(0, history.sources, history.skipped), true)
+        publishImport(importNote(0, history.sources, history.skipped, history.accessDenied), true)
         return
       }
       const count = kind === 'search'
         ? (await api.saveSearches(history.searches, true)).count
         : (await api.saveVisits(history.visits, true)).count
-      publishImport(importNote(count, history.sources, history.skipped), false)
+      publishImport(importNote(count, history.sources, history.skipped, history.accessDenied), false)
       setRows(await load(kind, q))
     } catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : 'Browser history could not be imported')
@@ -131,14 +131,14 @@ export function RecordView({ kind, subscribed }: { kind: Kind; subscribed: boole
   )
 }
 
-function importNote(count: number, sources: string[], skipped: string[]): string {
+function importNote(count: number, sources: string[], skipped: string[], accessDenied: boolean): string {
   const missed = skipped.length ? ` Could not read ${formatList(skipped)}.` : ''
-  const access = skipped.includes('Safari') || sources.length === 0
-    ? ' Safari may need Full Disk Access for Observer.to in System Settings.'
+  const access = accessDenied
+    ? ' Quit Observer.to and open it again after Full Disk Access is on for Observer.to. That switch does not apply to the app while it is already running.'
     : ''
   if (sources.length === 0) return `No browser history could be read on this Mac.${missed}${access}`
   const records = `Imported ${count} record${count === 1 ? '' : 's'} from ${formatList(sources)}.`
-  return `${records}${missed}${skipped.includes('Safari') ? ' Safari may need Full Disk Access for Observer.to in System Settings.' : ''}`
+  return `${records}${missed}${access}`
 }
 
 function formatList(items: string[]): string {

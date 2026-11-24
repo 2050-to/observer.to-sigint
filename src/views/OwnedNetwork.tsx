@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { sessionToken } from '../session'
 import { Wardrive } from '../native/drive'
-import { EMPTY_OWNED, readOwnedPrefs, writeOwnedPrefs, type OwnedPrefs } from '../ownedPrefs'
+import { EMPTY_OWNED, resolveOwnedPrefs, saveOwnedChoice, writeOwnedPrefs, type OwnedPrefs } from '../ownedPrefs'
 import {
   OWNED_NETWORK_DISCLAIMER,
   allowOwned,
@@ -28,21 +28,40 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
   const [showAll, setShowAll] = useState(false)
   const catalogLife = useRef(0)
   const detailsLife = useRef(0)
+  const choiceRef = useRef(EMPTY_OWNED)
 
   useEffect(() => {
-    const saved = active ? readOwnedPrefs() : EMPTY_OWNED
-    setPrefs(saved)
+    let stop = false
     setPrompt(null)
     setError('')
     setCatalogBusy(false)
     setDetailsBusy(false)
     setShowAll(false)
-    if (saved.catalog) {
-      setStatus(catalogStatus(saved.catalog))
-    } else {
+    if (!active) {
+      choiceRef.current = EMPTY_OWNED
+      setPrefs(EMPTY_OWNED)
       setStatus('')
+      return () => {
+        stop = true
+        catalogLife.current += 1
+        detailsLife.current += 1
+      }
     }
+    void resolveOwnedPrefs().then((saved) => {
+      if (stop) return
+      choiceRef.current = saved
+      setPrefs(saved)
+      setStatus(saved.catalog ? catalogStatus(saved.catalog) : '')
+      if (!saved.addresses) return
+      const catalogTicket = ++catalogLife.current
+      const detailsTicket = ++detailsLife.current
+      void runCatalog(catalogTicket)
+      if (saved.details) void runDetails(detailsTicket)
+    }).catch(() => {
+      if (!stop) setError('The saved network choices could not be loaded.')
+    })
     return () => {
+      stop = true
       catalogLife.current += 1
       detailsLife.current += 1
     }
@@ -57,8 +76,9 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
       if (current !== catalogLife.current) return
       if (!catalog) throw new Error('The subnet catalog was incomplete')
       setPrefs((prev) => {
-        if (!prev.addresses) return prev
+        if (!choiceRef.current.addresses) return prev
         const next = { ...prev, catalog }
+        choiceRef.current = next
         writeOwnedPrefs(next)
         return next
       })
@@ -90,8 +110,9 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
       if (current !== detailsLife.current) return
       if (!device) throw new Error('Device details were incomplete')
       setPrefs((prev) => {
-        if (!prev.details) return prev
+        if (!choiceRef.current.details) return prev
         const next = { ...prev, device }
+        choiceRef.current = next
         writeOwnedPrefs(next)
         return next
       })
@@ -113,9 +134,7 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
   function disableAddresses() {
     catalogLife.current += 1
     detailsLife.current += 1
-    const next = EMPTY_OWNED
-    setPrefs(next)
-    writeOwnedPrefs(next)
+    commit(EMPTY_OWNED)
     setPrompt(null)
     setCatalogBusy(false)
     setDetailsBusy(false)
@@ -126,11 +145,7 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
 
   function disableDetails() {
     detailsLife.current += 1
-    setPrefs((prev) => {
-      const next = { ...prev, details: false, device: null }
-      writeOwnedPrefs(next)
-      return next
-    })
+    commit({ ...choiceRef.current, details: false, device: null })
     setDetailsBusy(false)
   }
 
@@ -150,9 +165,7 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
     if (!prompt) return
     const next = allowOwned(prefs, prompt)
     if (prompt === 'addresses') {
-      const saved: OwnedPrefs = { ...next.consent, catalog: null, device: null }
-      setPrefs(saved)
-      writeOwnedPrefs(saved)
+      commit({ ...next.consent, catalog: null, device: null })
       setPrompt(next.prompt)
       void runCatalog()
       return
@@ -161,11 +174,18 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
       setPrompt(null)
       return
     }
-    const saved: OwnedPrefs = { ...prefs, ...next.consent }
-    setPrefs(saved)
-    writeOwnedPrefs(saved)
+    commit({ ...prefs, ...next.consent })
     setPrompt(null)
     void runDetails()
+  }
+
+  function commit(next: OwnedPrefs) {
+    choiceRef.current = next
+    setPrefs(next)
+    writeOwnedPrefs(next)
+    void saveOwnedChoice({ addresses: next.addresses, details: next.details }).catch(() => {
+      setError('Saved on this device. The account copy could not be updated.')
+    })
   }
 
   if (!active) {

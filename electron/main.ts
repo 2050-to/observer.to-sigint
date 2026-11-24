@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { Agent } from 'node:https'
 import { join, resolve } from 'node:path'
@@ -140,6 +140,32 @@ function waitingStatus(count: number): string {
   const noun = count === 1 ? 'scan' : 'scans'
   const pronoun = count === 1 ? 'It' : 'They'
   return `${count} ${noun} on this Mac. ${pronoun} will sync when a saved network is in range.`
+}
+
+function ownedPrefsPath(): string {
+  return join(app.getPath('userData'), 'owned-prefs.json')
+}
+
+function readOwnedChoice(): { addresses: boolean; details: boolean } | null {
+  try {
+    const value = JSON.parse(readFileSync(ownedPrefsPath(), 'utf8')) as { addresses?: unknown; details?: unknown }
+    const addresses = value.addresses === true
+    return { addresses, details: addresses && value.details === true }
+  } catch (error) {
+    const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
+    if (code === 'ENOENT') return null
+    return { addresses: false, details: false }
+  }
+}
+
+function writeOwnedChoice(options: { addresses?: boolean; details?: boolean }): { addresses: boolean; details: boolean } {
+  const addresses = options?.addresses === true
+  const details = addresses && options?.details === true
+  const directory = app.getPath('userData')
+  mkdirSync(directory, { recursive: true })
+  const choice = { addresses, details }
+  writeFileSync(ownedPrefsPath(), JSON.stringify(choice))
+  return choice
 }
 
 function permissionNotice(text: string | undefined): boolean {
@@ -443,6 +469,11 @@ function registerIpc(): void {
   ipcMain.handle('wardrive:history', async (_event, options: { consent?: boolean }) => {
     if (options?.consent !== true) throw new Error('Browser history stays unread until you import it.')
     return readLocalBrowserHistory()
+  })
+  ipcMain.handle('wardrive:owned-get', () => readOwnedChoice())
+  ipcMain.handle('wardrive:owned-set', (_event, options: { addresses?: boolean; details?: boolean }) => writeOwnedChoice(options ?? {}))
+  ipcMain.handle('wardrive:owned-clear', () => {
+    rmSync(ownedPrefsPath(), { force: true })
   })
   ipcMain.handle('wardrive:full-disk-access', () => {
     revealMacPrivacy('Privacy_AllFiles')

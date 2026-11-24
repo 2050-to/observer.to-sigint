@@ -287,6 +287,7 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
         currentTosVersion: TOS_VERSION,
         currentPrivacyVersion: PRIVACY_VERSION,
       },
+      owned: await store.ownedConsentFor(user.id),
     })
     return
   }
@@ -397,6 +398,15 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
     const body = asVisitBody(JSON.parse(await readBody(req)) as unknown)
     const count = await store.saveVisits(user.id, body.items, body.replace)
     send(res, 200, { count })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/owned') {
+    const body = JSON.parse(await readBody(req)) as { addresses?: unknown; details?: unknown }
+    const saved = await store.saveOwnedConsent(user.id, {
+      addresses: body.addresses === true,
+      details: body.details === true,
+    })
+    send(res, 200, saved)
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/device') {

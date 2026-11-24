@@ -13,6 +13,10 @@ export interface Account {
     currentTosVersion: string
     currentPrivacyVersion: string
   }
+  owned: {
+    addresses: boolean
+    details: boolean
+  }
 }
 
 export interface LegalDocuments {
@@ -126,6 +130,8 @@ export const api = {
     }).then((response) => response.json()),
   saveDevice: (body: unknown): Promise<void> =>
     request('/api/device', { method: 'POST', body: JSON.stringify(body) }).then(() => undefined),
+  saveOwned: (body: { addresses: boolean; details: boolean }): Promise<{ addresses: boolean; details: boolean }> =>
+    request('/api/owned', { method: 'POST', body: JSON.stringify(body) }).then((response) => response.json()),
   saveLan: (body: unknown): Promise<void> =>
     request('/api/lan', { method: 'POST', body: JSON.stringify(body) }).then(() => undefined),
   ask: async (dataset: 'wifi' | 'search' | 'browsing', question: string): Promise<string> => {

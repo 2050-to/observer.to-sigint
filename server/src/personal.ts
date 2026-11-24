@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type pg from 'pg'
 import { bssidHmac, decryptJson, encryptJson } from './crypto.js'
 import { consentMatches, isAdult } from '../../shared/legal.js'
+import { normalizeOwnedConsent, type OwnedConsent } from '../../shared/ownedNetwork.js'
 import { cityName, isUnitedStates, stateCode, zipCode } from '../../shared/places.js'
 import type { DeviceRecord, NetworkRecord } from './types.js'
 
@@ -82,6 +83,27 @@ export async function acceptLegal(
     [userId, sealed.payload, sealed.nonce, tosVersion, privacyVersion],
   )
   return 'ok'
+}
+
+export async function ownedConsentFor(db: Db, userId: string): Promise<OwnedConsent> {
+  const result = await db.query<{ owned_addresses: boolean | null; owned_details: boolean | null }>(
+    `SELECT owned_addresses, owned_details FROM users WHERE id = $1`,
+    [userId],
+  )
+  const row = result.rows[0]
+  return normalizeOwnedConsent({
+    addresses: row?.owned_addresses === true,
+    details: row?.owned_details === true,
+  })
+}
+
+export async function saveOwnedConsent(db: Db, userId: string, consent: OwnedConsent): Promise<OwnedConsent> {
+  const next = normalizeOwnedConsent(consent)
+  await db.query(
+    `UPDATE users SET owned_addresses = $2, owned_details = $3 WHERE id = $1`,
+    [userId, next.addresses, next.details],
+  )
+  return next
 }
 
 export async function deleteUser(db: Db, userId: string): Promise<void> {
@@ -363,6 +385,10 @@ export async function askExcerpt(
 }
 
 export async function wipePersonal(db: Db, userId: string): Promise<void> {
+  await db.query(
+    `UPDATE users SET owned_addresses = false, owned_details = false WHERE id = $1`,
+    [userId],
+  )
   for (const table of [
     'device_profiles',
     'lan_hosts',

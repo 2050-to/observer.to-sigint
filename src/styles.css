@@ -146,6 +146,8 @@ button:disabled { opacity: 0.6; }
   padding: 16px;
 }
 .price p { margin: 8px 0 0; color: var(--text-secondary); }
+.signin-block { display: grid; gap: 8px; justify-items: start; }
+.signin-block a, .legal-gate a { color: #86b7ff; }
 .signin { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
 .signin input {
   background: var(--background);
@@ -196,6 +198,16 @@ label { display: flex; gap: 8px; align-items: center; color: var(--text-muted); 
 .warn { color: #e7b3ac; }
 
 nav { margin: 8px 0 12px; }
+nav button.active {
+  background: var(--text);
+  color: var(--background);
+  border-color: var(--text);
+  font-weight: 650;
+}
+nav button.active:hover {
+  background: #fff;
+  color: var(--background);
+}
 
 .panel { display: grid; gap: 12px; }
 
@@ -289,6 +301,7 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #303237; }
   align-items: start;
 }
 .datasource-grid li { background: var(--background); border-radius: 12px; padding: 10px; }
+.view-more { justify-self: start; }
 .rotation-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .rotation-list li {
   display: flex;
@@ -416,6 +429,19 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #303237; }
   padding: 14px;
   overflow: hidden;
 }
+.ask-rail-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ask-source { font-size: 14px; }
+.ask-rail-controls { display: flex; gap: 6px; flex: 0 0 auto; }
+.ask-rail-controls button { padding: 5px 9px; font-size: 12px; }
+.ask-rail.min {
+  width: 92px;
+  flex: 0 0 92px;
+  padding: 10px 8px;
+}
+.ask-rail.min .ask-rail-controls { flex-direction: column; width: 100%; }
+.ask-rail.min .ask-rail-controls button { width: 100%; }
+.ask-rail.max { width: auto; flex: 1.6 1 0; min-width: 0; }
+.workspace:has(.ask-rail.max) .stage { flex: 1 1 0; min-width: 280px; }
 .ask-transcript {
   flex: 1 1 auto;
   min-height: 0;

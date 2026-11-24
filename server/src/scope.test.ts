@@ -109,6 +109,13 @@ try {
   assert.equal((await store.listSearches(userA.id, '')).length, 0)
   assert.equal((await store.listVisits(userA.id, '')).length, 0)
   assert.equal((await store.searchWifi(userB.id, { zip: '98101', state: null, city: null })).length, 1)
+  assert.deepEqual(await store.ownedConsentFor(userA.id), { addresses: false, details: false })
+  assert.deepEqual(await store.saveOwnedConsent(userA.id, { addresses: true, details: true }), { addresses: true, details: true })
+  assert.deepEqual(await store.saveOwnedConsent(userA.id, { addresses: false, details: true }), { addresses: false, details: false })
+  await store.saveOwnedConsent(userA.id, { addresses: true, details: true })
+  await store.wipe(userA.id)
+  assert.deepEqual(await store.ownedConsentFor(userA.id), { addresses: false, details: false })
+  assert.deepEqual(await store.ownedConsentFor(userB.id), { addresses: false, details: false })
 } finally {
   await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [createdIds])
   await pool.end()

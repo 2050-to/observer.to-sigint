@@ -67,6 +67,8 @@ export function LogView({
   const [rotatingOnly, setRotatingOnly] = useState(false)
   const [highRiskOnly, setHighRiskOnly] = useState(false)
   const [knownExploitedOnly, setKnownExploitedOnly] = useState(false)
+  const [showAllRotations, setShowAllRotations] = useState(false)
+  const [showAllDevices, setShowAllDevices] = useState(false)
   const rotations = useMemo(() => findRotatingAddresses(history), [history])
   const rotationByAddress = useMemo(() => {
     const map = new Map<string, RotationGroup>()
@@ -126,6 +128,9 @@ export function LogView({
     return [{ ...source, signals, note, title }]
   })
   const allKinds = kinds.size === SIGNAL_KINDS.length
+  const visibleRotations = showAllRotations ? rotations : rotations.slice(0, 3)
+  const notable = shown.filter((source) => source.enrichments.some((item) => item.confidence === 'medium' || item.confidence === 'high'))
+  const listed = showAllDevices ? shown : notable
 
   function toggleKind(kind: SignalKind) {
     setKinds((current) => {
@@ -248,8 +253,8 @@ export function LogView({
             <h2>Rotating addresses</h2>
             <p>A random address is marked here when it stops and another starts within two minutes, the signal stays near the level it left off, and the place it was heard still fits the same path-loss range. A longer gap has to match more closely. Each address stays its own record.</p>
             {rotations.length === 0 && <p className="empty">No rotating addresses in this survey.</p>}
-            <ul className="rotation-list">
-              {rotations.map((group) => (
+            {visibleRotations.length > 0 && <ul className="rotation-list">
+              {visibleRotations.map((group) => (
                 <li key={group.id}>
                   <strong>{group.kind === 'wifi' ? 'Wi-Fi' : 'Bluetooth'}</strong>
                   <span>{group.addresses.length} addresses</span>
@@ -258,26 +263,41 @@ export function LogView({
                   <code>{group.addresses.join(' → ')}</code>
                 </li>
               ))}
-            </ul>
+            </ul>}
+            {rotations.length > 3 && (
+              <button type="button" className="view-more" onClick={() => setShowAllRotations((current) => !current)}>
+                {showAllRotations ? 'Show less' : 'View more'}
+              </button>
+            )}
           </div>
         )}
         {sources.length === 0 && <p className="empty">No signals saved yet.</p>}
         {sources.length > 0 && shown.length === 0 && <p className="empty">No datasources match this filter.</p>}
-        <ul className="datasource-grid">
-          {shown.map((source) => (
-            <li key={source.id}>
-              <SignalStack
-                id={source.id}
-                fallback={source.title}
-                signals={source.signals}
-                enrichments={source.enrichments}
-                note={source.note}
-                draftFor={draftFor}
-                rename={rename}
-              />
-            </li>
-          ))}
-        </ul>
+        {sources.length > 0 && shown.length > 0 && !showAllDevices && notable.length === 0 && (
+          <p className="empty">No medium or high confidence devices in this filter.</p>
+        )}
+        {listed.length > 0 && (
+          <ul className="datasource-grid">
+            {listed.map((source) => (
+              <li key={source.id}>
+                <SignalStack
+                  id={source.id}
+                  fallback={source.title}
+                  signals={source.signals}
+                  enrichments={source.enrichments}
+                  note={source.note}
+                  draftFor={draftFor}
+                  rename={rename}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+        {shown.length > notable.length && (
+          <button type="button" className="view-more" onClick={() => setShowAllDevices((current) => !current)}>
+            {showAllDevices ? 'Show less' : 'View more'}
+          </button>
+        )}
       </div>
     </section>
   )

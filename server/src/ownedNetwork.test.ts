@@ -3,6 +3,7 @@ import {
   assembleCatalog,
   allowOwned,
   formatBytes,
+  normalizeOwnedConsent,
   parseArpTable,
   presentFrom,
   toggleAddresses,
@@ -134,5 +135,8 @@ assert.deepEqual(allowOwned({ addresses: false, details: false }, 'details'), {
   consent: { addresses: false, details: false },
   prompt: null,
 })
+assert.deepEqual(normalizeOwnedConsent({ addresses: true, details: true }), { addresses: true, details: true })
+assert.deepEqual(normalizeOwnedConsent({ addresses: false, details: true }), { addresses: false, details: false })
+assert.deepEqual(normalizeOwnedConsent(null), { addresses: false, details: false })
 assert.equal(formatBytes(8 * 1024 * 1024 * 1024), '8.0 GB')
 assert.equal(formatBytes(512 * 1024 * 1024), '512 MB')

@@ -82,7 +82,7 @@ export default function Page() {
           <li>It does not transmit, jam, or spoof.</li>
           <li>It does not track a person from a hardware address.</li>
           <li>Search and questions stay inside the signed-in account.</li>
-          <li>The observer and stored data open only after you read and accept the current Terms and Privacy Policy. You must be 18 or older.</li>
+          <li>Sign in with your email. The first time, you accept the Terms of Service and the Privacy Policy and confirm you are 18 or older. Later sign-ins remind you that signing in agrees to them.</li>
         </ul>
       </section>
       <p className="note">

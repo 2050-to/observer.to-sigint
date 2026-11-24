@@ -50,6 +50,11 @@ export interface ArpEntry {
 
 const ROLES = new Set<AddressRole>(['network', 'broadcast', 'device', 'host'])
 
+export function normalizeOwnedConsent(value: Partial<OwnedConsent> | null | undefined): OwnedConsent {
+  const addresses = value?.addresses === true
+  return { addresses, details: addresses && value?.details === true }
+}
+
 export function toggleAddresses(consent: OwnedConsent): OwnedToggle {
   if (consent.addresses) return { consent: { addresses: false, details: false }, prompt: null }
   return { consent, prompt: 'addresses' }

@@ -24,8 +24,10 @@ import {
   deleteUser,
   listSearches,
   listVisits,
+  ownedConsentFor,
   replaceLanHosts,
   saveDeviceProfile,
+  saveOwnedConsent,
   saveSearches,
   saveVisits,
   searchWifi,
@@ -974,6 +976,14 @@ export class Store {
 
   async replaceLanHosts(userId: string, hosts: { ip: string }[]): Promise<void> {
     await replaceLanHosts(this.db, userId, hosts)
+  }
+
+  async ownedConsentFor(userId: string) {
+    return ownedConsentFor(this.db, userId)
+  }
+
+  async saveOwnedConsent(userId: string, consent: { addresses: boolean; details: boolean }) {
+    return saveOwnedConsent(this.db, userId, consent)
   }
 
   async searchWifi(userId: string, filter: { zip: string | null; state: string | null; city: string | null }) {

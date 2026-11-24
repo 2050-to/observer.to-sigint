@@ -15,9 +15,12 @@ const DATASET_RECORDS: Record<AskDataset, string> = {
   browsing: 'browsing history',
 }
 
+type RailSize = 'min' | 'normal' | 'max'
+
 type Turn = {
   id: number
   dataset: AskDataset
+  source: string
   question: string
   answer: string
 }
@@ -26,19 +29,26 @@ export function AskBox({
   dataset,
   subscribed,
   layout = 'inline',
+  scope,
+  source,
 }: {
   dataset: AskDataset
   subscribed: boolean
   layout?: 'inline' | 'rail'
+  scope?: string
+  source?: string
 }) {
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState('')
   const [turns, setTurns] = useState<Turn[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [size, setSize] = useState<RailSize>('normal')
   const turnId = useRef(0)
   const transcript = useRef<HTMLDivElement>(null)
   const rail = layout === 'rail'
+  const scopeText = scope ?? `your ${DATASET_RECORDS[dataset]}`
+  const sourceText = source ?? DATASET_NAME[dataset]
 
   useEffect(() => {
     const node = transcript.current
@@ -57,7 +67,7 @@ export function AskBox({
       if (rail) {
         const id = turnId.current
         turnId.current += 1
-        setTurns((current) => [...current, { id, dataset: askedDataset, question: asked.trim(), answer: reply }])
+        setTurns((current) => [...current, { id, dataset: askedDataset, source: sourceText, question: asked.trim(), answer: reply }])
         setQuestion('')
       } else {
         setAnswer(reply)
@@ -70,15 +80,9 @@ export function AskBox({
     }
   }
 
-  if (!subscribed) {
-    const note = <p className="note">Questions about this account are part of the $5 monthly plan.</p>
-    if (!rail) return note
-    return <aside className="ask-rail" aria-label="Ask about this account">{note}</aside>
-  }
-
   const form = (
     <form className="ask" onSubmit={(event) => void submit(event)}>
-      {rail && <p className="ask-scope">Next question uses your {DATASET_RECORDS[dataset]}.</p>}
+      {rail && <p className="ask-scope">Next question uses {scopeText}.</p>}
       <label>
         Ask about this account
         <input value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={1000} required />
@@ -89,20 +93,50 @@ export function AskBox({
     </form>
   )
 
-  if (!rail) return form
+  if (!rail) {
+    if (!subscribed) return <p className="note">Questions about this account are part of the $5 monthly plan.</p>
+    return form
+  }
+
+  const controls = (
+    <div className="ask-rail-controls">
+      <button
+        type="button"
+        aria-pressed={size === 'min'}
+        onClick={() => setSize((current) => current === 'min' ? 'normal' : 'min')}
+      >
+        {size === 'min' ? 'Restore' : 'Minimize'}
+      </button>
+      <button
+        type="button"
+        aria-pressed={size === 'max'}
+        onClick={() => setSize((current) => current === 'max' ? 'normal' : 'max')}
+      >
+        {size === 'max' ? 'Restore' : 'Maximize'}
+      </button>
+    </div>
+  )
 
   return (
-    <aside className="ask-rail" aria-label="Ask about this account">
-      <div className="ask-transcript" ref={transcript}>
-        {turns.map((turn) => (
-          <article key={turn.id} className="ask-turn">
-            <p className="ask-dataset">{DATASET_NAME[turn.dataset]}</p>
-            <p className="ask-question">{turn.question}</p>
-            <p className="answer">{turn.answer}</p>
-          </article>
-        ))}
+    <aside className={`ask-rail ${size}`} aria-label="Ask about this account" aria-expanded={size !== 'min'}>
+      <div className="ask-rail-bar">
+        {size !== 'min' && <strong className="ask-source">{sourceText}</strong>}
+        {controls}
       </div>
-      {form}
+      {size !== 'min' && (subscribed ? (
+        <>
+          <div className="ask-transcript" ref={transcript}>
+            {turns.map((turn) => (
+              <article key={turn.id} className="ask-turn">
+                <p className="ask-dataset">{turn.source}</p>
+                <p className="ask-question">{turn.question}</p>
+                <p className="answer">{turn.answer}</p>
+              </article>
+            ))}
+          </div>
+          {form}
+        </>
+      ) : <p className="note">Questions about this account are part of the $5 monthly plan.</p>)}
     </aside>
   )
 }

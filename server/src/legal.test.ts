@@ -30,6 +30,7 @@ assert.equal(routeNeedsConsent('POST', '/api/ask'), true)
 assert.equal(routeNeedsConsent('GET', '/api/me'), false)
 assert.equal(routeNeedsConsent('GET', '/api/legal'), false)
 assert.equal(routeNeedsConsent('POST', '/api/legal/accept'), false)
+assert.equal(routeNeedsConsent('POST', '/api/owned'), true)
 assert.equal(routeNeedsConsent('POST', '/api/auth/verify'), false)
 assert.equal(routeNeedsConsent('GET', '/health'), false)
 

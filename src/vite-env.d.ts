@@ -36,7 +36,11 @@ interface MacWardriveBridge {
     searches: { query: string; engine: string | null; queriedAt: string }[]
     sources: string[]
     skipped: string[]
+    accessDenied: boolean
   }>
+  getOwnedPrefs(): Promise<{ addresses: boolean; details: boolean } | null>
+  setOwnedPrefs(options: { addresses: boolean; details: boolean }): Promise<{ addresses: boolean; details: boolean }>
+  clearOwnedPrefs(): Promise<void>
   promptFullDiskAccess(): Promise<void>
   promptLocation(): Promise<void>
   addListener(eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void): Promise<{ remove: () => Promise<void> }>

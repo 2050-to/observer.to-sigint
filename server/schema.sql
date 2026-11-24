@@ -97,6 +97,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS tos_version text;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS tos_accepted_at timestamptz;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_version text;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_accepted_at timestamptz;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS owned_addresses boolean NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS owned_details boolean NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS device_profiles (
   user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

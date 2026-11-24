@@ -26,6 +26,15 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'browsing', label: 'Browsing history' },
 ]
 
+const ASK_CONTEXT: Record<Tab, { dataset: AskDataset; scope: string; source: string }> = {
+  range: { dataset: 'wifi', scope: 'the networks in range', source: 'In range' },
+  map: { dataset: 'wifi', scope: 'the networks on the map', source: 'Map' },
+  open: { dataset: 'wifi', scope: 'the open networks', source: 'Open' },
+  log: { dataset: 'wifi', scope: 'the catalog', source: 'Catalog' },
+  search: { dataset: 'search', scope: 'your search history', source: 'Search history' },
+  browsing: { dataset: 'browsing', scope: 'your browsing history', source: 'Browsing history' },
+}
+
 const NO_HEARD: RangeSnapshot['heard'] = []
 const NO_DEVICES: RangeSnapshot['heardDevices'] = []
 const NO_ACCESS_POINTS: MapState['accessPoints'] = []
@@ -72,7 +81,7 @@ export function App() {
   const [erasing, setErasing] = useState(false)
   const [ownedReset, setOwnedReset] = useState(0)
   const macApp = onMacApp()
-  const [askDataset, setAskDataset] = useState<AskDataset>('wifi')
+  const ask = ASK_CONTEXT[tab]
   const { nameFor, nameForGroup, draftFor, rename, clear } = useLabels()
   const account = useAccount()
   const queue = useRef(Promise.resolve())
@@ -117,12 +126,6 @@ export function App() {
       window.clearTimeout(timer)
     }
   }, [enrichmentStatus, refresh])
-
-  useEffect(() => {
-    if (tab === 'map') setAskDataset('wifi')
-    else if (tab === 'search') setAskDataset('search')
-    else if (tab === 'browsing') setAskDataset('browsing')
-  }, [tab])
 
   useEffect(() => {
     let stop = false
@@ -235,7 +238,7 @@ export function App() {
       setErasing(false)
     }
     clear()
-    clearOwnedPrefs()
+    await clearOwnedPrefs()
     setOwnedReset((value) => value + 1)
     setRunning(false)
     setFocus(null)
@@ -320,7 +323,13 @@ export function App() {
       {error && <p className="warn">{error}</p>}
       <nav>
         {TABS.map((item) => (
-          <button key={item.id} type="button" className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>
+          <button
+            key={item.id}
+            type="button"
+            className={tab === item.id ? 'active' : ''}
+            aria-current={tab === item.id ? 'page' : undefined}
+            onClick={() => setTab(item.id)}
+          >
             {item.label}
           </button>
         ))}
@@ -388,7 +397,13 @@ export function App() {
       <OwnedNetwork active={onDevice()} resetToken={ownedReset} />
       </div>
       {macApp && (
-        <AskBox layout="rail" dataset={askDataset} subscribed={account?.alerts.status === 'active'} />
+        <AskBox
+          layout="rail"
+          dataset={ask.dataset}
+          scope={ask.scope}
+          source={ask.source}
+          subscribed={account?.alerts.status === 'active'}
+        />
       )}
       </div>
     </main>

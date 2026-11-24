@@ -1,6 +1,6 @@
 import { Capacitor, WebPlugin, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 import type { JournalScan, LocalCatalog } from '../../shared/catalog'
-import type { DeviceDetails, SubnetCatalog } from '../../shared/ownedNetwork'
+import type { DeviceDetails, OwnedConsent, SubnetCatalog } from '../../shared/ownedNetwork'
 
 export interface DriveStatus {
   running: boolean
@@ -17,6 +17,7 @@ export interface LocalHistoryImport {
   searches: { query: string; engine: string | null; queriedAt: string }[]
   sources: string[]
   skipped: string[]
+  accessDenied: boolean
 }
 
 interface WardrivePlugin {
@@ -32,6 +33,9 @@ interface WardrivePlugin {
   catalogSubnet(options: { consent: boolean }): Promise<SubnetCatalog>
   deviceDetails(options: { consent: boolean; browser: string }): Promise<DeviceDetails>
   importHistory(options: { consent: boolean }): Promise<LocalHistoryImport>
+  getOwnedPrefs(): Promise<OwnedConsent | null>
+  setOwnedPrefs(options: OwnedConsent): Promise<OwnedConsent>
+  clearOwnedPrefs(): Promise<void>
   apiOrigin(): Promise<string>
   addListener(eventName: 'scanQueued', listenerFunc: () => void): Promise<PluginListenerHandle>
   addListener(eventName: 'scansSynced', listenerFunc: (event: { count: number }) => void): Promise<PluginListenerHandle>
@@ -111,6 +115,16 @@ class WardriveWeb extends WebPlugin implements WardrivePlugin {
   async importHistory(): Promise<LocalHistoryImport> {
     throw new Error('This browser cannot read history stored by other browsers. Use the macOS app, or import a file.')
   }
+
+  async getOwnedPrefs(): Promise<OwnedConsent | null> {
+    return null
+  }
+
+  async setOwnedPrefs(options: OwnedConsent): Promise<OwnedConsent> {
+    return { addresses: options.addresses === true, details: options.addresses === true && options.details === true }
+  }
+
+  async clearOwnedPrefs(): Promise<void> {}
 }
 
 function parseJournal(text: string): JournalScan[] {
@@ -138,6 +152,9 @@ interface MacBridge {
   catalogSubnet(options: { consent: boolean }): Promise<SubnetCatalog>
   deviceDetails(options: { consent: boolean; browser: string }): Promise<DeviceDetails>
   importHistory(options: { consent: boolean }): Promise<LocalHistoryImport>
+  getOwnedPrefs(): Promise<OwnedConsent | null>
+  setOwnedPrefs(options: OwnedConsent): Promise<OwnedConsent>
+  clearOwnedPrefs(): Promise<void>
   apiOrigin(): Promise<string>
   promptFullDiskAccess(): Promise<void>
   promptLocation(): Promise<void>
@@ -195,6 +212,18 @@ class WardriveMac extends WebPlugin {
 
   importHistory(options: { consent: boolean }): Promise<LocalHistoryImport> {
     return this.bridge.importHistory(options)
+  }
+
+  getOwnedPrefs(): Promise<OwnedConsent | null> {
+    return this.bridge.getOwnedPrefs()
+  }
+
+  setOwnedPrefs(options: OwnedConsent): Promise<OwnedConsent> {
+    return this.bridge.setOwnedPrefs(options)
+  }
+
+  clearOwnedPrefs(): Promise<void> {
+    return this.bridge.clearOwnedPrefs()
   }
 
   apiOrigin(): Promise<string> {

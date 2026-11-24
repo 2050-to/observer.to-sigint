@@ -25,7 +25,17 @@ const CHROMIUM: { name: string; root: string }[] = [
   { name: 'Chromium', root: 'Library/Application Support/Chromium' },
 ]
 
-const SKIP_PROFILES = new Set(['Guest Profile', 'System Profile'])
+const PROFILE_PROBES = [
+  'Default',
+  'Profile 1',
+  'Profile 2',
+  'Profile 3',
+  'Profile 4',
+  'Profile 5',
+  'Profile 6',
+  'Profile 7',
+  'Profile 8',
+]
 
 const CHROME_VISITS = `SELECT urls.url AS url, urls.title AS title, CAST(visits.visit_time AS TEXT) AS visited_at
 FROM visits JOIN urls ON urls.id = visits.url
@@ -51,11 +61,19 @@ FROM history_visits JOIN history_items ON history_items.id = history_visits.hist
 WHERE history_items.url LIKE 'http%'
 ORDER BY history_visits.visit_time DESC LIMIT 2000`
 
+const SKIP_PROFILES = new Set(['Guest Profile', 'System Profile'])
+
+export interface HistoryLookup {
+  files: string[]
+  denied: boolean
+}
+
 export interface LocalBrowserHistory {
   visits: VisitItem[]
   searches: SearchItem[]
   sources: string[]
   skipped: string[]
+  accessDenied: boolean
 }
 
 class SqliteMissing extends Error {
@@ -79,30 +97,42 @@ export async function readBrowserHistoryFrom(home: string): Promise<LocalBrowser
   const searches: RawSearch[] = []
   const sources: string[] = []
   const skipped: string[] = []
+  let accessDenied = false
   for (const browser of CHROMIUM) {
-    const files = historyFiles(join(home, browser.root), 'History')
-    if (files == null) {
-      skipped.push(browser.name)
+    const found = lookupHistoryFiles(join(home, browser.root), 'History')
+    if (found.denied) accessDenied = true
+    if (found.files.length === 0) {
+      if (found.denied) skipped.push(browser.name)
       continue
     }
-    await readFiles(browser.name, files, (file) => readChromium(file), visits, searches, sources, skipped)
+    if (await readFiles(browser.name, found.files, (file) => readChromium(file), visits, searches, sources, skipped)) {
+      accessDenied = true
+    }
   }
   const firefoxRoot = join(home, 'Library/Application Support/Firefox/Profiles')
-  const firefox = historyFiles(firefoxRoot, 'places.sqlite')
-  if (firefox == null) skipped.push('Firefox')
-  else await readFiles('Firefox', firefox, (file) => readFirefox(file), visits, searches, sources, skipped)
+  const firefox = lookupHistoryFiles(firefoxRoot, 'places.sqlite')
+  if (firefox.denied) accessDenied = true
+  if (firefox.files.length === 0) {
+    if (firefox.denied) skipped.push('Firefox')
+  } else if (await readFiles('Firefox', firefox.files, (file) => readFirefox(file), visits, searches, sources, skipped)) {
+    accessDenied = true
+  }
   const safari = join(home, 'Library/Safari/History.db')
   const safariState = fileAccess(safari)
   if (safariState === 'file') {
-    await readFiles('Safari', [safari], (file) => readSafari(file), visits, searches, sources, skipped)
+    if (await readFiles('Safari', [safari], (file) => readSafari(file), visits, searches, sources, skipped)) {
+      accessDenied = true
+    }
   } else if (safariState === 'blocked') {
     skipped.push('Safari')
+    accessDenied = true
   }
   return {
     visits: visitsFromBrowserRows(visits),
     searches: searchesFromBrowserRows(searches),
     sources,
     skipped,
+    accessDenied,
   }
 }
 
@@ -114,9 +144,10 @@ async function readFiles(
   searches: RawSearch[],
   sources: string[],
   skipped: string[],
-): Promise<void> {
-  if (files.length === 0) return
+): Promise<boolean> {
+  if (files.length === 0) return false
   let ok = false
+  let denied = false
   for (const file of files) {
     try {
       const found = await read(file)
@@ -125,22 +156,45 @@ async function readFiles(
       ok = true
     } catch (error) {
       if (error instanceof SqliteMissing) throw error
+      if (isPermission(error)) denied = true
     }
   }
   if (ok) sources.push(name)
   else skipped.push(name)
+  return denied
 }
 
-function historyFiles(root: string, fileName: string): string[] | null {
-  if (!existsSync(root)) return []
+export function lookupHistoryFiles(root: string, fileName: string, list: () => string[] = () => listProfileNames(root)): HistoryLookup {
   try {
-    return readdirSync(root, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && !SKIP_PROFILES.has(entry.name))
-      .map((entry) => join(root, entry.name, fileName))
+    if (!existsSync(root)) {
+      return { files: probeProfileFiles(root, fileName), denied: false }
+    }
+    const names = list()
+    const listed = names
+      .filter((name) => !SKIP_PROFILES.has(name))
+      .map((name) => join(root, name, fileName))
       .filter((file) => isFile(file))
-  } catch {
-    return null
+    return { files: mergeFiles(listed, probeProfileFiles(root, fileName)), denied: false }
+  } catch (error) {
+    const probed = probeProfileFiles(root, fileName)
+    return { files: probed, denied: probed.length === 0 && isPermission(error) }
   }
+}
+
+function listProfileNames(root: string): string[] {
+  return readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+}
+
+function probeProfileFiles(root: string, fileName: string): string[] {
+  return PROFILE_PROBES
+    .map((name) => join(root, name, fileName))
+    .filter((file) => isFile(file))
+}
+
+function mergeFiles(listed: string[], probed: string[]): string[] {
+  return [...new Set([...listed, ...probed])]
 }
 
 async function readChromium(source: string): Promise<{ visits: RawVisit[]; searches: RawSearch[] }> {
@@ -199,10 +253,8 @@ async function withCopy<T>(source: string, fileName: string, read: (copy: string
   try {
     const dest = join(dir, fileName)
     await copyFile(source, dest)
-    for (const suffix of ['-wal', '-shm']) {
-      const side = `${source}${suffix}`
-      if (isFile(side)) await copyFile(side, `${dest}${suffix}`)
-    }
+    const wal = `${source}-wal`
+    if (isFile(wal)) await copyFile(wal, `${dest}-wal`)
     return await read(dest)
   } finally {
     await rm(dir, { recursive: true, force: true })
@@ -210,9 +262,23 @@ async function withCopy<T>(source: string, fileName: string, read: (copy: string
 }
 
 async function sqliteJson(dbPath: string, sql: string): Promise<Record<string, unknown>[]> {
+  try {
+    return await runSqlite(sqliteUri(dbPath), sql)
+  } catch (error) {
+    if (error instanceof SqliteMissing) throw error
+    return await runSqlite(dbPath, sql)
+  }
+}
+
+function sqliteUri(dbPath: string): string {
+  const encoded = dbPath.split('/').map((part) => encodeURIComponent(part)).join('/')
+  return `file:${encoded}?mode=ro&immutable=1`
+}
+
+async function runSqlite(target: string, sql: string): Promise<Record<string, unknown>[]> {
   let stdout = ''
   try {
-    const result = await execFileAsync(SQLITE, ['-json', dbPath, sql], {
+    const result = await execFileAsync(SQLITE, ['-json', target, sql], {
       timeout: 20_000,
       maxBuffer: 16 * 1024 * 1024,
       encoding: 'utf8',
@@ -245,4 +311,11 @@ function fileAccess(path: string): 'file' | 'missing' | 'blocked' {
 
 function isMissingSqlite(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
+}
+
+function isPermission(error: unknown): boolean {
+  const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
+  if (code === 'EPERM' || code === 'EACCES') return true
+  const message = error instanceof Error ? error.message : ''
+  return /operation not permitted|permission denied/i.test(message)
 }
