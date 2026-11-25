@@ -361,7 +361,7 @@ export function App() {
         </div>
       ) : note && <p className="note">{note}</p>}
       {error && <p className="warn">{error}</p>}
-      {arrivals.length > 0 && (
+      {!macApp && arrivals.length > 0 && (
         <div className="prompt presence-dialog" role="dialog" aria-labelledby="presence-title">
           <div>
             <h3 id="presence-title">New in range</h3>
@@ -468,6 +468,8 @@ export function App() {
           scope={ask.scope}
           source={ask.source}
           subscribed={account?.alerts.status === 'active'}
+          arrivals={arrivals}
+          onDismissArrivals={() => setArrivals([])}
         />
       )}
       </div>

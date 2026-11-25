@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { presenceKey, type PresenceHit } from '../shared/presence'
 import { api } from './api'
 
 export type AskDataset = 'wifi' | 'account'
@@ -29,12 +30,16 @@ export function AskBox({
   layout = 'inline',
   scope,
   source,
+  arrivals = [],
+  onDismissArrivals,
 }: {
   dataset: AskDataset
   subscribed: boolean
   layout?: 'inline' | 'rail'
   scope?: string
   source?: string
+  arrivals?: PresenceHit[]
+  onDismissArrivals?: () => void
 }) {
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState('')
@@ -121,6 +126,25 @@ export function AskBox({
         {size !== 'min' && <strong className="ask-source">{sourceText}</strong>}
         {controls}
       </div>
+      {arrivals.length > 0 && size === 'min' && (
+        <button type="button" className="ask-presence-min" onClick={() => setSize('normal')}>
+          {arrivals.length} new
+        </button>
+      )}
+      {arrivals.length > 0 && size !== 'min' && (
+        <div className="prompt presence-dialog" role="dialog" aria-labelledby="presence-title">
+          <div className="presence-heading">
+            <h3 id="presence-title">New in range</h3>
+            <button type="button" onClick={() => onDismissArrivals?.()}>Dismiss</button>
+          </div>
+          <ul className="diff-list">
+            {arrivals.slice(0, 8).map((hit) => (
+              <li key={presenceKey(hit)}>{hit.kind === 'ap' ? 'Wi-Fi' : 'Bluetooth'} · {hit.label}</li>
+            ))}
+          </ul>
+          {arrivals.length > 8 && <p>and {arrivals.length - 8} more</p>}
+        </div>
+      )}
       {size !== 'min' && (subscribed ? (
         <>
           <div className="ask-transcript" ref={transcript}>
