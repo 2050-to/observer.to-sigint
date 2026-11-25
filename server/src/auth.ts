@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from 'node:crypto'
+import { createHmac, randomBytes, randomUUID } from 'node:crypto'
 import { SignJWT, jwtVerify } from 'jose'
 import { hmacKey } from './crypto.js'
 import { ApiError } from './http.js'
@@ -39,8 +39,9 @@ export function loginToken(): { raw: string; hmac: Buffer } {
 export async function signSession(
   user: { id: string; email: string },
   expiresIn: string | number = '30d',
+  sid?: string,
 ): Promise<string> {
-  return new SignJWT({ email: user.email })
+  return new SignJWT({ email: user.email, ...(sid ? { sid } : {}) })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(user.id)
     .setIssuedAt()
@@ -48,16 +49,45 @@ export async function signSession(
     .sign(jwtSecret())
 }
 
-export async function verifySession(header: string | undefined): Promise<{ id: string; email: string } | null> {
+export interface SessionClaims {
+  id: string
+  email: string
+  sid: string | null
+  iat: number | null
+}
+
+export async function readSession(header: string | undefined): Promise<SessionClaims | null> {
   const token = header?.startsWith('Bearer ') ? header.slice('Bearer '.length).trim() : ''
   if (!token) return null
   try {
     const { payload } = await jwtVerify(token, jwtSecret(), { algorithms: ['HS256'] })
     if (!payload.sub || typeof payload.email !== 'string') return null
-    return { id: payload.sub, email: payload.email }
+    return {
+      id: payload.sub,
+      email: payload.email,
+      sid: typeof payload.sid === 'string' ? payload.sid : null,
+      iat: typeof payload.iat === 'number' ? payload.iat : null,
+    }
   } catch {
     return null
   }
+}
+
+export async function verifySession(header: string | undefined): Promise<{ id: string; email: string } | null> {
+  const session = await readSession(header)
+  if (!session) return null
+  return { id: session.id, email: session.email }
+}
+
+export function sessionClient(value: unknown): 'web' | 'mac' | 'android' {
+  if (value === 'mac' || value === 'android') return value
+  return 'web'
+}
+
+export function sessionLabel(client: 'web' | 'mac' | 'android'): string {
+  if (client === 'mac') return 'Mac'
+  if (client === 'android') return 'Android'
+  return 'Web'
 }
 
 function linkLimited(email: string): boolean {
@@ -108,10 +138,13 @@ async function issueLogin(store: Store, email: string, base: string): Promise<vo
   })
 }
 
-export async function verifyLogin(store: Store, raw: unknown): Promise<{ token: string; email: string }> {
+export async function verifyLogin(store: Store, raw: unknown, client?: unknown): Promise<{ token: string; email: string }> {
   if (typeof raw !== 'string' || raw.length < 20 || raw.length > 200) throw new ApiError(401, 'unauthorized')
   const hmac = createHmac('sha256', hmacKey()).update(`login:${raw}`).digest()
   const user = await store.consumeLoginToken(hmac)
   if (!user) throw new ApiError(401, 'unauthorized')
-  return { token: await signSession(user), email: user.email }
+  const kind = sessionClient(client)
+  const sid = randomUUID()
+  await store.createSession(user.id, sid, kind, sessionLabel(kind))
+  return { token: await signSession(user, '30d', sid), email: user.email }
 }

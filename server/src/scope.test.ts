@@ -4,9 +4,11 @@ import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import pg from 'pg'
 import { askAccount } from './ask.js'
+import { readSession, signSession } from './auth.js'
 import { bssidHmac, encryptJson } from './crypto.js'
 import { ApiError } from './http.js'
 import { Store } from './store.js'
+import { emptyReview } from '../../shared/review.js'
 import { PRIVACY_VERSION, TOS_VERSION } from '../../shared/legal.js'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
@@ -114,7 +116,8 @@ try {
     boundary: { kind: 'radius', lat: 47.62, lon: -122.35, radiusM: 150 },
     claims: [{ ssid: 'Cafe Only A', bssid: 'aa:bb:cc:dd:ee:41', baseline: 'wpa2' }],
   })
-  assert.equal(site?.name, 'Scope office')
+  assert.ok(site)
+  assert.equal(site.name, 'Scope office')
   assert.equal((await store.sites(userB.id)).length, 0)
   const disposition = await store.saveDisposition(userA.id, {
     kind: 'ap',
@@ -130,8 +133,99 @@ try {
   const lanChanges = await store.replaceLanInventory(userA.id, [{
     ip: '10.9.9.4', role: 'host', present: true, mac: null, name: 'lobby camera', services: [], ports: [],
   }])
+  assert.ok(lanChanges)
   assert.equal(lanChanges.some((change) => change.kind === 'recorder_appeared'), true)
   assert.equal((await store.lanChanges(userB.id)).length, 0)
+  assert.equal((await store.searchWifi(userA.id, { state: 'Washington', city: null, zip: null })).some((row) => row.ssid === 'Cafe Only A'), true)
+
+  const paris = encryptJson({
+    bssid: 'aa:bb:cc:dd:ee:77',
+    ssid: 'Paris Cafe',
+    channel: 1,
+    security: 'wpa2',
+    lat: 48.86,
+    lon: 2.35,
+    country: 'FR',
+    region: 'Île-de-France',
+    locality: 'Paris',
+    postal: '75001',
+    city: 'Paris',
+    state: 'Île-de-France',
+    zip: '75001',
+  })
+  await pool.query(
+    `INSERT INTO wifi_places (user_id, bssid_hmac, payload, nonce, first_seen, last_seen)
+     VALUES ($1, $2, $3, $4, now(), now())`,
+    [userA.id, bssidHmac('aa:bb:cc:dd:ee:77'), paris.payload, paris.nonce],
+  )
+  const foundParis = await store.searchWifi(userA.id, { country: 'FR', region: 'Île-de-France', locality: 'Paris', postal: '75001' })
+  assert.deepEqual(foundParis.map((row) => row.ssid), ['Paris Cafe'])
+
+  const firstReview = await store.saveReview(userA.id, { ...emptyReview(), observationCount: 1 })
+  const secondReview = await store.saveReview(userA.id, { ...emptyReview(), observationCount: 2 })
+  assert.notEqual(firstReview.id, secondReview.id)
+  assert.equal((await store.reviewById(userA.id, firstReview.id))?.digest.observationCount, 1)
+  assert.ok((await store.reviews(userA.id)).length >= 2)
+
+  const siteB = await store.createSite(userA.id, {
+    name: 'Scope annex',
+    boundary: { kind: 'radius', lat: 47.7, lon: -122.2, radiusM: 80 },
+    claims: [],
+  })
+  assert.ok(siteB)
+  const annex = await store.replaceLanInventory(userA.id, [{
+    ip: '10.8.8.8', role: 'host', present: true, mac: null, name: 'annex printer', services: [], ports: [],
+  }], siteB.id)
+  assert.ok(annex)
+  assert.equal(annex.length, 0)
+  const officeAgain = await store.replaceLanInventory(userA.id, [{
+    ip: '10.9.9.2', role: 'host', present: true, mac: null, name: 'printer', services: [], ports: [],
+  }], site.id)
+  assert.ok(officeAgain)
+  assert.equal(officeAgain.some((change) => change.kind === 'recorder_disappeared'), true)
+
+  const scanId = crypto.randomUUID()
+  const archived = encryptJson({
+    scanId,
+    driveId: null,
+    scannerId: null,
+    scannerLabel: 'Test',
+    observedAt: new Date().toISOString(),
+    lat: 47.62,
+    lon: -122.35,
+    wifi: [{
+      bssid: 'aa:bb:cc:dd:ee:99',
+      ssid: 'Gone',
+      rssi: -40,
+      channel: 1,
+      security: 'wpa2',
+      stationCount: null,
+      channelUtilization: null,
+      admissionCapacity: null,
+    }],
+    bluetooth: [],
+  })
+  await pool.query(
+    `INSERT INTO scans (user_id, scan_id, drive_id, scanner_id, observed_at, payload, nonce)
+     VALUES ($1, $2, null, null, now(), $3, $4)`,
+    [userA.id, scanId, archived.payload, archived.nonce],
+  )
+  const before = await store.replay(userA.id, new Date(Date.now() - 60_000).toISOString(), new Date(Date.now() + 60_000).toISOString())
+  assert.equal(before.some((scan) => scan.wifi.some((network) => network.bssid === 'aa:bb:cc:dd:ee:99')), true)
+  await store.removeRadio(userA.id, 'aa:bb:cc:dd:ee:99')
+  const after = await store.replay(userA.id, new Date(Date.now() - 60_000).toISOString(), new Date(Date.now() + 60_000).toISOString())
+  assert.equal(after.some((scan) => scan.wifi.some((network) => network.bssid === 'aa:bb:cc:dd:ee:99')), false)
+
+  const questions = await store.questions(userA.id)
+  assert.ok(questions.some((row) => row.question.includes('Cafe') && row.excerpt.includes('Cafe Only A')))
+
+  const sid = crypto.randomUUID()
+  await store.createSession(userA.id, sid, 'web', 'Web')
+  const live = await signSession(userA, '1h', sid)
+  const liveClaims = await readSession(`Bearer ${live}`)
+  assert.equal(await store.sessionAllowed(userA.id, liveClaims?.sid ?? null, liveClaims?.iat ?? null), true)
+  assert.equal(await store.revokeSession(userA.id, sid), true)
+  assert.equal(await store.sessionAllowed(userA.id, sid, liveClaims?.iat ?? null), false)
 
   await store.wipe(userA.id)
   assert.equal((await store.searchWifi(userA.id, { zip: '98109', state: null, city: null })).length, 0)

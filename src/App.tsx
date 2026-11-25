@@ -80,6 +80,7 @@ export function App() {
   const [error, setError] = useState('')
   const [enrichmentStatus, setEnrichmentStatus] = useState<EnrichmentQueueStatus | null>(null)
   const [focus, setFocus] = useState<{ lat: number; lon: number; label: string } | null>(null)
+  const [logQuery, setLogQuery] = useState('')
   const [eraseStep, setEraseStep] = useState<0 | 1 | 2>(0)
   const [erasing, setErasing] = useState(false)
   const [ownedReset, setOwnedReset] = useState(0)
@@ -121,9 +122,15 @@ export function App() {
     })
   }, [map, range])
 
-  async function saveDisposition(kind: DispositionKind, id: string, status: DispositionStatus | null, note: string) {
+  async function saveDisposition(
+    kind: DispositionKind,
+    id: string,
+    status: DispositionStatus | null,
+    note: string,
+    extra?: { model?: string; firmware?: string; assignee?: string; dueAt?: string | null },
+  ) {
     if (status == null) await api.clearDisposition({ kind, id })
-    else await api.saveDisposition({ kind, id, status, note })
+    else await api.saveDisposition({ kind, id, status, note, ...extra })
     setDispositions(await api.dispositions())
   }
 
@@ -443,6 +450,8 @@ export function App() {
           enrichmentStatus={enrichmentStatus}
           dispositions={dispositions}
           onDisposition={saveDisposition}
+          query={logQuery}
+          onDeleted={() => void refresh('pull')}
           nameForGroup={nameForGroup}
           draftFor={draftFor}
           rename={rename}
@@ -457,9 +466,27 @@ export function App() {
         />
       )}
       {tab === 'changes' && (
-        <ChangesView dispositions={dispositions} onDisposition={saveDisposition} />
+        <ChangesView
+          dispositions={dispositions}
+          onDisposition={saveDisposition}
+          onOpen={(radio) => {
+            if (radio.lat != null && radio.lon != null) {
+              setFocus({ lat: radio.lat, lon: radio.lon, label: radio.label })
+              setTab('map')
+              return
+            }
+            setLogQuery(radio.id)
+            setTab('log')
+          }}
+        />
       )}
-      <OwnedNetwork active={onDevice()} resetToken={ownedReset} />
+      <OwnedNetwork
+        active={onDevice()}
+        resetToken={ownedReset}
+        phone={range?.phone ?? null}
+        dispositions={dispositions}
+        onDisposition={saveDisposition}
+      />
       </div>
       {macApp && (
         <AskBox

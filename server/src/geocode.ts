@@ -6,6 +6,9 @@ export interface PlaceLookup {
   crossStreets: string[]
   elevationM: number | null
   postalCode: string | null
+  country: string | null
+  region: string | null
+  locality: string | null
 }
 
 const USER_AGENT = 'Observer.to/0.1 (local observer)'
@@ -73,7 +76,15 @@ export async function lookupPlace(lat: number, lon: number): Promise<PlaceLookup
     nearestRoads(lat, lon).catch(() => [] as string[]),
     groundElevation(lat, lon),
   ])
-  return { address: located.address, crossStreets, elevationM, postalCode: located.postalCode }
+  return {
+    address: located.address,
+    crossStreets,
+    elevationM,
+    postalCode: located.postalCode,
+    country: located.country,
+    region: located.region,
+    locality: located.locality,
+  }
 }
 
 export async function lookupPostalCode(lat: number, lon: number): Promise<{ code: string | null; lookedUp: boolean }> {
@@ -106,13 +117,20 @@ async function groundElevation(lat: number, lon: number): Promise<number | null>
   }
 }
 
-async function reverseAddress(lat: number, lon: number): Promise<{ address: string; postalCode: string | null }> {
+async function reverseAddress(lat: number, lon: number): Promise<{ address: string; postalCode: string | null; country: string | null; region: string | null; locality: string | null }> {
   const body = await fetchNominatim(lat, lon)
+  const located = placePartsFrom(body)
   const city = body.address?.city || body.address?.town || body.address?.village || body.address?.hamlet
   const parts = [body.address?.house_number, body.address?.road, city].filter(Boolean)
   const address = parts.length > 0 ? parts.join(' ') : body.display_name
   if (!address) throw new Error('address lookup returned no place')
-  return { address, postalCode: postalCodeFrom(body) }
+  return {
+    address,
+    postalCode: located.postalCode,
+    country: located.countryCode,
+    region: located.state,
+    locality: located.city,
+  }
 }
 
 async function fetchNominatim(lat: number, lon: number): Promise<NominatimResponse> {

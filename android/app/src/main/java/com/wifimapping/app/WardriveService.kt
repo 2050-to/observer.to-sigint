@@ -62,6 +62,7 @@ class WardriveService : Service() {
     private var verticalAccuracyM: Double? = null
     private var relativeM: Double? = null
     private lateinit var outbox: Outbox
+    private var driveId: String? = null
     private lateinit var wifiManager: WifiManager
     private var bleScanner: BluetoothLeScanner? = null
     private val adverts = LinkedHashMap<String, org.json.JSONObject>()
@@ -96,6 +97,7 @@ class WardriveService : Service() {
         }
         startForeground(NOTIFICATION_ID, notification(), foregroundTypes())
         if (!::outbox.isInitialized) {
+            driveId = UUID.randomUUID().toString()
             outbox = Outbox(this)
             wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
             val lock = (getSystemService(POWER_SERVICE) as PowerManager)
@@ -227,6 +229,9 @@ class WardriveService : Service() {
         val body = JSONObject()
         body.put("scanId", UUID.randomUUID().toString())
         body.put("observedAt", java.time.Instant.now().toString())
+        body.put("driveId", driveId ?: JSONObject.NULL)
+        body.put("scannerId", scannerId())
+        body.put("scannerLabel", Build.MODEL)
         body.put("lat", lastLat ?: JSONObject.NULL)
         body.put("lon", lastLon ?: JSONObject.NULL)
         body.put("accuracy", lastAccuracy ?: JSONObject.NULL)
@@ -397,6 +402,15 @@ class WardriveService : Service() {
             JSONArray()
         }
         return devices to cells
+    }
+
+    private fun scannerId(): String {
+        val prefs = getSharedPreferences("observer", MODE_PRIVATE)
+        val existing = prefs.getString("scannerId", null)
+        if (!existing.isNullOrBlank()) return existing
+        val created = UUID.randomUUID().toString()
+        prefs.edit().putString("scannerId", created).apply()
+        return created
     }
 
     private fun notifyEvilTwins(response: JSONObject) {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { alertShouldSend, alertText, criticalAlertText, criticalShouldSend, digestFromCatalog, findingKey, pendingCritical, underCriticalCap, ALERT_INTERVAL_MS, CRITICAL_DAILY_CAP } from './alerts.js'
 import type { SiteRecord } from '../../shared/sites.js'
-import type { Disposition } from '../../shared/disposition.js'
+import { siteEventId, type Disposition } from '../../shared/disposition.js'
 import type { CellRecord, DeviceRecord, NetworkRecord, OpenRow } from './types.js'
 
 const now = Date.parse('2026-11-21T00:00:00Z')
@@ -139,6 +139,69 @@ assert.equal(reviewed.siteEvents.some((event) => event.kind === 'arrived'), true
 assert.equal(reviewed.siteEvents.some((event) => event.kind === 'departed'), false)
 assert.match(alertText(reviewed), /Office heard on a radio that is not claimed/)
 assert.equal(alertText(reviewed).includes('aa:bb:cc:dd:ee:10'), false)
+assert.equal(digest.newRadios.some((radio) => radio.kind === 'cell' && radio.label === 'Tower'), true)
+assert.match(text, /Tower/)
+assert.equal(text.includes('aa:bb:cc:dd:ee:01'), false)
+
+const closedRadio = digestFromCatalog({
+  networks: [network],
+  devices: [device],
+  cells: [cell],
+  openRows: [openRow],
+  since: '2026-11-15T00:00:00Z',
+  sites: [site],
+  dispositions: [{ kind: 'ap', id: 'aa:bb:cc:dd:ee:10', status: 'accepted', note: '' }],
+})
+assert.equal(closedRadio.siteEvents.some((event) => event.bssid === 'aa:bb:cc:dd:ee:10'), false)
+assert.equal(closedRadio.siteEvents.some((event) => event.kind === 'arrived'), true)
+
+const closedEvent = digestFromCatalog({
+  networks: [network],
+  devices: [device],
+  cells: [cell],
+  openRows: [openRow],
+  since: '2026-11-15T00:00:00Z',
+  sites: [site],
+  dispositions: [{
+    kind: 'site_event',
+    id: siteEventId(site.id, site.events[0]),
+    status: 'false_match',
+    note: '',
+  }],
+})
+assert.equal(closedEvent.siteEvents.some((event) => event.kind === 'arrived'), false)
+
+const walked: SiteRecord = {
+  ...site,
+  id: 'site-2',
+  claims: [],
+  events: [],
+  lastWalk: {
+    startedAt: '2026-11-20T00:00:00.000Z',
+    walkedAt: '2026-11-20T00:00:00.000Z',
+    heard: [{ ssid: 'Guest', bssid: 'aa:bb:cc:dd:ee:10', security: 'wpa2', channel: 6 }],
+    heardDevices: [],
+  },
+}
+const openFinding = digestFromCatalog({
+  networks: [],
+  devices: [],
+  cells: [],
+  openRows: [],
+  since: null,
+  sites: [walked],
+})
+assert.equal(openFinding.siteFindings.some((finding) => finding.detail === 'aa:bb:cc:dd:ee:10'), true)
+const hiddenFinding = digestFromCatalog({
+  networks: [],
+  devices: [],
+  cells: [],
+  openRows: [],
+  since: null,
+  sites: [walked],
+  dispositions: [{ kind: 'ap', id: 'aa:bb:cc:dd:ee:10', status: 'patched', note: '' }],
+})
+assert.equal(hiddenFinding.siteFindings.some((finding) => finding.detail === 'aa:bb:cc:dd:ee:10'), false)
 
 const episode = site.events[1]
 assert.ok(episode)

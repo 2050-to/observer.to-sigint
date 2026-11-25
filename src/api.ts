@@ -40,6 +40,10 @@ export interface WifiPlace {
   city: string | null
   state: string | null
   zip: string | null
+  country?: string | null
+  region?: string | null
+  locality?: string | null
+  postal?: string | null
   lastSeen: string
 }
 
@@ -72,8 +76,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(client ? { email, client } : { email }),
     }).then(() => undefined),
-  verify: async (token: string): Promise<{ token: string; email: string }> =>
-    request('/api/auth/verify', { method: 'POST', body: JSON.stringify({ token }) }).then((response) => response.json()),
+  verify: async (token: string, client?: 'web' | 'mac' | 'android'): Promise<{ token: string; email: string }> =>
+    request('/api/auth/verify', { method: 'POST', body: JSON.stringify({ token, client }) }).then((response) => response.json()),
   checkout: async (): Promise<string> =>
     request('/api/billing/checkout', { method: 'POST' }).then(async (response) => {
       const body = await response.json() as { url: string }
@@ -106,8 +110,12 @@ export const api = {
   legal: async (): Promise<LegalDocuments> => request('/api/legal').then((response) => response.json()),
   acceptLegal: (body: { bornOn: string; tosVersion: string; privacyVersion: string }): Promise<void> =>
     request('/api/legal/accept', { method: 'POST', body: JSON.stringify(body) }).then(() => undefined),
-  wifiSearch: async (filter: { zip?: string; state?: string; city?: string }): Promise<WifiPlace[]> => {
+  wifiSearch: async (filter: { zip?: string; state?: string; city?: string; country?: string; region?: string; locality?: string; postal?: string }): Promise<WifiPlace[]> => {
     const params = new URLSearchParams()
+    if (filter.country) params.set('country', filter.country)
+    if (filter.region) params.set('region', filter.region)
+    if (filter.locality) params.set('locality', filter.locality)
+    if (filter.postal) params.set('postal', filter.postal)
     if (filter.zip) params.set('zip', filter.zip)
     if (filter.state) params.set('state', filter.state)
     if (filter.city) params.set('city', filter.city)
@@ -120,6 +128,11 @@ export const api = {
     request('/api/owned', { method: 'POST', body: JSON.stringify(body) }).then((response) => response.json()),
   saveLan: async (body: unknown): Promise<{ count: number; changes: OwnedChange[] }> =>
     request('/api/lan', { method: 'POST', body: JSON.stringify(body) }).then((response) => response.json()),
+  lanInventories: async (siteId?: string | null): Promise<{ id: string; siteId: string | null; observedAt: string; count: number; changes: OwnedChange[] }[]> => {
+    const params = siteId ? `?siteId=${encodeURIComponent(siteId)}` : ''
+    const body = await request(`/api/lan/inventories${params}`).then((response) => response.json() as Promise<{ inventories: { id: string; siteId: string | null; observedAt: string; count: number; changes: OwnedChange[] }[] }>)
+    return body.inventories
+  },
   lanChanges: async (): Promise<OwnedChange[]> => {
     const body = await request('/api/lan/changes').then((response) => response.json() as Promise<{ changes: OwnedChange[] }>)
     return body.changes
@@ -143,18 +156,59 @@ export const api = {
     const body = await request('/api/dispositions').then((response) => response.json() as Promise<{ dispositions: Disposition[] }>)
     return body.dispositions
   },
-  saveDisposition: async (body: { kind: DispositionKind; id: string; status: DispositionStatus; note: string }): Promise<Disposition> => {
+  saveDisposition: async (body: { kind: DispositionKind; id: string; status: DispositionStatus; note: string; model?: string; firmware?: string; assignee?: string; dueAt?: string | null }): Promise<Disposition> => {
     const saved = await request('/api/dispositions', { method: 'POST', body: JSON.stringify(body) }).then((response) => response.json() as Promise<{ disposition: Disposition }>)
     return saved.disposition
   },
   clearDisposition: (body: { kind: DispositionKind; id: string }): Promise<void> =>
     request('/api/dispositions/clear', { method: 'POST', body: JSON.stringify(body) }).then(() => undefined),
-  review: async (): Promise<{ builtAt: string | null; digest: WeeklyReview | null }> =>
-    request('/api/review').then((response) => response.json()),
-  buildReview: async (): Promise<{ builtAt: string; digest: WeeklyReview }> =>
-    request('/api/review', { method: 'POST' }).then((response) => response.json()),
-  ask: async (dataset: 'wifi' | 'account', question: string): Promise<string> => {
-    const body = await request('/api/ask', { method: 'POST', body: JSON.stringify({ dataset, question }) }).then((response) => response.json() as Promise<{ answer: string }>)
-    return body.answer
+  review: async (id?: string): Promise<{ id?: string; builtAt: string | null; digest: WeeklyReview | null }> =>
+    request(id ? `/api/review?id=${encodeURIComponent(id)}` : '/api/review').then((response) => response.json()),
+  reviews: async (): Promise<{ id: string; builtAt: string }[]> => {
+    const body = await request('/api/reviews').then((response) => response.json() as Promise<{ reviews: { id: string; builtAt: string }[] }>)
+    return body.reviews
   },
+  buildReview: async (): Promise<{ id: string; builtAt: string; digest: WeeklyReview }> =>
+    request('/api/review', { method: 'POST' }).then((response) => response.json()),
+  reviewFile: (id: string, kind: 'md' | 'csv'): Promise<Blob> =>
+    request(`/api/review.${kind}?id=${encodeURIComponent(id)}`).then((response) => response.blob()),
+  replay: async (from: string, to: string) => {
+    const params = new URLSearchParams({ from, to })
+    const body = await request(`/api/replay?${params}`).then((response) => response.json() as Promise<{ scans: import('../shared/replay').CompactScan[] }>)
+    return body.scans
+  },
+  retention: async (): Promise<{ observationDays: number; reviewDays: number }> =>
+    request('/api/retention').then((response) => response.json()),
+  setRetention: async (observationDays: number): Promise<{ observationDays: number; reviewDays: number }> =>
+    request('/api/retention', { method: 'POST', body: JSON.stringify({ observationDays }) }).then((response) => response.json()),
+  deleteDrive: (driveId: string): Promise<void> =>
+    request('/api/drives/delete', { method: 'POST', body: JSON.stringify({ driveId }) }).then(() => undefined),
+  deleteRadio: (bssid: string): Promise<void> =>
+    request('/api/radios/delete', { method: 'POST', body: JSON.stringify({ bssid }) }).then(() => undefined),
+  deleteAdvertiser: (address: string): Promise<void> =>
+    request('/api/advertisers/delete', { method: 'POST', body: JSON.stringify({ address }) }).then(() => undefined),
+  labels: async (): Promise<{ id: string; name: string }[]> => {
+    const body = await request('/api/labels').then((response) => response.json() as Promise<{ labels: { id: string; name: string }[] }>)
+    return body.labels
+  },
+  saveLabels: async (labels: { id: string; name: string }[]): Promise<{ id: string; name: string }[]> => {
+    const body = await request('/api/labels', { method: 'POST', body: JSON.stringify({ labels }) }).then((response) => response.json() as Promise<{ labels: { id: string; name: string }[] }>)
+    return body.labels
+  },
+  questions: async (): Promise<{ id: string; askedAt: string; question: string; answer: string; excerpt: string }[]> => {
+    const body = await request('/api/questions').then((response) => response.json() as Promise<{ questions: { id: string; askedAt: string; question: string; answer: string; excerpt: string }[] }>)
+    return body.questions
+  },
+  sessions: async (): Promise<{ sessions: { id: string; client: string; label: string; createdAt: string; lastSeenAt: string }[]; current: string | null }> =>
+    request('/api/sessions').then((response) => response.json()),
+  revokeSession: (id: string): Promise<void> =>
+    request('/api/sessions/revoke', { method: 'POST', body: JSON.stringify({ id }) }).then(() => undefined),
+  revokeAllSessions: (): Promise<void> =>
+    request('/api/sessions/revoke-all', { method: 'POST' }).then(() => undefined),
+  walks: async (id: string) => {
+    const body = await request(`/api/sites/walks?id=${encodeURIComponent(id)}`).then((response) => response.json() as Promise<{ walks: import('../shared/sites').SiteWalk[] }>)
+    return body.walks
+  },
+  ask: async (dataset: 'wifi' | 'account', question: string): Promise<{ answer: string; excerpt: string; id: string; askedAt: string }> =>
+    request('/api/ask', { method: 'POST', body: JSON.stringify({ dataset, question }) }).then((response) => response.json()),
 }

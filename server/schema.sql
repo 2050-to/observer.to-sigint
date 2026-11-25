@@ -211,3 +211,114 @@ CREATE TABLE IF NOT EXISTS critical_alerts (
   sent_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, finding_hmac)
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS sessions_valid_after timestamptz;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS observation_retention_days int NOT NULL DEFAULT 90;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS review_retention_days int NOT NULL DEFAULT 365;
+
+DO $$
+DECLARE
+  pk_cols text;
+BEGIN
+  SELECT string_agg(a.attname, ',' ORDER BY u.ord)
+    INTO pk_cols
+  FROM pg_constraint c
+  JOIN unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord) ON true
+  JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = u.attnum
+  WHERE c.conrelid = 'public.reviews'::regclass AND c.contype = 'p';
+  IF pk_cols = 'user_id' THEN
+    ALTER TABLE reviews DROP CONSTRAINT reviews_pkey;
+    ALTER TABLE reviews ADD COLUMN review_id uuid;
+    UPDATE reviews SET review_id = gen_random_uuid() WHERE review_id IS NULL;
+    ALTER TABLE reviews ALTER COLUMN review_id SET NOT NULL;
+    ALTER TABLE reviews ADD PRIMARY KEY (review_id);
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS reviews_user_built ON reviews (user_id, built_at DESC);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  session_id uuid PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  client text NOT NULL,
+  label text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  revoked_at timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS scanners (
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  scanner_id uuid NOT NULL,
+  payload bytea NOT NULL,
+  nonce bytea NOT NULL,
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, scanner_id)
+);
+
+CREATE TABLE IF NOT EXISTS scans (
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  scan_id uuid NOT NULL,
+  drive_id uuid,
+  scanner_id uuid,
+  observed_at timestamptz NOT NULL,
+  payload bytea NOT NULL,
+  nonce bytea NOT NULL,
+  PRIMARY KEY (user_id, scan_id)
+);
+
+CREATE INDEX IF NOT EXISTS scans_user_time ON scans (user_id, observed_at);
+CREATE INDEX IF NOT EXISTS scans_user_drive ON scans (user_id, drive_id);
+
+CREATE TABLE IF NOT EXISTS tombstones (
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  subject_hmac bytea NOT NULL,
+  kind text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, subject_hmac)
+);
+
+CREATE TABLE IF NOT EXISTS site_walks (
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  site_id uuid NOT NULL,
+  started_at timestamptz NOT NULL,
+  walked_at timestamptz NOT NULL,
+  payload bytea NOT NULL,
+  nonce bytea NOT NULL,
+  PRIMARY KEY (user_id, site_id, started_at)
+);
+
+CREATE INDEX IF NOT EXISTS site_walks_recent ON site_walks (user_id, site_id, walked_at DESC);
+
+CREATE TABLE IF NOT EXISTS lan_inventories (
+  inventory_id uuid PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  site_id uuid,
+  observed_at timestamptz NOT NULL DEFAULT now(),
+  payload bytea NOT NULL,
+  nonce bytea NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS lan_inventories_site ON lan_inventories (user_id, site_id, observed_at DESC);
+
+CREATE TABLE IF NOT EXISTS labels (
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  subject_hmac bytea NOT NULL,
+  payload bytea NOT NULL,
+  nonce bytea NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, subject_hmac)
+);
+
+CREATE TABLE IF NOT EXISTS questions (
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  question_id uuid NOT NULL,
+  asked_at timestamptz NOT NULL DEFAULT now(),
+  payload bytea NOT NULL,
+  nonce bytea NOT NULL,
+  PRIMARY KEY (user_id, question_id)
+);
+
+CREATE INDEX IF NOT EXISTS questions_recent ON questions (user_id, asked_at DESC);

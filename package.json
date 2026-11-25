@@ -43,6 +43,8 @@
     "mac": {
       "identity": "-",
       "hardenedRuntime": true,
+      "entitlements": "build-resources/entitlements.mac.plist",
+      "entitlementsInherit": "build-resources/entitlements.mac.plist",
       "category": "public.app-category.utilities",
       "extendInfo": {
         "NSLocationUsageDescription": "Observer.to uses your location to show network names and addresses.",

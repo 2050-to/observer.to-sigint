@@ -1,16 +1,23 @@
 import { asDeviceDetails, asSubnetCatalog } from '../../shared/ownedNetwork.js'
-import { cityName, stateCode, zipCode } from '../../shared/places.js'
+import { cityName, countryCode, regionText, zipCode, type PlaceQuery } from '../../shared/places.js'
+import { cleanPostalCode } from '../../shared/postal.js'
 import { ApiError } from './http.js'
 
-export function asPlaceFilter(url: URL): { zip: string | null; state: string | null; city: string | null } {
-  const zip = zipCode(url.searchParams.get('zip'))
-  const state = stateCode(url.searchParams.get('state'))
-  const city = cityName(url.searchParams.get('city'))
-  if (url.searchParams.get('zip') && !zip) throw new ApiError(400, 'zip must be a US ZIP code')
-  if (url.searchParams.get('state') && !state) throw new ApiError(400, 'state must be a US state')
-  if (url.searchParams.get('city') && !city) throw new ApiError(400, 'city is invalid')
-  if (!zip && !state && !city) throw new ApiError(400, 'zip, state, or city is required')
-  return { zip, state, city }
+export function asPlaceFilter(url: URL): PlaceQuery {
+  const countryRaw = url.searchParams.get('country')
+  const country = countryCode(countryRaw)
+  if (countryRaw && !country) throw new ApiError(400, 'country must be a two-letter code')
+  const regionRaw = url.searchParams.get('region') ?? url.searchParams.get('state')
+  const region = regionRaw ? regionText(regionRaw) : null
+  if (regionRaw && !region) throw new ApiError(400, 'region is invalid')
+  const localityRaw = url.searchParams.get('locality') ?? url.searchParams.get('city')
+  const locality = localityRaw ? cityName(localityRaw) : null
+  if (localityRaw && !locality) throw new ApiError(400, 'locality is invalid')
+  const postalRaw = url.searchParams.get('postal') ?? url.searchParams.get('zip')
+  const postal = postalRaw ? zipCode(postalRaw) ?? cleanPostalCode(postalRaw) : null
+  if (postalRaw && !postal) throw new ApiError(400, 'postal code is invalid')
+  if (!country && !region && !locality && !postal) throw new ApiError(400, 'a place field is required')
+  return { country, region, locality, postal, zip: postal, state: region, city: locality }
 }
 
 export function asOwnedDevice(value: unknown) {

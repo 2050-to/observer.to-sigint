@@ -65,7 +65,44 @@ export function UpgradeBanner({ account }: { account: Account | null }) {
 export function AccountBar({ account }: { account: Account }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [sessions, setSessions] = useState<{ id: string; client: string; label: string; createdAt: string; lastSeenAt: string }[]>([])
+  const [current, setCurrent] = useState<string | null>(null)
+  const [observationDays, setObservationDays] = useState(90)
   const canManage = account.alerts.portal
+
+  useEffect(() => {
+    let stop = false
+    void Promise.all([api.sessions(), api.retention()]).then(([listed, retention]) => {
+      if (stop) return
+      setSessions(listed.sessions)
+      setCurrent(listed.current)
+      setObservationDays(retention.observationDays)
+    }).catch(() => undefined)
+    return () => {
+      stop = true
+    }
+  }, [account.id])
+
+  async function revoke(id: string) {
+    await api.revokeSession(id)
+    if (id === current) {
+      await signOut()
+      return
+    }
+    const listed = await api.sessions()
+    setSessions(listed.sessions)
+    setCurrent(listed.current)
+  }
+
+  async function revokeAll() {
+    await api.revokeAllSessions()
+    await signOut()
+  }
+
+  async function saveWindow(days: number) {
+    const saved = await api.setRetention(days)
+    setObservationDays(saved.observationDays)
+  }
 
   async function openPortal() {
     setBusy(true)
@@ -92,6 +129,26 @@ export function AccountBar({ account }: { account: Account }) {
         <button type="button" onClick={() => void openPortal()} disabled={busy}>Manage subscription</button>
       )}
       <button type="button" onClick={() => void signOut()}>Sign out</button>
+      <label>
+        Observation window
+        <select aria-label="Observation window" value={observationDays} onChange={(event) => void saveWindow(Number(event.target.value))}>
+          <option value={7}>7 days</option>
+          <option value={30}>30 days</option>
+          <option value={90}>90 days</option>
+        </select>
+      </label>
+      {sessions.length > 0 && (
+        <ul className="diff-list">
+          {sessions.map((session) => (
+            <li key={session.id}>
+              {session.label} · {session.client} · last seen {new Date(session.lastSeenAt).toLocaleString()}
+              {session.id === current ? ' · this session' : ''}
+              <button type="button" onClick={() => void revoke(session.id)}>Revoke</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button type="button" onClick={() => void revokeAll()}>Sign out everywhere</button>
       {error && <p className="warn">{error}</p>}
     </div>
   )

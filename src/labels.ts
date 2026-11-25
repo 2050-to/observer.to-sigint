@@ -1,4 +1,6 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { api } from './api'
+import { sessionToken } from './session'
 
 const KEY = 'wifi-mapping-labels'
 
@@ -12,16 +14,52 @@ function readLabels(): Record<string, string> {
   }
 }
 
+function writeLabels(next: Record<string, string>) {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(next))
+  } catch {
+    // The names stay in memory for this page.
+  }
+}
+
+function rowsOf(labels: Record<string, string>): { id: string; name: string }[] {
+  return Object.entries(labels).flatMap(([id, name]) => (name.trim() ? [{ id, name }] : []))
+}
+
 export function useLabels() {
   const [labels, setLabels] = useState<Record<string, string>>(readLabels)
+
+  useEffect(() => {
+    if (!sessionToken()) return
+    let stop = false
+    void (async () => {
+      const remote = await api.labels()
+      if (stop) return
+      if (remote.length === 0) {
+        const local = rowsOf(readLabels())
+        if (local.length === 0) return
+        const saved = await api.saveLabels(local)
+        if (stop) return
+        const next = Object.fromEntries(saved.map((row) => [row.id, row.name]))
+        writeLabels(next)
+        setLabels(next)
+        return
+      }
+      const next = Object.fromEntries(remote.map((row) => [row.id, row.name]))
+      writeLabels(next)
+      setLabels(next)
+    })().catch(() => undefined)
+    return () => {
+      stop = true
+    }
+  }, [])
 
   const rename = useCallback((id: string, value: string) => {
     setLabels((current) => {
       const next = { ...current, [id]: value }
-      try {
-        localStorage.setItem(KEY, JSON.stringify(next))
-      } catch {
-        return next
+      writeLabels(next)
+      if (sessionToken()) {
+        void api.saveLabels([{ id, name: value }]).catch(() => undefined)
       }
       return next
     })

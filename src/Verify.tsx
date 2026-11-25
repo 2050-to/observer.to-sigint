@@ -1,13 +1,20 @@
 import { useEffect, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
 import { api } from './api'
 import { setSession } from './session'
+
+function clientKind(): 'web' | 'mac' | 'android' {
+  if (window.wifiMapping) return 'mac'
+  if (Capacitor.getPlatform() === 'android') return 'android'
+  return 'web'
+}
 
 const pending = new Map<string, Promise<{ token: string; email: string }>>()
 
 function verifyOnce(token: string): Promise<{ token: string; email: string }> {
   const existing = pending.get(token)
   if (existing) return existing
-  const promise = api.verify(token)
+  const promise = api.verify(token, clientKind())
   pending.set(token, promise)
   promise.catch(() => pending.delete(token))
   return promise

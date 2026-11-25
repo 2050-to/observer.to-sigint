@@ -10,22 +10,41 @@ export function DispositionControl({
   kind: DispositionKind
   id: string
   disposition: Disposition | null
-  onSave: (kind: DispositionKind, id: string, status: DispositionStatus | null, note: string) => Promise<void>
+  onSave: (
+    kind: DispositionKind,
+    id: string,
+    status: DispositionStatus | null,
+    note: string,
+    extra?: { model?: string; firmware?: string; assignee?: string; dueAt?: string | null },
+  ) => Promise<void>
 }) {
   const [status, setStatus] = useState<DispositionStatus | ''>(disposition?.status ?? '')
   const [note, setNote] = useState(disposition?.note ?? '')
+  const [model, setModel] = useState(disposition?.model ?? '')
+  const [firmware, setFirmware] = useState(disposition?.firmware ?? '')
+  const [assignee, setAssignee] = useState(disposition?.assignee ?? '')
+  const [dueAt, setDueAt] = useState(disposition?.dueAt ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   useEffect(() => {
     setStatus(disposition?.status ?? '')
     setNote(disposition?.note ?? '')
-  }, [disposition?.status, disposition?.note, id])
+    setModel(disposition?.model ?? '')
+    setFirmware(disposition?.firmware ?? '')
+    setAssignee(disposition?.assignee ?? '')
+    setDueAt(disposition?.dueAt ?? '')
+  }, [disposition?.status, disposition?.note, disposition?.model, disposition?.firmware, disposition?.assignee, disposition?.dueAt, id])
 
   async function save() {
     setBusy(true)
     setError('')
     try {
-      await onSave(kind, id, status || null, note.trim())
+      await onSave(kind, id, status || null, note.trim(), {
+        model: model.trim(),
+        firmware: firmware.trim(),
+        assignee: assignee.trim(),
+        dueAt: dueAt || null,
+      })
     } catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : 'The disposition could not be saved')
     } finally {
@@ -52,6 +71,10 @@ export function DispositionControl({
         placeholder="Note"
         onChange={(event) => setNote(event.target.value)}
       />
+      <input aria-label={`Model for ${id}`} value={model} maxLength={80} placeholder="Model" onChange={(event) => setModel(event.target.value)} />
+      <input aria-label={`Firmware for ${id}`} value={firmware} maxLength={80} placeholder="Firmware" onChange={(event) => setFirmware(event.target.value)} />
+      <input aria-label={`Assignee for ${id}`} value={assignee} maxLength={80} placeholder="Assignee" onChange={(event) => setAssignee(event.target.value)} />
+      <input aria-label={`Due date for ${id}`} type="date" value={dueAt ?? ''} onChange={(event) => setDueAt(event.target.value)} />
       <button type="button" onClick={() => void save()} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
       {error && <p className="warn">{error}</p>}
     </div>

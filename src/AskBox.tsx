@@ -17,11 +17,12 @@ const DATASET_RECORDS: Record<AskDataset, string> = {
 type RailSize = 'min' | 'normal' | 'max'
 
 type Turn = {
-  id: number
+  id: string
   dataset: AskDataset
   source: string
   question: string
   answer: string
+  excerpt: string
 }
 
 export function AskBox({
@@ -47,11 +48,29 @@ export function AskBox({
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [size, setSize] = useState<RailSize>('normal')
-  const turnId = useRef(0)
   const transcript = useRef<HTMLDivElement>(null)
   const rail = layout === 'rail'
   const scopeText = scope ?? `your ${DATASET_RECORDS[dataset]}`
   const sourceText = source ?? DATASET_NAME[dataset]
+
+  useEffect(() => {
+    if (!subscribed) return
+    let stop = false
+    void api.questions().then((rows) => {
+      if (stop) return
+      setTurns(rows.map((row) => ({
+        id: row.id,
+        dataset,
+        source: sourceText,
+        question: row.question,
+        answer: row.answer,
+        excerpt: row.excerpt,
+      })))
+    }).catch(() => undefined)
+    return () => {
+      stop = true
+    }
+  }, [subscribed, dataset, sourceText])
 
   useEffect(() => {
     const node = transcript.current
@@ -68,12 +87,17 @@ export function AskBox({
     try {
       const reply = await api.ask(askedDataset, asked)
       if (rail) {
-        const id = turnId.current
-        turnId.current += 1
-        setTurns((current) => [...current, { id, dataset: askedDataset, source: sourceText, question: asked.trim(), answer: reply }])
+        setTurns((current) => [...current, {
+          id: reply.id,
+          dataset: askedDataset,
+          source: sourceText,
+          question: asked.trim(),
+          answer: reply.answer,
+          excerpt: reply.excerpt,
+        }])
         setQuestion('')
       } else {
-        setAnswer(reply)
+        setAnswer(reply.answer)
       }
     } catch (reason: unknown) {
       if (!rail) setAnswer('')
@@ -153,6 +177,7 @@ export function AskBox({
                 <p className="ask-dataset">{turn.source}</p>
                 <p className="ask-question">{turn.question}</p>
                 <p className="answer">{turn.answer}</p>
+                {turn.excerpt && <p className="note">Records used: {turn.excerpt}</p>}
               </article>
             ))}
           </div>

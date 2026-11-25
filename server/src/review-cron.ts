@@ -26,6 +26,7 @@ for (const key of ['PGSSLROOTCERT', 'REDIS_CA']) {
 const store = await Store.connect()
 try {
   await store.migrate()
+  await store.prune()
   const reviews = await buildDueReviews(store)
   const sent = await deliverDueAlerts(store)
   const critical = await deliverCriticalAlerts(store)

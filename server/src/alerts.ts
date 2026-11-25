@@ -1,8 +1,8 @@
 import { accessPointByBssid, groupAccessPoints, groupAdvertisers } from '../../shared/accessPoints.js'
-import { dispositionOpen, type Disposition } from '../../shared/disposition.js'
+import { closedRadioIds, dispositionOpen, shownReasons, siteEventId, type Disposition } from '../../shared/disposition.js'
 import { ownedChangeText, type OwnedChange } from '../../shared/ownedDiff.js'
 import type { WeeklyReview } from '../../shared/review.js'
-import { reviewSiteEvents, siteFindings, type SiteEvent, type SiteRecord } from '../../shared/sites.js'
+import { reviewSiteEvents, siteFindings, walkDue, type SiteEvent, type SiteRecord } from '../../shared/sites.js'
 import { bssidHmac } from './crypto.js'
 import { appOrigin } from './auth.js'
 import { sendEmail } from './mail.js'
@@ -40,7 +40,7 @@ function riskItems(
   const closed = new Set(
     dispositions.filter((item) => !dispositionOpen(item.status)).map((item) => `${item.kind}:${item.id}`),
   )
-  const statusOf = new Map(dispositions.map((item) => [`${item.kind}:${item.id}`, item.status]))
+  const byKey = new Map(dispositions.map((item) => [`${item.kind}:${item.id}`, item]))
   const items: AlertDigest['highRisk'] = []
   const listed = new Set<string>()
   for (const record of records) {
@@ -50,13 +50,15 @@ function riskItems(
     const key = name.trim().toLowerCase()
     if (listed.has(key)) continue
     listed.add(key)
-    const reason = record.enrichment.risk.reasons.find((item) => item.trim()) ?? 'Flagged from public support and vulnerability records'
+    const disposition = record.kind && record.id ? byKey.get(`${record.kind}:${record.id}`) ?? null : null
+    const raw = record.enrichment.risk.reasons.find((item) => item.trim()) ?? 'Flagged from public support and vulnerability records'
+    const reason = shownReasons([raw], disposition)[0] ?? raw
     items.push({
       name,
       reason,
       kind: record.kind,
       id: record.id,
-      status: record.kind && record.id ? statusOf.get(`${record.kind}:${record.id}`) ?? null : null,
+      status: disposition?.status ?? null,
     })
     if (items.length >= 15) break
   }
@@ -84,6 +86,7 @@ export function digestFromCatalog(input: {
   const advertisers = groupAdvertisers(input.devices)
   const advertiserOf = new Map(advertisers.flatMap((group) => group.devices.map((device) => [device.address, group] as const)))
   const dispositions = input.dispositions ?? []
+  const hidden = closedRadioIds(dispositions)
   const fromNetworks = input.networks.map((network) => {
     const ap = accessPointOf.get(network.bssid)
     return {
@@ -102,29 +105,81 @@ export function digestFromCatalog(input: {
       id: group?.id ?? device.address,
     }
   })
+  const newAccessPoints = accessPoints.filter((ap) => ap.networks.every((network) => isNew(network.firstSeen, input.since)))
+  const newAdvertisers = advertisers.filter((group) => group.devices.every((device) => isNew(device.firstSeen, input.since)))
+  const newCells = input.cells.filter((cell) => isNew(cell.firstSeen, input.since))
+  const newRadios = [
+    ...newAccessPoints.map((ap) => ({
+      kind: 'ap' as const,
+      id: ap.id,
+      label: ap.label,
+      firstSeen: earliest(ap.networks.map((network) => network.firstSeen)),
+      lat: ap.best.bestLat ?? null,
+      lon: ap.best.bestLon ?? null,
+    })),
+    ...newAdvertisers.map((group) => ({
+      kind: 'adv' as const,
+      id: group.id,
+      label: group.label,
+      firstSeen: earliest(group.devices.map((device) => device.firstSeen)),
+      lat: group.best.bestLat ?? null,
+      lon: group.best.bestLon ?? null,
+    })),
+    ...newCells.map((cell) => ({
+      kind: 'cell' as const,
+      id: cell.key || cell.cellId || `cell:${cell.firstSeen}`,
+      label: cell.radio ? `${cell.radio.toUpperCase()} ${cell.cellId || ''}`.trim() : 'Tower',
+      firstSeen: cell.firstSeen,
+      lat: cell.bestLat ?? cell.siteLat ?? null,
+      lon: cell.bestLon ?? cell.siteLon ?? null,
+    })),
+  ]
   return {
     openNetworks,
     highRisk: riskItems([...fromNetworks, ...fromDevices], dispositions),
-    newAccessPoints: accessPoints.filter((ap) => ap.networks.every((network) => isNew(network.firstSeen, input.since))).length,
-    newAdvertisers: advertisers
-      .filter((group) => group.devices.every((device) => isNew(device.firstSeen, input.since))).length,
-    newCells: input.cells.filter((cell) => isNew(cell.firstSeen, input.since)).length,
+    newAccessPoints: newAccessPoints.length,
+    newAdvertisers: newAdvertisers.length,
+    newCells: newCells.length,
+    newRadios: newRadios.slice(0, 50),
+    newRadioRemainder: Math.max(0, newRadios.length - 50),
     observationCount: input.networks.length + input.devices.length + input.cells.length,
-    siteFindings: (input.sites ?? []).flatMap((site) => siteFindings(site)).slice(0, 15),
-    siteEvents: siteEventsFor(input.sites ?? [], input.since),
+    siteFindings: (input.sites ?? []).flatMap((site) => siteFindings(site))
+      .filter((finding) => !finding.detail.toLowerCase().match(/[0-9a-f]{2}(?::[0-9a-f]{2}){5}/g)?.some((mac) => hidden.has(mac)))
+      .slice(0, 15),
+    siteEvents: siteEventsFor(input.sites ?? [], input.since, dispositions, hidden),
     ownedChanges: (input.ownedChanges ?? []).slice(0, 15).map((change) => ({ text: ownedChangeText(change) })),
+    overdueWalks: (input.sites ?? []).flatMap((site) => {
+      const due = walkDue(site)
+      return due.overdue ? [{ site: site.name, walkedAt: site.lastWalk?.walkedAt ?? null, dueAt: due.dueAt }] : []
+    }).slice(0, 15),
   }
 }
 
-function siteEventsFor(sites: SiteRecord[], since: string | null): AlertDigest['siteEvents'] {
-  return sites.flatMap((site) => reviewSiteEvents(site, since).map((event) => ({
-    site: site.name,
-    kind: event.kind,
-    severity: event.severity,
-    at: event.at,
-    bssid: event.bssid,
-    label: event.detail,
-  }))).sort((a, b) => {
+function earliest(values: string[]): string {
+  return values.filter(Boolean).sort()[0] ?? ''
+}
+
+function siteEventsFor(
+  sites: SiteRecord[],
+  since: string | null,
+  dispositions: Disposition[],
+  hidden: Set<string>,
+): AlertDigest['siteEvents'] {
+  const closedEvents = new Set(
+    dispositions.filter((item) => item.kind === 'site_event' && !dispositionOpen(item.status)).map((item) => item.id),
+  )
+  return sites.flatMap((site) => reviewSiteEvents(site, since).flatMap((event) => {
+    if (hidden.has(event.bssid.toLowerCase())) return []
+    if (closedEvents.has(siteEventId(site.id, event))) return []
+    return [{
+      site: site.name,
+      kind: event.kind,
+      severity: event.severity,
+      at: event.at,
+      bssid: event.bssid,
+      label: event.detail,
+    }]
+  })).sort((a, b) => {
     if (a.severity !== b.severity) return a.severity === 'critical' ? -1 : 1
     return Date.parse(b.at) - Date.parse(a.at)
   }).slice(0, 15)
@@ -162,6 +217,10 @@ function section(rows: string[], empty: string): string {
   return rows.length ? rows.join('\n') : empty
 }
 
+function withoutHardware(value: string): string {
+  return value.replace(/[0-9a-f]{2}(?::[0-9a-f]{2}){5}/gi, 'a radio')
+}
+
 export function alertText(digest: AlertDigest): string {
   const open = section(digest.openNetworks.map((row) => {
     const place = row.place ? `, ${row.place}` : ''
@@ -187,6 +246,13 @@ export function alertText(digest: AlertDigest): string {
     `- Access points: ${digest.newAccessPoints}`,
     `- Bluetooth advertisers: ${digest.newAdvertisers}`,
     `- Towers: ${digest.newCells}`,
+    ...((digest.newRadios ?? []).slice(0, 15).map((row) => `- ${withoutHardware(row.label)}`)),
+    ...((digest.newRadios?.length ?? 0) + (digest.newRadioRemainder ?? 0) > 15
+      ? [`- ${(digest.newRadios?.length ?? 0) + (digest.newRadioRemainder ?? 0) - 15} more`]
+      : []),
+    '',
+    'Walks due',
+    section((digest.overdueWalks ?? []).map((row) => `- ${row.site} due ${row.dueAt}`), '- None'),
     '',
     'Site findings',
     findings,

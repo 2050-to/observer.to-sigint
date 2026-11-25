@@ -4,10 +4,12 @@ import { fileURLToPath } from 'node:url'
 import { PRIVACY_VERSION, TOS_VERSION, isAdult, routeNeedsConsent } from '../../shared/legal.js'
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { createServer as createHttpsServer } from 'node:https'
+import { reviewCsv, reviewMarkdown } from '../../shared/reviewExport.js'
+import { isDispositionKind } from '../../shared/disposition.js'
 import { catalogBundleCsv } from '../../shared/csv.js'
 import { catalogForensicsMarkdown } from '../../shared/forensics.js'
 import { AlertWorker, deliverCriticalAlerts, digestFor } from './alerts.js'
-import { appOrigin, normalizeEmail, requestLogin, verifyLogin, verifySession } from './auth.js'
+import { appOrigin, normalizeEmail, readSession, requestLogin, sessionClient, verifyLogin } from './auth.js'
 import { askAccount } from './ask.js'
 import { acceptWebhook, startCheckout, startPortal } from './billing.js'
 import { asOwnedDevice, asOwnedLan, asPlaceFilter } from './intake.js'
@@ -39,6 +41,7 @@ for (const key of ['PGSSLROOTCERT', 'REDIS_CA', 'TLS_CERT', 'TLS_KEY']) {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const MAC = /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/i
 const ORIGINS = new Set([
   'http://localhost:5173',
   'http://127.0.0.1:5173',
@@ -84,6 +87,9 @@ function asScan(body: unknown): ScanInput {
     wifiOn: Boolean(scan.wifiOn),
     bluetoothOn: Boolean(scan.bluetoothOn),
     cellOn: Boolean(scan.cellOn),
+    driveId: typeof scan.driveId === 'string' ? scan.driveId : null,
+    scannerId: typeof scan.scannerId === 'string' ? scan.scannerId : null,
+    scannerLabel: typeof scan.scannerLabel === 'string' ? scan.scannerLabel : null,
     networks: scan.networks.map(asAp),
     devices: asDevices(scan.devices),
     cells: asCells(scan.cells),
@@ -240,15 +246,17 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
   }
   if (req.method === 'POST' && url.pathname === '/api/auth/verify') {
     const body = JSON.parse(await readBody(req)) as { token?: unknown }
-    send(res, 200, await verifyLogin(store, body.token))
+    send(res, 200, await verifyLogin(store, body.token, sessionClient((body as { client?: unknown }).client)))
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/legal') {
     send(res, 200, legalDocuments())
     return
   }
-  const session = await verifySession(typeof req.headers.authorization === 'string' ? req.headers.authorization : undefined)
+  const header = typeof req.headers.authorization === 'string' ? req.headers.authorization : undefined
+  const session = await readSession(header)
   if (!session || !UUID.test(session.id)) throw new ApiError(401, 'unauthorized')
+  if (!await store.sessionAllowed(session.id, session.sid, session.iat)) throw new ApiError(401, 'unauthorized')
   const user = await store.userById(session.id)
   if (!user) throw new ApiError(401, 'unauthorized')
   if (req.method === 'POST' && url.pathname === '/api/legal/accept') {
@@ -270,6 +278,7 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
     if (!consent.accepted) throw new ApiError(403, 'consent required')
   }
   if (req.method === 'GET' && (url.pathname === '/api/me' || url.pathname === '/api/billing')) {
+    if (url.pathname === '/api/me') await store.touchSession(session.sid)
     const consent = await store.consentFor(user.id)
     const alerts = await store.subscriptionFor(user.id)
     send(res, 200, {
@@ -340,6 +349,10 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
       fetchedAt: new Date().toISOString(),
       lat,
       lon,
+      country: lookedUp.country,
+      region: lookedUp.region,
+      locality: lookedUp.locality,
+      postal: lookedUp.postalCode,
     }
     if (body.bssid) {
       const codes = await store.appearanceCodes(user.id, body.bssid, lat, lon, lookedUp.postalCode)
@@ -403,9 +416,18 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/lan') {
-    const catalog = asOwnedLan(JSON.parse(await readBody(req)) as unknown)
-    const changes = await store.replaceLanInventory(user.id, catalog.hosts)
+    const raw = JSON.parse(await readBody(req)) as { siteId?: unknown }
+    const catalog = asOwnedLan(raw)
+    const siteId = typeof raw.siteId === 'string' ? raw.siteId : null
+    const changes = await store.replaceLanInventory(user.id, catalog.hosts, siteId)
+    if (!changes) throw new ApiError(404, 'site not found')
     send(res, 200, { count: catalog.hosts.length, changes })
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/lan/inventories') {
+    const siteId = url.searchParams.get('siteId')
+    if (siteId && !UUID.test(siteId)) throw new ApiError(400, 'site id is invalid')
+    send(res, 200, { inventories: await store.lanInventories(user.id, siteId) })
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/lan/changes') {
@@ -458,18 +480,127 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
   }
   if (req.method === 'POST' && url.pathname === '/api/dispositions/clear') {
     const body = JSON.parse(await readBody(req)) as { kind?: unknown; id?: unknown }
-    if ((body.kind !== 'ap' && body.kind !== 'adv') || typeof body.id !== 'string') throw new ApiError(400, 'disposition is invalid')
+    if (!isDispositionKind(body.kind) || typeof body.id !== 'string') throw new ApiError(400, 'disposition is invalid')
     await store.deleteDisposition(user.id, body.kind, body.id)
     send(res, 200, { ok: true })
     return
   }
   if (req.method === 'GET' && url.pathname === '/api/review') {
-    send(res, 200, await store.reviewFor(user.id) ?? { builtAt: null, digest: null })
+    const id = url.searchParams.get('id')
+    if (id && !UUID.test(id)) throw new ApiError(400, 'review id is invalid')
+    const review = id ? await store.reviewById(user.id, id) : await store.reviewFor(user.id)
+    send(res, 200, review ?? { builtAt: null, digest: null })
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/reviews') {
+    send(res, 200, { reviews: await store.reviews(user.id) })
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/review') {
     const digest = await digestFor(store, user.id, (await store.reviewFor(user.id))?.builtAt ?? null)
     send(res, 200, await store.saveReview(user.id, digest))
+    return
+  }
+  if (req.method === 'GET' && (url.pathname === '/api/review.md' || url.pathname === '/api/review.csv')) {
+    const id = url.searchParams.get('id')
+    if (id && !UUID.test(id)) throw new ApiError(400, 'review id is invalid')
+    const review = id ? await store.reviewById(user.id, id) : await store.reviewFor(user.id)
+    if (!review?.digest || !review.builtAt) throw new ApiError(404, 'review not found')
+    if (url.pathname === '/api/review.csv') {
+      res.setHeader('Content-Disposition', 'attachment; filename="review.csv"')
+      send(res, 200, reviewCsv(review.digest), 'text/csv; charset=utf-8')
+      return
+    }
+    res.setHeader('Content-Disposition', 'attachment; filename="review.md"')
+    send(res, 200, reviewMarkdown({
+      email: user.email,
+      builtAt: review.builtAt,
+      reviewId: review.id,
+      digest: review.digest,
+    }), 'text/markdown; charset=utf-8')
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/replay') {
+    const from = Date.parse(url.searchParams.get('from') ?? '')
+    const to = Date.parse(url.searchParams.get('to') ?? '')
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) throw new ApiError(400, 'time range is invalid')
+    if (to - from > 90 * 24 * 60 * 60 * 1000) throw new ApiError(400, 'time range is too long')
+    send(res, 200, { scans: await store.replay(user.id, new Date(from).toISOString(), new Date(to).toISOString()) })
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/retention') {
+    send(res, 200, await store.retention(user.id))
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/retention') {
+    const body = JSON.parse(await readBody(req)) as { observationDays?: unknown }
+    const saved = await store.setRetention(user.id, body.observationDays)
+    if (!saved) throw new ApiError(400, 'observation window is invalid')
+    send(res, 200, saved)
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/drives/delete') {
+    const body = JSON.parse(await readBody(req)) as { driveId?: unknown }
+    if (typeof body.driveId !== 'string' || !UUID.test(body.driveId)) throw new ApiError(400, 'drive id is invalid')
+    send(res, 200, { deleted: await store.removeDrive(user.id, body.driveId) })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/radios/delete') {
+    const body = JSON.parse(await readBody(req)) as { bssid?: unknown }
+    if (typeof body.bssid !== 'string' || !MAC.test(body.bssid)) throw new ApiError(400, 'radio is invalid')
+    await store.removeRadio(user.id, body.bssid)
+    send(res, 200, { ok: true })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/advertisers/delete') {
+    const body = JSON.parse(await readBody(req)) as { address?: unknown }
+    if (typeof body.address !== 'string' || !MAC.test(body.address)) throw new ApiError(400, 'advertiser is invalid')
+    await store.removeAdvertiser(user.id, body.address)
+    send(res, 200, { ok: true })
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/labels') {
+    send(res, 200, { labels: await store.labels(user.id) })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/labels') {
+    const body = JSON.parse(await readBody(req)) as { labels?: unknown }
+    if (!Array.isArray(body.labels)) throw new ApiError(400, 'labels are invalid')
+    const labels = body.labels.flatMap((row) => {
+      if (!row || typeof row !== 'object') return []
+      const item = row as { id?: unknown; name?: unknown }
+      if (typeof item.id !== 'string' || typeof item.name !== 'string') return []
+      return [{ id: item.id, name: item.name }]
+    })
+    send(res, 200, { labels: await store.saveLabels(user.id, labels) })
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/questions') {
+    const subscription = await store.subscriptionFor(user.id)
+    if (subscription.status !== 'active') throw new ApiError(402, 'subscription required')
+    send(res, 200, { questions: await store.questions(user.id) })
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/sessions') {
+    send(res, 200, { sessions: await store.sessions(user.id), current: session.sid })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/sessions/revoke') {
+    const body = JSON.parse(await readBody(req)) as { id?: unknown }
+    if (typeof body.id !== 'string' || !UUID.test(body.id)) throw new ApiError(400, 'session id is invalid')
+    if (!await store.revokeSession(user.id, body.id)) throw new ApiError(404, 'session not found')
+    send(res, 200, { ok: true })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/sessions/revoke-all') {
+    await store.revokeAllSessions(user.id)
+    send(res, 200, { ok: true })
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/sites/walks') {
+    const siteId = url.searchParams.get('id') ?? ''
+    if (!UUID.test(siteId)) throw new ApiError(400, 'site id is invalid')
+    send(res, 200, { walks: await store.walks(user.id, siteId) })
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/ask') {

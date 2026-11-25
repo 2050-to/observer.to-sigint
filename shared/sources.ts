@@ -6,6 +6,7 @@ import {
   type AccessPoint,
   type AdvertiserGroup,
 } from './accessPoints.js'
+import { channelLoadText } from './qbss.js'
 import type { CellRecord, DeviceEnrichment, DeviceRecord, Fix, MotionTrack, NetworkRecord, Room } from './types.js'
 
 export type SignalKind = 'wifi' | 'bluetooth' | 'gps' | 'cell'
@@ -41,7 +42,7 @@ export interface StackedDevice {
   enrichments: DeviceEnrichment[]
 }
 
-type StackNetwork = Pick<NetworkRecord, 'bssid' | 'ssid' | 'hidden' | 'bestRssi' | 'bestLat' | 'bestLon' | 'enrichment'>
+type StackNetwork = Pick<NetworkRecord, 'bssid' | 'ssid' | 'hidden' | 'bestRssi' | 'bestLat' | 'bestLon' | 'enrichment'> & Partial<Pick<NetworkRecord, 'band' | 'stationCount' | 'channelUtilization' | 'admissionCapacity'>>
   & Partial<Pick<NetworkRecord, 'band' | 'apMldMac' | 'affiliatedLinks'>>
 type StackDevice = Pick<DeviceRecord, 'address' | 'name' | 'lastRssi' | 'bestRssi' | 'bestLat' | 'bestLon' | 'enrichment'>
 
@@ -73,7 +74,7 @@ function firstFix(items: Pick<NetworkRecord, 'bestLat' | 'bestLon'>[]): string |
 
 function radioDetail(network: StackNetwork): string {
   const band = network.band ? `${network.band} GHz` : null
-  return [`${Math.round(network.bestRssi)} dBm`, network.bssid, band].filter(Boolean).join(' · ')
+  return [`${Math.round(network.bestRssi)} dBm`, network.bssid, band, channelLoadText(network) ?? 'Not reported by this radio.'].filter(Boolean).join(' · ')
 }
 
 function enrichmentsOf(items: { enrichment?: DeviceEnrichment | null }[]): DeviceEnrichment[] {

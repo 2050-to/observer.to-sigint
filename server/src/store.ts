@@ -18,6 +18,22 @@ import {
   isEnrichmentInput,
   type EnrichmentInput,
 } from './enrichment/input.js'
+import {
+  deleteDrive,
+  hideSubject,
+  isHidden,
+  listLabels,
+  listQuestions,
+  parseObservationWindow,
+  pruneRetention,
+  replayScans,
+  retentionFor,
+  saveCompactScan,
+  saveLabels,
+  saveQuestion,
+  saveRetention,
+  tombstoneSet,
+} from './archive.js'
 import { lookupPlaceParts, type PlaceParts } from './geocode.js'
 import {
   acceptLegal,
@@ -29,7 +45,7 @@ import {
   searchWifi,
   upsertBluetoothPlaces,
   upsertWifiPlaces,
-  usPlace,
+  worldPlace,
   wipePersonal,
 } from './personal.js'
 import {
@@ -38,9 +54,13 @@ import {
   deleteSite,
   listDispositions,
   listLanHosts,
+  listLanInventories,
+  listReviews,
   listSites,
+  listWalks,
   readLanChanges,
   readReview,
+  readReviewById,
   replaceLanInventory,
   reviewCandidates,
   saveDisposition,
@@ -84,6 +104,9 @@ export interface ScanInput {
   networks: ScanAp[]
   devices?: ScanDevice[]
   cells?: ScanCell[]
+  driveId?: string | null
+  scannerId?: string | null
+  scannerLabel?: string | null
 }
 
 export interface ClaimedEnrichmentJob {
@@ -279,9 +302,12 @@ export class Store {
         const snapshot = await this.readSnapshot(userId)
         return { applied: false, snapshot, evilTwins: [] }
       }
+      const hidden = await tombstoneSet(client, userId)
+      await saveCompactScan(client, userId, scan)
       const heard: NetworkRecord[] = []
       const observedDevices: DeviceRecord[] = []
       for (const ap of collapsed) {
+        if (isHidden(hidden, 'ap', ap.bssid)) continue
         const hmac = bssidHmac(ap.bssid)
         const existingRow = await client.query<{ payload: Buffer; nonce: Buffer }>(
           'SELECT payload, nonce FROM networks WHERE user_id = $1 AND bssid_hmac = $2 FOR UPDATE',
@@ -301,6 +327,7 @@ export class Store {
         heard.push(merged)
       }
       for (const device of devices) {
+        if (isHidden(hidden, 'adv', device.address)) continue
         const hmac = bssidHmac(device.address)
         const existingRow = await client.query<{ payload: Buffer; nonce: Buffer }>(
           'SELECT payload, nonce FROM devices WHERE user_id = $1 AND address_hmac = $2 FOR UPDATE',
@@ -319,8 +346,8 @@ export class Store {
         )
         observedDevices.push(merged)
       }
-      await upsertWifiPlaces(client, userId, heard, usPlace(placeParts))
-      await upsertBluetoothPlaces(client, userId, observedDevices, usPlace(placeParts))
+      await upsertWifiPlaces(client, userId, heard, worldPlace(placeParts))
+      await upsertBluetoothPlaces(client, userId, observedDevices, worldPlace(placeParts))
       const evilTwins = await touchSites(client, userId, {
         at: seenAt,
         lat: scan.lat,
@@ -777,6 +804,65 @@ export class Store {
     return { id: row.id, email: decryptJson<string>(row.email_payload, row.email_nonce) }
   }
 
+  async createSession(userId: string, sessionId: string, client: string, label: string): Promise<void> {
+    await this.db.query(
+      `INSERT INTO sessions (session_id, user_id, client, label)
+       VALUES ($1, $2, $3, $4)`,
+      [sessionId, userId, client, label.slice(0, 80)],
+    )
+  }
+
+  async sessionAllowed(userId: string, sid: string | null, iat: number | null): Promise<boolean> {
+    const cutoff = await this.db.query<{ sessions_valid_after: Date | null }>(
+      'SELECT sessions_valid_after FROM users WHERE id = $1',
+      [userId],
+    )
+    const after = cutoff.rows[0]?.sessions_valid_after
+    if (after && (iat == null || iat * 1000 < after.getTime())) return false
+    if (!sid) return true
+    const result = await this.db.query<{ user_id: string; revoked_at: Date | null }>(
+      'SELECT user_id, revoked_at FROM sessions WHERE session_id = $1',
+      [sid],
+    )
+    const row = result.rows[0]
+    return Boolean(row && row.user_id === userId && row.revoked_at == null)
+  }
+
+  async sessions(userId: string): Promise<{ id: string; client: string; label: string; createdAt: string; lastSeenAt: string }[]> {
+    const result = await this.db.query<{ session_id: string; client: string; label: string; created_at: Date; last_seen_at: Date }>(
+      `SELECT session_id, client, label, created_at, last_seen_at
+       FROM sessions
+       WHERE user_id = $1 AND revoked_at IS NULL
+       ORDER BY created_at DESC`,
+      [userId],
+    )
+    return result.rows.map((row) => ({
+      id: row.session_id,
+      client: row.client,
+      label: row.label,
+      createdAt: new Date(row.created_at).toISOString(),
+      lastSeenAt: new Date(row.last_seen_at).toISOString(),
+    }))
+  }
+
+  async touchSession(sessionId: string | null): Promise<void> {
+    if (!sessionId) return
+    await this.db.query('UPDATE sessions SET last_seen_at = now() WHERE session_id = $1 AND revoked_at IS NULL', [sessionId])
+  }
+
+  async revokeSession(userId: string, sessionId: string): Promise<boolean> {
+    const result = await this.db.query(
+      'UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND session_id = $2 AND revoked_at IS NULL',
+      [userId, sessionId],
+    )
+    return (result.rowCount ?? 0) > 0
+  }
+
+  async revokeAllSessions(userId: string): Promise<void> {
+    await this.db.query('UPDATE users SET sessions_valid_after = now() WHERE id = $1', [userId])
+    await this.db.query('UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [userId])
+  }
+
   async saveLoginToken(userId: string, tokenHmac: Buffer, expiresAt: Date): Promise<void> {
     await this.db.query(
       'INSERT INTO login_tokens (token_hmac, user_id, expires_at) VALUES ($1, $2, $3)',
@@ -1071,8 +1157,8 @@ export class Store {
     await replaceLanInventory(this.db, userId, hosts as Parameters<typeof replaceLanInventory>[2])
   }
 
-  async replaceLanInventory(userId: string, hosts: Parameters<typeof replaceLanInventory>[2]) {
-    return replaceLanInventory(this.db, userId, hosts)
+  async replaceLanInventory(userId: string, hosts: Parameters<typeof replaceLanInventory>[2], siteId: string | null = null) {
+    return replaceLanInventory(this.db, userId, hosts, siteId)
   }
 
   async lanChanges(userId: string) {
@@ -1115,8 +1201,72 @@ export class Store {
     return readReview(this.db, userId)
   }
 
+  async reviewById(userId: string, reviewId: string) {
+    return readReviewById(this.db, userId, reviewId)
+  }
+
+  async reviews(userId: string) {
+    return listReviews(this.db, userId)
+  }
+
   async saveReview(userId: string, digest: Parameters<typeof saveReview>[2]) {
     return saveReview(this.db, userId, digest)
+  }
+
+  async walks(userId: string, siteId: string) {
+    return listWalks(this.db, userId, siteId)
+  }
+
+  async lanInventories(userId: string, siteId: string | null) {
+    return listLanInventories(this.db, userId, siteId)
+  }
+
+  async replay(userId: string, from: string, to: string) {
+    return replayScans(this.db, userId, from, to)
+  }
+
+  async removeDrive(userId: string, driveId: string) {
+    return deleteDrive(this.db, userId, driveId)
+  }
+
+  async removeRadio(userId: string, bssid: string) {
+    await hideSubject(this.db, userId, 'ap', bssid)
+  }
+
+  async removeAdvertiser(userId: string, address: string) {
+    await hideSubject(this.db, userId, 'adv', address)
+  }
+
+  async retention(userId: string) {
+    return retentionFor(this.db, userId)
+  }
+
+  async setRetention(userId: string, days: unknown) {
+    const window = parseObservationWindow(days)
+    if (!window) return null
+    await saveRetention(this.db, userId, window)
+    return retentionFor(this.db, userId)
+  }
+
+  async prune() {
+    await pruneRetention(this.db)
+  }
+
+  async labels(userId: string) {
+    return listLabels(this.db, userId)
+  }
+
+  async saveLabels(userId: string, labels: { id: string; name: string }[]) {
+    await saveLabels(this.db, userId, labels)
+    return listLabels(this.db, userId)
+  }
+
+  async questions(userId: string) {
+    return listQuestions(this.db, userId)
+  }
+
+  async rememberQuestion(userId: string, question: string, answer: string, excerpt: string) {
+    return saveQuestion(this.db, userId, question, answer, excerpt)
   }
 
   async reviewCandidates() {
@@ -1131,7 +1281,7 @@ export class Store {
     return saveOwnedConsent(this.db, userId, consent)
   }
 
-  async searchWifi(userId: string, filter: { zip: string | null; state: string | null; city: string | null }) {
+  async searchWifi(userId: string, filter: { zip?: string | null; state?: string | null; city?: string | null; country?: string | null; region?: string | null; locality?: string | null; postal?: string | null }) {
     return searchWifi(this.db, userId, filter)
   }
 

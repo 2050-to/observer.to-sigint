@@ -16,6 +16,7 @@ static NSString *JsonString(id object) {
 }
 
 static NSDictionary *NetworkJson(CWNetwork *network);
+static void ReadQbss(CWNetwork *network, NSMutableDictionary *json);
 
 static void Emit(NSDictionary *payload) {
   if (!tsfnActive) return;
@@ -489,7 +490,7 @@ static NSDictionary *NetworkJson(CWNetwork *network) {
   add(kCWSecurityDynamicWEP, @"WEP", @"WEP");
   if (!types.count) [types addObject:@"OPEN"];
   NSString *country = network.countryCode.length ? network.countryCode : nil;
-  return @{
+  NSMutableDictionary *json = [@{
     @"ssid": network.ssid ?: @"",
     @"bssid": bssid,
     @"rssi": @(network.rssiValue),
@@ -519,7 +520,39 @@ static NSDictionary *NetworkJson(CWNetwork *network) {
     @"channelUtilization": [NSNull null],
     @"admissionCapacity": [NSNull null],
     @"vendorOuis": @[],
-  };
+  } mutableCopy];
+  ReadQbss(network, json);
+  return json;
+}
+
+static void ReadQbss(CWNetwork *network, NSMutableDictionary *json) {
+  SEL selector = NSSelectorFromString(@"informationElementData");
+  if (![network respondsToSelector:selector]) return;
+  NSMethodSignature *signature = [network methodSignatureForSelector:selector];
+  if (!signature) return;
+  NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:signature];
+  invocation.target = network;
+  invocation.selector = selector;
+  [invocation invoke];
+  __unsafe_unretained NSData *data = nil;
+  [invocation getReturnValue:&data];
+  if (![data isKindOfClass:[NSData class]] || data.length < 7) return;
+  const uint8_t *bytes = (const uint8_t *)data.bytes;
+  NSUInteger offset = 0;
+  while (offset + 2 <= data.length) {
+    uint8_t elementId = bytes[offset];
+    uint8_t length = bytes[offset + 1];
+    if (offset + 2 + length > data.length) break;
+    if (elementId == 11 && length >= 5) {
+      const uint8_t *body = bytes + offset + 2;
+      uint16_t stations = (uint16_t)body[0] | ((uint16_t)body[1] << 8);
+      json[@"stationCount"] = @(stations);
+      json[@"channelUtilization"] = @(body[2]);
+      json[@"admissionCapacity"] = @((uint16_t)body[3] | ((uint16_t)body[4] << 8));
+      return;
+    }
+    offset += 2 + length;
+  }
 }
 
 static void Start(const Napi::CallbackInfo &info) {

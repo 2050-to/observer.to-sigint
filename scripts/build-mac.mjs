@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import esbuild from 'esbuild'
@@ -44,7 +44,25 @@ if (!existsSync(join(root, 'macos/addon/node_modules/node-addon-api'))) {
 }
 rmSync(join(root, 'macos/addon/build'), { recursive: true, force: true })
 run('npx', ['@electron/rebuild', '--module-dir', 'macos/addon', '-w', 'scanner'])
-run('npx', ['electron-builder', '--mac', 'dir'])
+const canNotarize = Boolean(process.env.APPLE_TEAM_ID && (
+  process.env.APPLE_API_KEY || process.env.APPLE_APP_SPECIFIC_PASSWORD || process.env.APPLE_ID
+))
+const builderArgs = ['electron-builder', '--mac', 'dir']
+if (canNotarize) {
+  const override = join(root, 'release', 'notarize-config.json')
+  mkdirSync(join(root, 'release'), { recursive: true })
+  writeFileSync(override, JSON.stringify({
+    mac: {
+      identity: null,
+      hardenedRuntime: true,
+      entitlements: 'build-resources/entitlements.mac.plist',
+      entitlementsInherit: 'build-resources/entitlements.mac.plist',
+      notarize: { teamId: process.env.APPLE_TEAM_ID },
+    },
+  }))
+  builderArgs.push('--config', override)
+}
+run('npx', builderArgs)
 
 const release = join(root, 'release')
 const macDir = readdirSync(release).find((name) => name.startsWith('mac'))

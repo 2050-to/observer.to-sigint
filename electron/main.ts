@@ -2,9 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { Agent } from 'node:https'
+import { hostname } from 'node:os'
 import { join, resolve } from 'node:path'
 import { request as httpsRequest } from 'node:https'
-import { app, BrowserWindow, ipcMain, powerSaveBlocker } from 'electron'
+import { app, BrowserWindow, ipcMain, Notification, powerSaveBlocker } from 'electron'
 import { CatalogStore, type StoredScan } from './catalog'
 import { catalogLocalSubnet, localDeviceDetails } from './ownedNetwork'
 import { listen } from './server'
@@ -43,6 +44,7 @@ interface NativeScan {
 
 interface ScanReply {
   radiusM?: number
+  evilTwins?: { site?: string; ssid?: string; bssid?: string }[]
 }
 
 let window: BrowserWindow | null = null
@@ -64,6 +66,38 @@ let discarding = false
 let chain = Promise.resolve()
 let serverClose: (() => Promise<void>) | null = null
 let promptedLocationStatus: string | null = null
+let driveId: string | null = null
+
+function scannerIdentity(): { scannerId: string; scannerLabel: string } {
+  const file = join(app.getPath('userData'), 'scanner.json')
+  let scannerId = ''
+  try {
+    const saved = JSON.parse(readFileSync(file, 'utf8')) as { id?: unknown }
+    if (typeof saved.id === 'string') scannerId = saved.id
+  } catch {
+    scannerId = ''
+  }
+  if (!scannerId) {
+    scannerId = randomUUID()
+    mkdirSync(app.getPath('userData'), { recursive: true })
+    writeFileSync(file, JSON.stringify({ id: scannerId }))
+  }
+  return { scannerId, scannerLabel: hostname().slice(0, 80) || 'Mac' }
+}
+
+function notifyEvilTwins(twins: ScanReply['evilTwins']): void {
+  for (const twin of twins ?? []) {
+    if (!twin?.bssid) continue
+    try {
+      new Notification({
+        title: `${twin.site || 'Site'}: Evil twin`,
+        body: `${twin.ssid || 'Network'} heard on ${twin.bssid}`,
+      }).show()
+    } catch {
+      // A desktop notification is local and optional.
+    }
+  }
+}
 
 function exclusive<T>(fn: () => T): Promise<T> {
   const run = chain.then(fn, fn)
@@ -216,6 +250,8 @@ function toScan(payload: NativeScan): StoredScan {
     networks: Array.isArray(payload.networks) ? payload.networks : [],
     devices: Array.isArray(payload.devices) ? payload.devices : [],
     cells: Array.isArray(payload.cells) ? payload.cells : [],
+    ...scannerIdentity(),
+    driveId,
   }
 }
 
@@ -306,6 +342,7 @@ async function flush(): Promise<void> {
           if (bssid) synced.push(bssid)
         }
         if (typeof response.radiusM === 'number' && response.radiusM > 0) radiusM = response.radiusM
+        notifyEvilTwins(response.evilTwins)
       }
       if (uploadedIds.length) {
         const wrote = await exclusive(() => {
@@ -405,6 +442,7 @@ function registerIpc(): void {
     token = nextToken
     promptedLocationStatus = null
     running = true
+    driveId = randomUUID()
     radiusM = 91.4
     lastSpeed = null
     message = 'Scanning nearby networks.'
@@ -416,6 +454,7 @@ function registerIpc(): void {
   })
   ipcMain.handle('wardrive:stop', async () => {
     running = false
+    driveId = null
     promptedLocationStatus = null
     message = 'Drive is stopped.'
     holdAwake(false)

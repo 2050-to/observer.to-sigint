@@ -2,7 +2,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import { labelIds } from '../../shared/accessPoints'
 import { estimateLabelSize, labelEdgeTowardAnchor, leaderIsClear, spreadLabels } from '../../shared/labelLayout'
+import { channelLoadText } from '../../shared/qbss'
 import { placeCovers, postalCellKey, postalLabel, samePostalCell, unionPostalCodes } from '../../shared/postal'
+import type { CompactScan } from '../../shared/replay'
 import { roomSignals, SIGNAL_COLORS, stackFor, stackSignals, type SignalRow } from '../../shared/sources'
 import { api, type WifiPlace } from '../api'
 import { AskBox } from '../AskBox'
@@ -237,11 +239,19 @@ export function DriveMap({
   const leaflet = useRef<L.Map | null>(null)
   const layer = useRef<L.LayerGroup | null>(null)
   const searchLayer = useRef<L.LayerGroup | null>(null)
-  const [zip, setZip] = useState('')
-  const [stateName, setStateName] = useState('')
-  const [city, setCity] = useState('')
+  const replayLayer = useRef<L.LayerGroup | null>(null)
+  const [country, setCountry] = useState('')
+  const [region, setRegion] = useState('')
+  const [locality, setLocality] = useState('')
+  const [postal, setPostal] = useState('')
   const [results, setResults] = useState<WifiPlace[]>([])
   const [searchNote, setSearchNote] = useState('')
+  const [replayFrom, setReplayFrom] = useState('')
+  const [replayTo, setReplayTo] = useState('')
+  const [replay, setReplay] = useState<CompactScan[]>([])
+  const [replayFrame, setReplayFrame] = useState(0)
+  const [replayPlaying, setReplayPlaying] = useState(false)
+  const [replayNote, setReplayNote] = useState('')
   const pins = useRef<MapPin[]>([])
   const [card, setCard] = useState<PlaceCard | null>(null)
   const refreshKey = useRef<string | null>(null)
@@ -287,6 +297,7 @@ export function DriveMap({
     next.setView([47.62, -122.35], 15)
     layer.current = L.layerGroup().addTo(next)
     searchLayer.current = L.layerGroup().addTo(next)
+    replayLayer.current = L.layerGroup().addTo(next)
     leaflet.current = next
     const observer = new ResizeObserver(() => next.invalidateSize())
     observer.observe(host.current)
@@ -534,7 +545,7 @@ export function DriveMap({
         color: '#f5d76e',
         fillColor: '#f5d76e',
         fillOpacity: 0.95,
-      }).addTo(group).bindTooltip([row.ssid, row.city, row.state, row.zip].filter(Boolean).join(' '))
+      }).addTo(group).bindTooltip([row.ssid, row.country, row.region ?? row.state, row.locality ?? row.city, row.postal ?? row.zip].filter(Boolean).join(' '))
     }
     if (spots.length > 0) mapView.fitBounds(L.latLngBounds(spots.map((row) => [row.lat, row.lon])), { maxZoom: 14, padding: [24, 24] })
   }, [results])
@@ -543,7 +554,7 @@ export function DriveMap({
     event.preventDefault()
     setSearchNote('')
     try {
-      const networks = await api.wifiSearch({ zip, state: stateName, city })
+      const networks = await api.wifiSearch({ country, region, locality, postal })
       setResults(networks)
       setSearchNote(networks.length === 0 ? 'No networks in this account match that place.' : `${networks.length} network${networks.length === 1 ? '' : 's'} in this account.`)
     } catch (reason: unknown) {
@@ -552,30 +563,128 @@ export function DriveMap({
     }
   }
 
+  useEffect(() => {
+    if (!replayPlaying || replay.length < 2) return
+    const timer = window.setInterval(() => {
+      setReplayFrame((current) => {
+        if (current + 1 >= replay.length) {
+          setReplayPlaying(false)
+          return current
+        }
+        return current + 1
+      })
+    }, 700)
+    return () => window.clearInterval(timer)
+  }, [replayPlaying, replay.length])
+
+  useEffect(() => {
+    const group = replayLayer.current
+    if (!group) return
+    group.clearLayers()
+    const path = replay.slice(0, replayFrame + 1).flatMap((scan) => (
+      scan.lat == null || scan.lon == null ? [] : [[scan.lat, scan.lon] as [number, number]]
+    ))
+    if (path.length > 1) L.polyline(path, { color: '#7dcea0', weight: 3 }).addTo(group)
+    const current = replay[replayFrame]
+    if (!current || current.lat == null || current.lon == null) return
+    for (const network of current.wifi) {
+      L.circleMarker([current.lat, current.lon], { radius: 5, color: '#3d8bfd', fillOpacity: 0.8 })
+        .addTo(group)
+        .bindTooltip([network.ssid || network.bssid, channelLoadText(network)].filter(Boolean).join(' · '))
+    }
+    for (const device of current.bluetooth) {
+      L.circleMarker([current.lat, current.lon], { radius: 4, color: '#c9a0dc', fillOpacity: 0.8 })
+        .addTo(group)
+        .bindTooltip([device.name, device.address].filter(Boolean).join(' · '))
+    }
+  }, [replay, replayFrame])
+
+  async function loadReplay(event: { preventDefault: () => void }) {
+    event.preventDefault()
+    setReplayNote('')
+    try {
+      const scans = await api.replay(new Date(replayFrom).toISOString(), new Date(replayTo).toISOString())
+      setReplay(scans)
+      setReplayFrame(0)
+      setReplayPlaying(scans.length > 1)
+      setReplayNote(scans.length === 0 ? 'No scans in that range.' : `${scans.length} scan${scans.length === 1 ? '' : 's'}.`)
+    } catch (reason: unknown) {
+      setReplay([])
+      setReplayNote(reason instanceof Error ? reason.message : 'Replay failed')
+    }
+  }
+
+  async function removeReplayDrive() {
+    const driveId = replay[replayFrame]?.driveId
+    if (!driveId) return
+    await api.deleteDrive(driveId)
+    setReplay((current) => current.filter((scan) => scan.driveId !== driveId))
+  }
+
+  const replayScan = replay[replayFrame] ?? null
+  const pickedLoad = channelLoadText(map?.networks.find((network) => pickedStack?.keys.includes(network.bssid)))
+  const placeLine = [card?.place?.country, card?.place?.region, card?.place?.locality, card?.place?.postal].filter(Boolean).join(' · ')
+
   return (
     <div className="panel fill-view">
       <form className="signin" onSubmit={(event) => void searchPlace(event)}>
         <label>
-          ZIP
-          <input value={zip} onChange={(event) => setZip(event.target.value)} placeholder="98109" />
+          Country
+          <input value={country} onChange={(event) => setCountry(event.target.value)} placeholder="US" maxLength={2} />
         </label>
         <label>
-          State
-          <input value={stateName} onChange={(event) => setStateName(event.target.value)} placeholder="WA" />
+          Region
+          <input value={region} onChange={(event) => setRegion(event.target.value)} placeholder="WA" />
         </label>
         <label>
-          City
-          <input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Seattle" />
+          Locality
+          <input value={locality} onChange={(event) => setLocality(event.target.value)} placeholder="Seattle" />
+        </label>
+        <label>
+          Postal code
+          <input value={postal} onChange={(event) => setPostal(event.target.value)} placeholder="98109" />
         </label>
         <button type="submit">Search my networks</button>
       </form>
       {searchNote && <p className="note">{searchNote}</p>}
+      <form className="signin" onSubmit={(event) => void loadReplay(event)}>
+        <label>
+          Replay from
+          <input type="datetime-local" value={replayFrom} onChange={(event) => setReplayFrom(event.target.value)} />
+        </label>
+        <label>
+          Replay to
+          <input type="datetime-local" value={replayTo} onChange={(event) => setReplayTo(event.target.value)} />
+        </label>
+        <button type="submit">Load replay</button>
+        {replay.length > 1 && (
+          <button type="button" onClick={() => setReplayPlaying((current) => !current)}>{replayPlaying ? 'Pause' : 'Play'}</button>
+        )}
+        {replayScan?.driveId && (
+          <button type="button" className="danger" onClick={() => void removeReplayDrive()}>Delete this drive</button>
+        )}
+      </form>
+      {replayNote && <p className="note">{replayNote}{replayScan ? ` ${new Date(replayScan.observedAt).toLocaleString()}${replayScan.scannerLabel ? ` · ${replayScan.scannerLabel}` : ''}` : ''}</p>}
+      {replay.length > 1 && (
+        <input
+          aria-label="Replay position"
+          type="range"
+          min={0}
+          max={replay.length - 1}
+          value={replayFrame}
+          onChange={(event) => {
+            setReplayPlaying(false)
+            setReplayFrame(Number(event.target.value))
+          }}
+        />
+      )}
       {!onMacApp() && <AskBox dataset="account" subscribed={subscribed} />}
       <SignalLegend />
       <div ref={host} className="map" />
       {pickedSignals.length > 0 && (
         <article className="card">
           <SignalStack id={pickedId} fallback={pickedFallback} signals={pickedSignals} draftFor={draftFor} rename={rename} />
+          {pickedSignals.some((signal) => signal.kind === 'wifi') && <p>{pickedLoad ?? 'Not reported by this radio.'}</p>}
         </article>
       )}
       {card && (
@@ -588,6 +697,7 @@ export function DriveMap({
           {card.floor && <p>{card.floor}</p>}
           {card.place && (
             <>
+              {placeLine && <p>{placeLine}</p>}
               <p>{card.place.address}</p>
               <p>Cross streets: {card.place.crossStreets.length > 0 ? card.place.crossStreets.join(' and ') : 'None found'}</p>
               {card.place.elevationM != null && <p>Ground elevation {card.place.elevationM.toFixed(1)} m (Open-Meteo)</p>}

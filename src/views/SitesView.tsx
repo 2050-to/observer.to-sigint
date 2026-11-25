@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { accessPointByBssid } from '../../shared/accessPoints'
-import type { Disposition, DispositionKind, DispositionStatus } from '../../shared/disposition'
+import { siteEventId, type Disposition, type DispositionKind, type DispositionStatus } from '../../shared/disposition'
 import {
   SECURITY_LABELS,
   asSiteDraft,
@@ -11,7 +11,10 @@ import {
   ssidKey,
   strongestSecurity,
   walkBoundary,
+  walkDue,
+  walkIntervalDays,
   type HeardBeacon,
+  type SiteWalk,
   type SiteBoundary,
   type SiteClaim,
   type SiteDraft,
@@ -177,9 +180,24 @@ function SiteDetail({
 }) {
   const diff = siteDiff(site)
   const [claims, setClaims] = useState<SiteClaim[]>(site.claims)
+  const [walks, setWalks] = useState<SiteWalk[]>([])
+  const [everyDays, setEveryDays] = useState(String(walkIntervalDays(site)))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  useEffect(() => setClaims(site.claims), [site])
+  const due = walkDue(site)
+  useEffect(() => {
+    setClaims(site.claims)
+    setEveryDays(String(walkIntervalDays(site)))
+  }, [site])
+  useEffect(() => {
+    let stop = false
+    void api.walks(site.id).then((next) => {
+      if (!stop) setWalks(next ?? [])
+    }).catch(() => undefined)
+    return () => {
+      stop = true
+    }
+  }, [site.id, site.lastWalk?.walkedAt])
   const heard = site.lastWalk?.heard ?? []
   const groups = groupHeard(heard)
 
@@ -209,6 +227,20 @@ function SiteDetail({
   function setBaseline(ssid: string, baseline: SiteClaim['baseline']) {
     const key = ssidKey(ssid)
     setClaims((current) => current.map((claim) => ssidKey(claim.ssid) === key ? { ...claim, baseline } : claim))
+  }
+
+  async function saveInterval() {
+    const draft = asSiteDraft({ name: site.name, boundary: site.boundary, claims, walkEveryDays: Number(everyDays) })
+    if (!draft) {
+      setError('The re-walk interval must be 1 to 90 days')
+      return
+    }
+    try {
+      const saved = await api.updateSite(site.id, draft)
+      await onChange(saved)
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : 'The interval could not be saved')
+    }
   }
 
   async function saveClaims() {
@@ -241,12 +273,34 @@ function SiteDetail({
         <div>
           <h2>{site.name}</h2>
           <p>{boundaryLabel(site.boundary)}. Last walked {site.lastWalk ? new Date(site.lastWalk.walkedAt).toLocaleString() : 'not yet'}.</p>
+          {due.overdue && <p className="warn">Re-walk due {new Date(due.dueAt).toLocaleDateString()}.</p>}
         </div>
         <div className="actions">
           <button type="button" onClick={() => void download()}>Download site report</button>
           <button type="button" className="danger" onClick={() => void onDelete()}>Delete site</button>
         </div>
       </div>
+      <label>
+        Re-walk every
+        <input
+          aria-label="Re-walk interval in days"
+          type="number"
+          min={1}
+          max={90}
+          value={everyDays}
+          onChange={(event) => setEveryDays(event.target.value)}
+          onBlur={() => void saveInterval()}
+        />
+        days
+      </label>
+      <h2>Walks</h2>
+      {walks.length === 0 ? <p className="empty">No stored walks in the observation window.</p> : (
+        <ul className="diff-list">
+          {walks.map((walk) => (
+            <li key={`${walk.startedAt}:${walk.walkedAt}`}>{new Date(walk.walkedAt).toLocaleString()} · {walk.heard.length} Wi-Fi · {walk.heardDevices?.length ?? 0} Bluetooth</li>
+          ))}
+        </ul>
+      )}
       <h2>Events</h2>
       {(site.events ?? []).length === 0 ? <p className="empty">None yet. A walk inside this site records arrivals, departures, and critical findings.</p> : (
         <ul className="diff-list">
@@ -257,6 +311,12 @@ function SiteDetail({
             return (
               <li key={`${event.kind}:${event.bssid}:${event.episode}`} className={event.severity === 'critical' ? 'warn' : undefined}>
                 {event.detail} ({event.bssid}). First seen {new Date(first).toLocaleString()}. Last seen {new Date(last).toLocaleString()}.
+                <DispositionControl
+                  kind="site_event"
+                  id={siteEventId(site.id, event)}
+                  disposition={dispositions.find((item) => item.kind === 'site_event' && item.id === siteEventId(site.id, event)) ?? null}
+                  onSave={onDisposition}
+                />
               </li>
             )
           })}

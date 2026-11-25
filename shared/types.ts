@@ -13,6 +13,10 @@ export interface PlaceInfo {
   fetchedAt: string
   lat?: number | null
   lon?: number | null
+  country?: string | null
+  region?: string | null
+  locality?: string | null
+  postal?: string | null
 }
 
 export type DeviceCategory =

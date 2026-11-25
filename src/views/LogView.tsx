@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { catalogBundleCsv } from '../../shared/csv'
 import { catalogForensicsMarkdown } from '../../shared/forensics'
 import { enrichmentSearchText } from '../../shared/enrichment'
@@ -46,6 +46,8 @@ export function LogView({
   enrichmentStatus,
   dispositions,
   onDisposition,
+  query: controlledQuery = '',
+  onDeleted,
   nameForGroup,
   draftFor,
   rename,
@@ -64,11 +66,14 @@ export function LogView({
   enrichmentStatus: EnrichmentQueueStatus | null
   dispositions: Disposition[]
   onDisposition: (kind: DispositionKind, id: string, status: DispositionStatus | null, note: string) => Promise<void>
+  query?: string
+  onDeleted?: () => void
   nameForGroup: (ids: string[], fallback: string) => string
   draftFor: (id: string, fallback: string) => string
   rename: (id: string, value: string) => void
 }) {
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(controlledQuery)
+  useEffect(() => setQuery(controlledQuery), [controlledQuery])
   const [kinds, setKinds] = useState<Set<SignalKind>>(() => new Set(SIGNAL_KINDS))
   const [rotatingOnly, setRotatingOnly] = useState(false)
   const [highRiskOnly, setHighRiskOnly] = useState(false)
@@ -289,9 +294,12 @@ export function LogView({
                 ? 'ap'
                 : source.signals.some((signal) => signal.kind === 'bluetooth')
                   ? 'adv'
-                  : null
-              const disposition = kind
-                ? dispositions.find((item) => item.kind === kind && item.id === source.id) ?? null
+                  : source.signals.some((signal) => signal.kind === 'cell')
+                    ? 'cell'
+                    : null
+              const subjectId = kind === 'cell' ? source.id : hardwareId(source.id)
+              const disposition = kind && subjectId
+                ? dispositions.find((item) => item.kind === kind && item.id === subjectId) ?? null
                 : null
               return (
                 <li key={source.id}>
@@ -301,16 +309,23 @@ export function LogView({
                     signals={source.signals}
                     enrichments={source.enrichments}
                     note={source.note}
+                    disposition={disposition}
                     draftFor={draftFor}
                     rename={rename}
                   />
-                  {kind && (
+                  {kind && subjectId && (
                     <DispositionControl
                       kind={kind}
-                      id={source.id}
+                      id={subjectId}
                       disposition={disposition}
                       onSave={onDisposition}
                     />
+                  )}
+                  {kind === 'ap' && subjectId && (
+                    <button type="button" className="danger" onClick={() => void api.deleteRadio(subjectId).then(() => onDeleted?.())}>Delete radio</button>
+                  )}
+                  {kind === 'adv' && subjectId && (
+                    <button type="button" className="danger" onClick={() => void api.deleteAdvertiser(subjectId).then(() => onDeleted?.())}>Delete advertiser</button>
                   )}
                 </li>
               )
@@ -325,4 +340,8 @@ export function LogView({
       </div>
     </section>
   )
+}
+
+function hardwareId(id: string): string | null {
+  return /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/i.test(id) ? id.toLowerCase() : null
 }

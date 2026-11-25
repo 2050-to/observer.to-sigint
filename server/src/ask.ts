@@ -14,7 +14,7 @@ export async function askAccount(
   userId: string,
   body: unknown,
   complete: (question: string, excerpt: string) => Promise<string> = deepseekAnswer,
-): Promise<{ answer: string }> {
+): Promise<{ answer: string; excerpt: string; id: string; askedAt: string }> {
   if (!body || typeof body !== 'object') throw new ApiError(400, 'question is required')
   const record = body as { dataset?: unknown; question?: unknown }
   if (!isAskDataset(record.dataset)) throw new ApiError(400, 'dataset is invalid')
@@ -25,7 +25,7 @@ export async function askAccount(
   const excerpt = await store.askExcerpt(userId, record.dataset, question)
   const answer = (await complete(question, excerpt)).trim()
   if (!answer) throw new ApiError(502, 'the assistant returned an empty answer')
-  return { answer: answer.slice(0, 8000) }
+  return store.rememberQuestion(userId, question, answer.slice(0, 8000), excerpt)
 }
 
 export async function deepseekAnswer(question: string, excerpt: string): Promise<string> {

@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
+import { chooseLanSite } from '../../shared/lanSite'
+import { pointInSite, type SiteRecord } from '../../shared/sites'
+import type { Disposition, DispositionKind, DispositionStatus } from '../../shared/disposition'
+import type { Fix } from '../types'
 import { api } from '../api'
+import { DispositionControl } from '../DispositionControl'
 import { sessionToken } from '../session'
 import { Wardrive } from '../native/drive'
 import { EMPTY_OWNED, resolveOwnedPrefs, saveOwnedChoice, writeOwnedPrefs, type OwnedPrefs } from '../ownedPrefs'
@@ -19,7 +24,19 @@ import {
 import { classifyRecorder } from '../../shared/recorders'
 import { ownedChangeText, type OwnedChange } from '../../shared/ownedDiff'
 
-export function OwnedNetwork({ active, resetToken }: { active: boolean; resetToken: number }) {
+export function OwnedNetwork({
+  active,
+  resetToken,
+  phone,
+  dispositions,
+  onDisposition,
+}: {
+  active: boolean
+  resetToken: number
+  phone: Fix | null
+  dispositions: Disposition[]
+  onDisposition: (kind: DispositionKind, id: string, status: DispositionStatus | null, note: string) => Promise<void>
+}) {
   const [prefs, setPrefs] = useState<OwnedPrefs>(EMPTY_OWNED)
   const [prompt, setPrompt] = useState<OwnedPrompt | null>(null)
   const [catalogBusy, setCatalogBusy] = useState(false)
@@ -28,6 +45,9 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
   const [status, setStatus] = useState('')
   const [showAll, setShowAll] = useState(false)
   const [changes, setChanges] = useState<OwnedChange[]>([])
+  const [sites, setSites] = useState<SiteRecord[]>([])
+  const [siteId, setSiteId] = useState('')
+  const [inventories, setInventories] = useState<{ id: string; siteId: string | null; observedAt: string; count: number }[]>([])
   const catalogLife = useRef(0)
   const detailsLife = useRef(0)
   const choiceRef = useRef(EMPTY_OWNED)
@@ -40,9 +60,22 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
     setDetailsBusy(false)
     setShowAll(false)
     setChanges([])
+    setInventories([])
     if (sessionToken()) {
       void api.lanChanges().then((next) => {
         if (!stop) setChanges(next)
+      }).catch(() => undefined)
+      void api.sites().then((next) => {
+        if (stop) return
+        setSites(next)
+        const inside = phone?.lat != null && phone.lon != null
+          ? next.filter((site) => pointInSite(phone.lat!, phone.lon!, site.boundary)).map((site) => site.id)
+          : []
+        const chosen = chooseLanSite(next.map((site) => site.id), null, inside)
+        if (chosen) setSiteId(chosen)
+      }).catch(() => undefined)
+      void api.lanInventories().then((next) => {
+        if (!stop) setInventories(next)
       }).catch(() => undefined)
     }
     if (!active) {
@@ -93,8 +126,20 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
       setStatus(catalogStatus(catalog))
       if (sessionToken()) {
         try {
-          const saved = await api.saveLan(catalog)
-          if (current === catalogLife.current) setChanges(saved.changes)
+          const listed = sites.length > 0 ? sites : await api.sites()
+          const inside = phone?.lat != null && phone.lon != null
+            ? listed.filter((site) => pointInSite(phone.lat as number, phone.lon as number, site.boundary)).map((site) => site.id)
+            : []
+          if (listed.length > 1 && inside.length !== 1 && !siteId) {
+            if (current === catalogLife.current) setError('Choose the site this network belongs to.')
+            return
+          }
+          const chosen = chooseLanSite(listed.map((site) => site.id), siteId || null, inside)
+          const saved = await api.saveLan({ ...catalog, siteId: chosen })
+          if (current === catalogLife.current) {
+            setChanges(saved.changes)
+            setInventories(await api.lanInventories(chosen))
+          }
         } catch {
           if (current === catalogLife.current) setError('Saved on this device. The account copy could not be updated.')
         }
@@ -225,6 +270,22 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
     <section className="card owned-network">
       <h2>Network you own</h2>
       <p className="disclaimer">{OWNED_NETWORK_DISCLAIMER}</p>
+      {sites.length > 0 && (
+        <label>
+          Site for this inventory
+          <select aria-label="Site for this inventory" value={siteId} onChange={(event) => setSiteId(event.target.value)}>
+            <option value="">Unassigned</option>
+            {sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+          </select>
+        </label>
+      )}
+      {inventories.length > 0 && (
+        <ul className="diff-list">
+          {inventories.slice(0, 8).map((row) => (
+            <li key={row.id}>{new Date(row.observedAt).toLocaleString()} · {row.count} hosts{row.siteId ? '' : ' · unassigned'}</li>
+          ))}
+        </ul>
+      )}
       <fieldset className="owned-options">
         <legend className="owned-help">Optional features</legend>
         <label>
@@ -286,7 +347,7 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
           )}
           <p className="owned-help">Present means the address answered a ping, announced a camera service, accepted a camera port, or this device has its hardware address.</p>
           <p className="owned-help">A flag means the name, vendor, announced service, or a camera port looks like a camera or recorder. This cannot see a device that is not on this network, cannot tell a camera you installed from one you did not, and does not open video or audio.</p>
-          <HostTable hosts={visible} />
+          <HostTable hosts={visible} dispositions={dispositions} onDisposition={onDisposition} />
           <button type="button" onClick={() => setShowAll((value) => !value)}>
             {showAll ? 'Show present addresses' : `Show every address (${catalog.hosts.length})`}
           </button>
@@ -336,7 +397,15 @@ function catalogStatus(catalog: SubnetCatalog): string {
   return `${label} on ${catalog.cidr}. ${route}`
 }
 
-function HostTable({ hosts }: { hosts: SubnetHost[] }) {
+function HostTable({
+  hosts,
+  dispositions,
+  onDisposition,
+}: {
+  hosts: SubnetHost[]
+  dispositions: Disposition[]
+  onDisposition: (kind: DispositionKind, id: string, status: DispositionStatus | null, note: string) => Promise<void>
+}) {
   const rows = hosts
     .map((host, index) => ({ host, index, flag: classifyRecorder(host) }))
     .sort((left, right) => {
@@ -357,6 +426,7 @@ function HostTable({ hosts }: { hosts: SubnetHost[] }) {
             <th scope="col">Name</th>
             <th scope="col">Hardware address</th>
             <th scope="col">Notice</th>
+            <th scope="col">Work</th>
           </tr>
         </thead>
         <tbody>
@@ -374,6 +444,14 @@ function HostTable({ hosts }: { hosts: SubnetHost[] }) {
                     <span className="host-reasons">{flag.reasons.join(', ')}</span>
                   </>
                 )}
+              </td>
+              <td>
+                <DispositionControl
+                  kind="lan_host"
+                  id={(host.mac || host.ip).toLowerCase()}
+                  disposition={dispositions.find((item) => item.kind === 'lan_host' && item.id === (host.mac || host.ip).toLowerCase()) ?? null}
+                  onSave={onDisposition}
+                />
               </td>
             </tr>
           ))}

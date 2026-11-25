@@ -16,6 +16,9 @@ export interface StoredScan {
   networks: { bssid?: string }[]
   devices: unknown[]
   cells: unknown[]
+  driveId?: string | null
+  scannerId?: string | null
+  scannerLabel?: string | null
   uploaded?: boolean
 }
 

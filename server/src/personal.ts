@@ -2,7 +2,8 @@ import type pg from 'pg'
 import { bssidHmac, decryptJson, encryptJson } from './crypto.js'
 import { consentMatches, isAdult } from '../../shared/legal.js'
 import { normalizeOwnedConsent, type OwnedConsent } from '../../shared/ownedNetwork.js'
-import { cityName, isUnitedStates, stateCode, zipCode } from '../../shared/places.js'
+import { cleanPostalCode } from '../../shared/postal.js'
+import { indexedPlace, placeMatches, type IndexedPlace, type PlaceQuery, type StoredPlaceFields } from '../../shared/places.js'
 import type { DeviceRecord, NetworkRecord } from './types.js'
 
 type Db = Pick<pg.Pool | pg.PoolClient, 'query'>
@@ -24,6 +25,10 @@ export interface WifiPlaceRow {
   city: string | null
   state: string | null
   zip: string | null
+  country?: string | null
+  region?: string | null
+  locality?: string | null
+  postal?: string | null
   lastSeen: string
 }
 
@@ -141,16 +146,27 @@ export function usPlace(parts: {
   zip?: string | null
   postalCode?: string | null
 } | null): UsPlace | null {
-  if (!parts || !isUnitedStates(parts.countryCode)) return null
+  const place = indexedPlace(parts, cleanPostalCode)
+  if (!place || place.country !== 'US') return null
   return {
-    city: cityName(parts.city),
-    state: stateCode(parts.state),
-    zip: zipCode(parts.zip ?? parts.postalCode ?? null),
+    city: place.locality,
+    state: place.region,
+    zip: place.postal,
     countryCode: 'US',
   }
 }
 
-interface WifiBody {
+export function worldPlace(parts: {
+  city: string | null
+  state: string | null
+  countryCode: string | null
+  zip?: string | null
+  postalCode?: string | null
+} | null): IndexedPlace | null {
+  return indexedPlace(parts, cleanPostalCode)
+}
+
+interface WifiBody extends StoredPlaceFields {
   bssid: string
   ssid: string
   channel: number | null
@@ -160,15 +176,19 @@ interface WifiBody {
   city: string | null
   state: string | null
   zip: string | null
+  country: string | null
+  region: string | null
+  locality: string | null
+  postal: string | null
 }
 
 export async function upsertWifiPlaces(
   db: Db,
   userId: string,
   networks: NetworkRecord[],
-  place: UsPlace | null,
+  place: IndexedPlace | UsPlace | null,
 ): Promise<void> {
-  const located = usPlace(place)
+  const located = normalizeIndexed(place)
   if (!located) return
   for (const network of networks) {
     const hmac = bssidHmac(network.bssid)
@@ -186,9 +206,13 @@ export async function upsertWifiPlaces(
       security: network.security,
       lat: lat ?? previous?.lat ?? null,
       lon: lon ?? previous?.lon ?? null,
-      city: located.city ?? previous?.city ?? null,
-      state: located.state ?? previous?.state ?? null,
-      zip: located.zip ?? previous?.zip ?? null,
+      city: located.locality ?? previous?.city ?? null,
+      state: located.region ?? previous?.state ?? null,
+      zip: located.postal ?? previous?.zip ?? null,
+      country: located.country,
+      region: located.region ?? previous?.region ?? previous?.state ?? null,
+      locality: located.locality ?? previous?.locality ?? previous?.city ?? null,
+      postal: located.postal ?? previous?.postal ?? previous?.zip ?? null,
     } satisfies WifiBody)
     await db.query(
       `INSERT INTO wifi_places (user_id, bssid_hmac, payload, nonce, first_seen, last_seen)
@@ -207,9 +231,9 @@ export async function upsertBluetoothPlaces(
   db: Db,
   userId: string,
   devices: DeviceRecord[],
-  place: UsPlace | null,
+  place: IndexedPlace | UsPlace | null,
 ): Promise<void> {
-  const located = usPlace(place)
+  const located = normalizeIndexed(place)
   if (!located) return
   for (const device of devices) {
     const hmac = bssidHmac(device.address)
@@ -218,15 +242,19 @@ export async function upsertBluetoothPlaces(
       [userId, hmac],
     )
     const previous = existing.rows[0]
-      ? decryptJson<{ name: string | null; lat: number | null; lon: number | null; city: string | null; state: string | null; zip: string | null }>(existing.rows[0].payload, existing.rows[0].nonce)
+      ? decryptJson<StoredPlaceFields & { name: string | null; lat: number | null; lon: number | null }>(existing.rows[0].payload, existing.rows[0].nonce)
       : null
     const sealed = encryptJson({
       name: (device.name ? device.name.slice(0, 200) : null) ?? previous?.name ?? null,
       lat: device.bestLat ?? device.lastLat ?? previous?.lat ?? null,
       lon: device.bestLon ?? device.lastLon ?? previous?.lon ?? null,
-      city: located.city ?? previous?.city ?? null,
-      state: located.state ?? previous?.state ?? null,
-      zip: located.zip ?? previous?.zip ?? null,
+      city: located.locality ?? previous?.city ?? null,
+      state: located.region ?? previous?.state ?? null,
+      zip: located.postal ?? previous?.zip ?? null,
+      country: located.country,
+      region: located.region ?? previous?.region ?? previous?.state ?? null,
+      locality: located.locality ?? previous?.locality ?? previous?.city ?? null,
+      postal: located.postal ?? previous?.postal ?? previous?.zip ?? null,
     })
     await db.query(
       `INSERT INTO bluetooth_places (user_id, address_hmac, payload, nonce, first_seen, last_seen)
@@ -241,10 +269,21 @@ export async function upsertBluetoothPlaces(
   }
 }
 
+function normalizeIndexed(place: IndexedPlace | UsPlace | null): IndexedPlace | null {
+  if (!place) return null
+  if ('country' in place) return place.country ? place : null
+  return indexedPlace({
+    countryCode: place.countryCode,
+    state: place.state,
+    city: place.city,
+    zip: place.zip,
+  }, cleanPostalCode)
+}
+
 export async function searchWifi(
   db: Db,
   userId: string,
-  filter: { zip: string | null; state: string | null; city: string | null },
+  filter: PlaceQuery,
 ): Promise<WifiPlaceRow[]> {
   const result = await db.query<{ payload: Buffer; nonce: Buffer; last_seen: Date }>(
     `SELECT payload, nonce, last_seen
@@ -255,9 +294,13 @@ export async function searchWifi(
   )
   return result.rows.flatMap((row) => {
     const body = decryptJson<WifiBody>(row.payload, row.nonce)
-    if (filter.zip && body.zip !== filter.zip) return []
-    if (filter.state && body.state !== filter.state) return []
-    if (filter.city && (body.city ?? '').toLowerCase() !== filter.city.toLowerCase()) return []
+    if (!placeMatches(body, filter)) return []
+    const place = {
+      country: body.country ?? (body.city || body.state || body.zip ? 'US' : null),
+      region: body.region ?? body.state,
+      locality: body.locality ?? body.city,
+      postal: body.postal ?? body.zip,
+    }
     return [{
       bssid: body.bssid,
       ssid: body.ssid,
@@ -265,9 +308,13 @@ export async function searchWifi(
       security: body.security,
       lat: numberOrNull(body.lat),
       lon: numberOrNull(body.lon),
-      city: body.city,
-      state: body.state,
-      zip: body.zip,
+      city: place.locality,
+      state: place.region,
+      zip: place.postal,
+      country: place.country,
+      region: place.region,
+      locality: place.locality,
+      postal: place.postal,
       lastSeen: new Date(row.last_seen).toISOString(),
     }]
   }).slice(0, 200)
@@ -289,11 +336,11 @@ export async function askExcerpt(
   )
   const rows = result.rows.map((row) => decryptJson<WifiBody>(row.payload, row.nonce))
   const matched = rows.filter((row) => {
-    const blob = [row.ssid, row.city, row.state, row.zip, row.security].join(' ').toLowerCase()
+    const blob = [row.ssid, row.country, row.region, row.locality, row.city, row.state, row.postal, row.zip, row.security].join(' ').toLowerCase()
     return tokens.some((token) => blob.includes(token))
   })
   const chosen = (matched.length > 0 ? matched : rows).slice(0, 40)
-  return lines(chosen.map((row) => [row.ssid, row.city, row.state, row.zip, row.security, row.channel].filter(Boolean).join(' ')))
+  return lines(chosen.map((row) => [row.ssid, row.country, row.region ?? row.state, row.locality ?? row.city, row.postal ?? row.zip, row.security, row.channel].filter(Boolean).join(' ')))
 }
 
 export async function wipePersonal(db: Db, userId: string): Promise<void> {
@@ -314,7 +361,14 @@ export async function wipePersonal(db: Db, userId: string): Promise<void> {
     'lan_previous',
     'lan_changes',
     'lan_saved',
+    'lan_inventories',
     'critical_alerts',
+    'scans',
+    'scanners',
+    'tombstones',
+    'site_walks',
+    'labels',
+    'questions',
   ]) {
     await db.query(`DELETE FROM ${table} WHERE user_id = $1`, [userId])
   }

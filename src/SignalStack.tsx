@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { shownReasons, type Disposition } from '../shared/disposition'
 import { SIGNAL_COLORS, SIGNAL_NAMES, signalKinds, type SignalRow } from '../shared/sources'
 import type { DeviceEnrichment, EvidenceSource } from './types'
 
@@ -39,6 +40,7 @@ export function SignalStack({
   signals,
   enrichments = [],
   note,
+  disposition = null,
   draftFor,
   rename,
 }: {
@@ -47,6 +49,7 @@ export function SignalStack({
   signals: SignalRow[]
   enrichments?: DeviceEnrichment[]
   note?: string
+  disposition?: Disposition | null
   draftFor: (id: string, fallback: string) => string
   rename: (id: string, value: string) => void
 }) {
@@ -69,13 +72,14 @@ export function SignalStack({
         <EnrichmentPanel
           key={`${enrichment.queryTitle}:${enrichment.manufacturer}:${enrichment.model}:${enrichment.lookedUpAt}`}
           enrichment={enrichment}
+          disposition={disposition}
         />
       ))}
     </div>
   )
 }
 
-function EnrichmentPanel({ enrichment }: { enrichment: DeviceEnrichment }) {
+function EnrichmentPanel({ enrichment, disposition }: { enrichment: DeviceEnrichment; disposition: Disposition | null }) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const links = uniqueSources(enrichment)
   const knownExploited = enrichment.vulnerabilities.some((item) => item.cisaKev || item.knownExploited)
@@ -113,15 +117,19 @@ function EnrichmentPanel({ enrichment }: { enrichment: DeviceEnrichment }) {
             : 'Not verified'}</dd>
         </div>
       </dl>
-      {enrichment.risk.reasons.length > 0 && (
+      {shownReasons(enrichment.risk.reasons, disposition).length > 0 && (
         <ul className="enrichment-reasons">
-          {enrichment.risk.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+          {shownReasons(enrichment.risk.reasons, disposition).map((reason) => <li key={reason}>{reason}</li>)}
         </ul>
       )}
       {enrichment.vulnerabilities.length > 0 && (
         <div className="vulnerability-list">
           <strong>Potentially applicable vulnerabilities</strong>
-          <p className="enrichment-caveat">Installed firmware is unknown. Verify the exact model and version before treating these as applicable.</p>
+          <p className="enrichment-caveat">
+            {disposition?.model && disposition.firmware
+              ? `Recorded model ${disposition.model}, firmware ${disposition.firmware}. High risk stays until the disposition is closed.`
+              : 'Installed firmware is unknown. Verify the exact model and version before treating these as applicable.'}
+          </p>
           <ul>
             {enrichment.vulnerabilities.map((item) => (
               <li key={item.id}>

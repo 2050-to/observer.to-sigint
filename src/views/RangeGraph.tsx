@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import cytoscape, { type Core } from 'cytoscape'
 import { labelIds, onlyHeard } from '../../shared/accessPoints'
+import { channelLoadText } from '../../shared/qbss'
 import { SIGNAL_COLORS, type SignalRow } from '../../shared/sources'
 import { SignalLegend, SignalStack } from '../SignalStack'
 import {
@@ -208,6 +209,7 @@ export function RangeGraph({
             <div><dt>Country</dt><dd>{wifi.best.countryCode ?? 'Unknown'}</dd></div>
             <div><dt>Max rate</dt><dd>{wifi.best.maxRateMbps ?? 'Unknown'} Mbps</dd></div>
             <div><dt>Capabilities</dt><dd>{wifi.best.capabilities || 'Open beacon'}</dd></div>
+            <div><dt>Channel load</dt><dd>{channelLoadText(wifi.best) ?? 'Not reported by this radio.'}</dd></div>
           </dl>
         </article>
       )}

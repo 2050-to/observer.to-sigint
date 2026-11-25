@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "test": "tsx src/legal.test.ts && tsx src/comp.test.ts && tsx src/logic.test.ts && tsx src/accessPoints.test.ts && tsx src/sites.test.ts && tsx src/ownedDiff.test.ts && tsx src/presence.test.ts && tsx src/siteReport.test.ts && tsx src/auth.test.ts && tsx src/billing.test.ts && tsx src/alerts.test.ts && tsx src/accounts.test.ts && tsx src/scope.test.ts && tsx src/enrichment.test.ts && tsx src/ownedNetwork.test.ts && tsx src/recorders.test.ts && tsx src/labelLayout.test.ts && tsx src/geo.test.ts",
+    "test": "tsx src/legal.test.ts && tsx src/comp.test.ts && tsx src/logic.test.ts && tsx src/accessPoints.test.ts && tsx src/sites.test.ts && tsx src/ownedDiff.test.ts && tsx src/presence.test.ts && tsx src/siteReport.test.ts && tsx src/auth.test.ts && tsx src/billing.test.ts && tsx src/alerts.test.ts && tsx src/evidence.test.ts && tsx src/accounts.test.ts && tsx src/scope.test.ts && tsx src/enrichment.test.ts && tsx src/ownedNetwork.test.ts && tsx src/recorders.test.ts && tsx src/labelLayout.test.ts && tsx src/geo.test.ts",
     "review": "tsx src/review-cron.ts"
   },
   "dependencies": {

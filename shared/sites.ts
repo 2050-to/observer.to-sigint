@@ -14,6 +14,9 @@ export const MAX_SITE_NAME = 80
 export const MAX_CLAIMS = 500
 export const MAX_HEARD = 2000
 export const MAX_SITE_EVENTS = 200
+export const DEFAULT_WALK_EVERY_DAYS = 7
+export const MIN_WALK_EVERY_DAYS = 1
+export const MAX_WALK_EVERY_DAYS = 90
 
 export const SECURITY_RANK: Record<SecurityLabel, number> = {
   open: 0,
@@ -108,6 +111,7 @@ export interface SiteRecord {
   name: string
   boundary: SiteBoundary
   claims: SiteClaim[]
+  walkEveryDays?: number
   lastWalk: SiteWalk | null
   radios: SiteRadio[]
   events: SiteEvent[]
@@ -117,6 +121,7 @@ export interface SiteDraft {
   name: string
   boundary: SiteBoundary
   claims: SiteClaim[]
+  walkEveryDays?: number
 }
 
 export interface SecurityChange {
@@ -685,16 +690,37 @@ function asAdvertisers(value: unknown): HeardAdvertiser[] | null {
   return devices
 }
 
+export function walkEveryDays(value: unknown): number | null {
+  if (value == null || value === '') return null
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN
+  if (!Number.isInteger(parsed) || parsed < MIN_WALK_EVERY_DAYS || parsed > MAX_WALK_EVERY_DAYS) return null
+  return parsed
+}
+
+export function walkIntervalDays(site: Pick<SiteRecord, 'walkEveryDays'>): number {
+  return site.walkEveryDays ?? DEFAULT_WALK_EVERY_DAYS
+}
+
+export function walkDue(site: Pick<SiteRecord, 'walkEveryDays' | 'lastWalk'>, now = Date.now()): { dueAt: string; overdue: boolean } {
+  const days = walkIntervalDays(site)
+  if (!site.lastWalk) return { dueAt: new Date(now).toISOString(), overdue: true }
+  const due = Date.parse(site.lastWalk.walkedAt) + days * 86_400_000
+  return { dueAt: new Date(due).toISOString(), overdue: Number.isFinite(due) && now > due }
+}
+
 export function asSiteDraft(value: unknown): SiteDraft | null {
   if (!value || typeof value !== 'object') return null
-  const record = value as { name?: unknown; boundary?: unknown; claims?: unknown }
+  const record = value as { name?: unknown; boundary?: unknown; claims?: unknown; walkEveryDays?: unknown }
   if (typeof record.name !== 'string') return null
   const name = record.name.trim()
   if (!name || name.length > MAX_SITE_NAME) return null
   const boundary = asBoundary(record.boundary)
   const claims = asClaims(record.claims)
   if (!boundary || !claims) return null
-  return { name, boundary, claims }
+  if (record.walkEveryDays == null || record.walkEveryDays === '') return { name, boundary, claims }
+  const every = walkEveryDays(record.walkEveryDays)
+  if (every == null) return null
+  return { name, boundary, claims, walkEveryDays: every }
 }
 
 function asRadios(value: unknown): SiteRadio[] {
@@ -778,8 +804,13 @@ function asEvent(value: unknown): SiteEvent | null {
 
 export function asStoredSite(id: string, value: unknown): SiteRecord | null {
   if (!value || typeof value !== 'object') return null
-  const record = value as { name?: unknown; boundary?: unknown; claims?: unknown; lastWalk?: unknown; radios?: unknown; events?: unknown }
-  const draft = asSiteDraft({ name: record.name, boundary: record.boundary, claims: record.claims })
+  const record = value as { name?: unknown; boundary?: unknown; claims?: unknown; walkEveryDays?: unknown; lastWalk?: unknown; radios?: unknown; events?: unknown }
+  const draft = asSiteDraft({
+    name: record.name,
+    boundary: record.boundary,
+    claims: record.claims,
+    walkEveryDays: record.walkEveryDays,
+  })
   if (!draft) return null
   const radios = asRadios(record.radios)
   const events = asEvents(record.events)

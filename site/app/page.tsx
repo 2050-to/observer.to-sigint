@@ -1,7 +1,8 @@
 const macAppHref = "https://github.com/2050-to/observer.to-sigint";
+const macDownloadHref = "/release/Observer.to.dmg";
 
 const steps = [
-  "Get the Mac app from the GitHub repository.",
+  "Download the Mac app, or get it from the GitHub repository when the download is not published yet.",
   "Sign in with a magic link. You can sign in here or in the Mac app.",
   "Start a drive on the Mac. It records Wi-Fi networks, public Bluetooth advertisements, and its own GPS, altitude, and speed. It does not connect to Bluetooth devices.",
   "Sign in on this site to review what the Mac has uploaded: range, a map, open networks, and a log.",
@@ -17,6 +18,7 @@ export default function Page() {
         </div>
         <div className="header-actions">
           <a className="button" href="/app">Sign in</a>
+          <a className="button" href={macDownloadHref}>Download for Mac</a>
           <a className="button" href={macAppHref}>
             Mac app on GitHub
           </a>
@@ -50,7 +52,7 @@ export default function Page() {
             Enrichment ties observed Wi-Fi and Bluetooth names to public support pages, vendor advisories, CVE and NVD records, and CISA KEV. It prepares vendor-supported remediation guidance and does not download exploit code.
           </li>
           <li>
-            A passive scan does not reveal installed firmware. Findings stay labeled as potentially applicable until the exact model and installed version are verified.
+            A passive scan does not reveal installed firmware. Recording the model and firmware replaces the potentially applicable line. High risk stays in the review until the disposition is closed.
           </li>
         </ul>
       </section>
@@ -61,6 +63,7 @@ export default function Page() {
           <p>
             The Mac app is free. Sign in and use the observer: drives, range, map, open networks, log, enrichment, exports, sites, the Changes tab, and the owned-network check.
           </p>
+          <a className="button" href={macDownloadHref}>Download for Mac</a>
           <a className="button" href={macAppHref}>
             Mac app on GitHub
           </a>

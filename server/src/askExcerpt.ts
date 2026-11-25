@@ -7,6 +7,10 @@ export interface AskWifiRow {
   city: string | null
   state: string | null
   zip: string | null
+  country?: string | null
+  region?: string | null
+  locality?: string | null
+  postal?: string | null
   security: string | null
   channel: number | null
 }
@@ -16,6 +20,10 @@ export interface AskBluetoothRow {
   city: string | null
   state: string | null
   zip: string | null
+  country?: string | null
+  region?: string | null
+  locality?: string | null
+  postal?: string | null
 }
 
 const SECTION_CAP = 20
@@ -42,8 +50,8 @@ export function buildAskExcerpt(input: {
   owned: SubnetHost[]
 }): string {
   const tokens = tokensOf(input.question)
-  const wifi = input.wifi.map((row) => [row.ssid, row.city, row.state, row.zip, row.security, row.channel].filter(Boolean).join(' '))
-  const bluetooth = input.bluetooth.map((row) => [row.name, row.city, row.state, row.zip].filter(Boolean).join(' '))
+  const wifi = input.wifi.map((row) => [row.ssid, row.country, row.region ?? row.state, row.locality ?? row.city, row.postal ?? row.zip, row.security, row.channel].filter(Boolean).join(' '))
+  const bluetooth = input.bluetooth.map((row) => [row.name, row.country, row.region ?? row.state, row.locality ?? row.city, row.postal ?? row.zip].filter(Boolean).join(' '))
   const towers = input.cells.map((cell) => [cell.radio, cell.role, cell.mcc, cell.mnc, cell.area, cell.cellId].filter(Boolean).join(' '))
   const enrichment = uniqueLines(input.networks.flatMap((network) => enrichmentLine(network.ssid || network.enrichment?.queryTitle, network.enrichment))
     .concat(input.devices.flatMap((device) => enrichmentLine(device.name || device.enrichment?.queryTitle, device.enrichment))))

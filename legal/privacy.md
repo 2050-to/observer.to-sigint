@@ -1,7 +1,7 @@
 # Privacy Policy
 
-Last updated: 24 November 2026
-Version: 2026-11-24.2
+Last updated: 25 November 2026
+Version: 2026-11-25.1
 
 This policy explains what Observer.to stores, who can see it, and how to delete it. It covers the Mac app, the Android app, the website, and the account API. Read it with the Terms of Service. You must accept the current version of both before an app opens your data or the website shows stored data.
 
@@ -19,39 +19,45 @@ The public marketing pages and the Terms and Privacy Policy can be read without 
 - Date of birth, used only to confirm that you are 18 or older and to decide when you must accept the current terms again. It is not shown to other accounts.
 - The versions of the Terms and Privacy Policy you accepted, and the time you accepted them.
 - Billing identifiers from Stripe if you start a subscription. Observer.to does not store a full card number.
+- A session row for each sign-in: a client label such as Web, Mac, or Android, and the time it was created and last used. You can revoke a session. Sign-out everywhere rejects tokens issued before that moment.
 
 ## 3. Information collected from the device you use
 
 After you accept, a drive can record:
 
-- Public Wi-Fi beacon fields the device hears, such as SSID, BSSID, channel, security, and signal strength.
+- Public Wi-Fi beacon fields the device hears, such as SSID, BSSID, channel, security, signal strength, and, when the radio reports them, station count, channel utilization, and admission capacity.
 - Public Bluetooth advertisement fields, such as the identifier the operating system provides, a name if one is advertised, and signal strength. macOS does not reveal a Bluetooth hardware address. Observer.to does not connect to Bluetooth devices.
 - This device's GPS, altitude, and speed while a drive runs, so the observation can be placed.
+- A stable id for the Mac or phone that uploaded the scan, a label such as the computer name or phone model, and the drive the scan belonged to.
 - Cell tower identifiers the phone reports during normal operation, such as mobile country and network codes, area, and cell id. Observer.to does not collect IMSI, TMSI, or call content.
 
-If you turn on the owned-network check, Observer.to stores the current device description you allowed (operating system, browser string, memory, processor, and hostname) and the address inventory of a network you own (address, role, announced name, and related service names). It also keeps the previous inventory and the change list from announced names and the classifications already computed. Those rows are saved to your account. They are not a record of other people's traffic.
+If you turn on the owned-network check, Observer.to stores the current device description you allowed (operating system, browser string, memory, processor, and hostname) and the address inventory of a network you own (address, role, announced name, and related service names). Each named site keeps its own inventory history for the retention window. A check on one site does not replace another site's inventory. Those rows are saved to your account. They are not a record of other people's traffic. The website cannot see a local network. Only the Mac or Android app on that network can take the inventory.
 
-A named site stores the name you give it, the radius or walk boundary, the SSIDs and BSSIDs you claim, the security baseline, and the beacons heard on the latest walk. It also stores each radio heard inside that boundary: BSSID, SSID, channel, security, and the first and last time your account heard it there.
+A named site stores the name you give it, the radius or walk boundary, the SSIDs and BSSIDs you claim, the security baseline, how often you mean to walk it again, and each walk inside the retention window. It also stores each radio heard inside that boundary: BSSID, SSID, channel, security, and the first and last time your account heard it there.
 
-A disposition stores a status and an optional note on an access point or Bluetooth advertiser in your account.
+A disposition stores a status and an optional note on an access point, a Bluetooth advertiser, a tower, a site event, or an owned-network host. It can also store a model, a firmware version, an assignee name, and a due date that you type.
 
-A weekly review is stored on your account so the Changes tab can show it. The email of that review is sent only for an active plan. An active plan also sends an immediate email for a critical site finding: a claimed network heard as open or WEP, your claimed name on a BSSID you did not claim, or a claimed BSSID on a different channel. The Android app shows a notification on that phone when a scan it uploads opens an evil twin. The phone creates that notification from the upload response. Observer.to does not use a push service for it.
+Each built review is stored on your account so the Changes tab can reopen it. The email of the latest review is sent only for an active plan. An active plan also sends an immediate email for a critical site finding: a claimed network heard as open or WEP, your claimed name on a BSSID you did not claim, or a claimed BSSID on a different channel. The Android app and the Mac app show a notification on the device that uploaded the scan when that scan opens an evil twin. The device creates that notification from the upload response. Observer.to does not use a push service for it.
+
+A paid question is stored with the answer and the excerpt lines that were sent to the assistant.
+
+Names you give to radios are stored on the account so they follow you to the website, the Mac, and Android.
 
 ## 4. Place fields
 
-When a drive has coordinates, the server may ask Nominatim, a public OpenStreetMap service, for a place description, and Open-Meteo for ground elevation. From a United States result, your account stores city, state, and ZIP on the networks and advertisements that drive heard, so you can filter your own map. Sightings outside the United States stay in your private catalog and are not added to that place index.
+When a drive has coordinates, the server may ask Nominatim, a public OpenStreetMap service, for a place description, and Open-Meteo for ground elevation. Your account stores the country, region, locality, and postal code Nominatim returns, so you can filter your own map. A United States result is still stored as a state and ZIP. Older rows that have only a city, state, and ZIP stay searchable as United States places.
 
-Place text is about the location of a public beacon your account heard. It is not a profile of a person.
+Place text is about the location of a public beacon your account heard. It is not a profile of a person. The country code advertised by a Wi-Fi radio is not this place.
 
 ## 5. What is stored, and how
 
 The database is Postgres. Each row is tied to your account. The database disks and their backups are encrypted at rest. Observer.to also encrypts account fields with a server key before writing them.
 
-The email address is stored as a keyed hash, so sign-in can find the account, and as ciphertext. Date of birth is ciphertext. Scan catalogs, device details, local network hosts, the previous owned-network inventory, Wi-Fi place fields, Bluetooth place fields, named sites, dispositions, and the stored weekly review are ciphertext. A keyed hash records that a critical site finding was emailed, so the same finding is not emailed twice. That hash is not the hardware address. The server decrypts a field only to answer the signed-in account, including a map filter or a paid question. Time stays indexed so your own rows can be ordered. Hardware-address lookups use a keyed hash, not the address in the clear.
+The email address is stored as a keyed hash, so sign-in can find the account, and as ciphertext. Date of birth is ciphertext. Scan catalogs, archived scans, device details, local network inventories, Wi-Fi place fields, Bluetooth place fields, named sites, site walks, dispositions, labels, stored questions, and stored reviews are ciphertext. A keyed hash records that a critical site finding was emailed, so the same finding is not emailed twice. That hash is not the hardware address. The server decrypts a field only to answer the signed-in account, including a map filter or a paid question. Time stays indexed so your own rows can be ordered. Hardware-address lookups use a keyed hash, not the address in the clear.
 
 A short-lived Redis copy uses the same server key. The Mac and Android apps also keep a local catalog so a drive can continue while the server is unreachable. Protect those devices.
 
-Hardware addresses are not used to follow a person. Bluetooth rows keep the first time, the last time, and the last United States place your account heard that advertisement. They do not keep a movement trail.
+Hardware addresses are not used to follow a person. The catalog row for a Bluetooth advertisement keeps the first time, the last time, and the last place your account heard it. Inside the retention window, each hearing is also kept with the time and this device's position so a drive can be replayed. That is this device's path and the public advertisements heard there. It is not a trail of another person, and Observer.to does not turn a rotating address into one person.
 
 ## 6. Who can see your information
 
@@ -64,7 +70,7 @@ These processors receive only what they need:
 - Resend, or the server log when email is not configured, receives your email address and the message text for sign-in, weekly reviews, and immediate critical site alerts.
 - Stripe receives the billing details required to charge the monthly plan and to open the customer portal.
 - DeepSeek receives a question you submit and a bounded excerpt of your own rows for that question, when the assistant is enabled. It does not receive another account's rows, your password (there is none), or a database login. Observer.to does not send the assistant your email address.
-- Nominatim and Open-Meteo receive coordinates from a place your account is already recording, so the server can attach an address, elevation, or United States city, state, and ZIP.
+- Nominatim and Open-Meteo receive coordinates from a place your account is already recording, so the server can attach an address, elevation, country, region, locality, or postal code.
 
 Observer.to does not let customers query across accounts. Place search, exports, the map, and assistant questions all require your session and your user id.
 
@@ -76,7 +82,7 @@ If the DeepSeek key is not configured, questions are unavailable. That does not 
 
 ## 8. How long information is kept
 
-Records stay until you delete them, you delete the account's data, or the account is removed. Acceptance of these documents is kept so the service can require a new acceptance when the text changes.
+Raw scans, site walks, and owned-network inventory snapshots stay for 90 days unless you set that window to 7 or 30 days. Stored reviews stay for 365 days. You can delete one drive, one Wi-Fi radio, or one Bluetooth advertiser sooner. Everything else stays until you delete it, you delete the account's data, or the account is removed. Acceptance of these documents is kept so the service can require a new acceptance when the text changes.
 
 Weekly review mail is sent only for an active plan, and not more than about once a week. Immediate critical mail is sent only for an active plan. The same finding is not emailed again. An account receives at most 20 of those messages a day.
 
@@ -84,7 +90,7 @@ Server logs may keep operational errors for as long as the host keeps process lo
 
 ## 9. Deletion and access
 
-Delete all data in the app removes your scans and the records described in the Terms from the device and, when the server is reachable, from the server. You can export a CSV and a markdown report of your beacon catalog, and a markdown report of one site, while you are signed in.
+Delete all data in the app removes your scans and the records described in the Terms from the device and, when the server is reachable, from the server. You can also delete one drive, one Wi-Fi radio, or one Bluetooth advertiser, and you can revoke a session. You can export a CSV and a markdown report of your beacon catalog, a markdown report of one site, and a markdown or CSV file of one stored review, while you are signed in. The review file includes the time it was built and your email. It is a download, not a link someone else can open.
 
 You may ask for a copy of the email and acceptance record associated with your account by using the contact below.
 
@@ -98,7 +104,7 @@ No method of storage is perfect. You should protect the devices where the local 
 
 ## 11. Cookies and local storage
 
-The website and apps store the session token in local storage on the device. That token is what proves the session. Observer.to does not use a third-party advertising cookie. A dismissed upgrade note may be stored on the device so the banner stays closed.
+The website and apps store the session token in local storage on the device. That token is what proves the session. The server also stores a session row so you can revoke that device. Observer.to does not use a third-party advertising cookie. A dismissed upgrade note may be stored on the device so the banner stays closed. Custom names may remain in local storage until the account copy replaces them.
 
 ## 12. Changes
 
