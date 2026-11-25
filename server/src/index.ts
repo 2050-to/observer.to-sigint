@@ -6,7 +6,7 @@ import { createServer as createHttpServer, type IncomingMessage, type ServerResp
 import { createServer as createHttpsServer } from 'node:https'
 import { catalogBundleCsv } from '../../shared/csv.js'
 import { catalogForensicsMarkdown } from '../../shared/forensics.js'
-import { AlertWorker } from './alerts.js'
+import { AlertWorker, deliverCriticalAlerts, digestFor } from './alerts.js'
 import { appOrigin, normalizeEmail, requestLogin, verifyLogin, verifySession } from './auth.js'
 import { askAccount } from './ask.js'
 import { acceptWebhook, startCheckout, startPortal } from './billing.js'
@@ -15,6 +15,7 @@ import { DeepSeekEnrichmentClient } from './enrichment/deepseek.js'
 import { EnrichmentWorker } from './enrichment/worker.js'
 import { lookupPlace } from './geocode.js'
 import { ApiError } from './http.js'
+import { siteReportFor } from './siteReportData.js'
 import { Store, type ScanInput } from './store.js'
 import type { PlaceInfo, ScanAp, ScanCell, ScanDevice } from './types.js'
 
@@ -307,7 +308,14 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
   if (req.method === 'POST' && url.pathname === '/api/scans') {
     const scan = asScan(JSON.parse(await readBody(req)) as unknown)
     const result = await store.ingest(user.id, scan)
-    send(res, 200, { applied: result.applied, ...result.snapshot })
+    if (result.applied) {
+      try {
+        await deliverCriticalAlerts(store, undefined, user.id)
+      } catch (error) {
+        console.error('critical alert failed', error)
+      }
+    }
+    send(res, 200, { applied: result.applied, ...result.snapshot, evilTwins: result.evilTwins })
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/postal') {
@@ -396,8 +404,72 @@ async function handle(store: Store, enrichmentEnabled: boolean, req: IncomingMes
   }
   if (req.method === 'POST' && url.pathname === '/api/lan') {
     const catalog = asOwnedLan(JSON.parse(await readBody(req)) as unknown)
-    await store.replaceLanHosts(user.id, catalog.hosts)
-    send(res, 200, { count: catalog.hosts.length })
+    const changes = await store.replaceLanInventory(user.id, catalog.hosts)
+    send(res, 200, { count: catalog.hosts.length, changes })
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/lan/changes') {
+    send(res, 200, { changes: await store.lanChanges(user.id) })
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/sites') {
+    send(res, 200, { sites: await store.sites(user.id) })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/sites') {
+    const site = await store.createSite(user.id, JSON.parse(await readBody(req)) as unknown)
+    if (!site) throw new ApiError(400, 'site is invalid')
+    send(res, 200, { site })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/sites/update') {
+    const body = JSON.parse(await readBody(req)) as { id?: unknown }
+    if (typeof body.id !== 'string' || !UUID.test(body.id)) throw new ApiError(400, 'site id is invalid')
+    const site = await store.updateSite(user.id, body.id, body)
+    if (!site) throw new ApiError(404, 'site not found')
+    send(res, 200, { site })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/sites/delete') {
+    const body = JSON.parse(await readBody(req)) as { id?: unknown }
+    if (typeof body.id !== 'string' || !UUID.test(body.id)) throw new ApiError(400, 'site id is invalid')
+    if (!await store.deleteSite(user.id, body.id)) throw new ApiError(404, 'site not found')
+    send(res, 200, { ok: true })
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/sites/report.md') {
+    const siteId = url.searchParams.get('id') ?? ''
+    if (!UUID.test(siteId)) throw new ApiError(400, 'site id is invalid')
+    const markdown = await siteReportFor(store, user.id, siteId)
+    if (!markdown) throw new ApiError(404, 'site not found')
+    res.setHeader('Content-Disposition', 'attachment; filename="site-report.md"')
+    send(res, 200, markdown, 'text/markdown; charset=utf-8')
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/dispositions') {
+    send(res, 200, { dispositions: await store.dispositions(user.id) })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/dispositions') {
+    const saved = await store.saveDisposition(user.id, JSON.parse(await readBody(req)) as unknown)
+    if (!saved) throw new ApiError(400, 'disposition is invalid')
+    send(res, 200, { disposition: saved })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/dispositions/clear') {
+    const body = JSON.parse(await readBody(req)) as { kind?: unknown; id?: unknown }
+    if ((body.kind !== 'ap' && body.kind !== 'adv') || typeof body.id !== 'string') throw new ApiError(400, 'disposition is invalid')
+    await store.deleteDisposition(user.id, body.kind, body.id)
+    send(res, 200, { ok: true })
+    return
+  }
+  if (req.method === 'GET' && url.pathname === '/api/review') {
+    send(res, 200, await store.reviewFor(user.id) ?? { builtAt: null, digest: null })
+    return
+  }
+  if (req.method === 'POST' && url.pathname === '/api/review') {
+    const digest = await digestFor(store, user.id, (await store.reviewFor(user.id))?.builtAt ?? null)
+    send(res, 200, await store.saveReview(user.id, digest))
     return
   }
   if (req.method === 'POST' && url.pathname === '/api/ask') {
@@ -462,6 +534,7 @@ async function main(): Promise<void> {
     )
     : null
   const alertWorker = new AlertWorker(store)
+  const runAlertsHere = process.env.RENDER !== 'true'
   const port = Number(process.env.PORT ?? 8443)
   const onRequest = (req: IncomingMessage, res: ServerResponse) => {
     handle(store, Boolean(enrichmentWorker), req, res).catch((error: unknown) => {
@@ -478,14 +551,14 @@ async function main(): Promise<void> {
   server.listen(port, process.env.BIND_HOST || '0.0.0.0', () => {
     console.log(`listening on ${port}`)
     enrichmentWorker?.start()
-    alertWorker.start()
+    if (runAlertsHere) alertWorker.start()
   })
   let closing = false
   const close = async () => {
     if (closing) return
     closing = true
     await enrichmentWorker?.stop()
-    alertWorker.stop()
+    if (runAlertsHere) alertWorker.stop()
     await new Promise<void>((resolveClose) => server.close(() => resolveClose()))
     await store.close()
   }

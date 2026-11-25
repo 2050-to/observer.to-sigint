@@ -6,7 +6,7 @@ The Mac app is the scanner. It records Wi-Fi, public Bluetooth advertisements, a
 
 The observer is free: drives, range, a map, open networks, a log, enrichment, CSV and Markdown export, and an owned-network check. The owned-network check lists addresses and announced names on a network you own. It does not open video, try passwords, or record traffic.
 
-Sign-in is a magic link that returns a JWT. The homepage, terms, and privacy policy are public. The observer and catalog API routes require that JWT, acceptance of the current Terms and Privacy Policy, and an age of 18 or older. The public copies are `legal/terms.md` and `legal/privacy.md`, shown at `/terms` and `/privacy`. A $5/month Stripe subscription sends one purple-team alert email per week and lets you ask questions about your own Wi-Fi places. Alerts run only while the API process is up. Checkout does not turn the subscription on. The webhook does, and only an `active` subscription is entitled.
+Sign-in is a magic link that returns a JWT. The homepage, terms, and privacy policy are public. The observer and catalog API routes require that JWT, acceptance of the current Terms and Privacy Policy, and an age of 18 or older. The public copies are `legal/terms.md` and `legal/privacy.md`, shown at `/terms` and `/privacy`. A $5/month Stripe subscription sends one purple-team alert email per week, an immediate email for a critical site finding, and lets you ask questions about your own records. The weekly review is also stored for the Changes tab, including on a free account. An evil twin also notifies the Android phone that uploaded the scan. In production a scheduled job builds and sends that review. Locally, the API process still does. Checkout does not turn the subscription on. The webhook does, and only an `active` subscription is entitled.
 
 ## Prerequisites
 
@@ -154,7 +154,7 @@ npm run dev --prefix site
 
 That server previews the homepage. Use the Vite observer on port 5173 to sign in and call the API.
 
-Create the Stripe product and $5 monthly price in the Dashboard, then set `STRIPE_PRICE_ID` and a restricted key. Forward webhooks to the local HTTPS API with the Stripe CLI. The dev certificate is self-signed, so the CLI has to accept it. Checkout does not turn the subscription on by itself. The webhook does, and only an `active` subscription receives the weekly email and can ask questions. Stripe Tax stays off until you have a tax registration.
+Create the Stripe product and $5 monthly price in the Dashboard, then set `STRIPE_PRICE_ID` and a restricted key. Forward webhooks to the local HTTPS API with the Stripe CLI. The dev certificate is self-signed, so the CLI has to accept it. Checkout does not turn the subscription on by itself. The webhook does, and only an `active` subscription receives the weekly email, the immediate critical email, and can ask questions. Stripe Tax stays off until you have a tax registration.
 
 Place lookup calls the public Nominatim and Overpass services, so the machine running the API needs outbound HTTPS.
 
@@ -163,6 +163,7 @@ Place lookup calls the public Nominatim and Overpass services, so the machine ru
 `render.yaml` describes the production stack in Oregon:
 
 - Web service `observer` on the `main` branch, with health check `/health` and domain `observer.to`. The service uses Node 22.
+- Cron job `observer-review`, hourly, which builds the stored weekly review and sends it to an active subscription. The web process does not send that weekly mail when `RENDER` is set. The web process does send an immediate critical email when a scan opens one, and the cron retries a send that failed.
 - Postgres 17 database `observer-db`. The database name and user are `observer`.
 - Key Value instance `observer-cache`.
 - A 1 GB disk named `observer-release`, mounted at `/var/observer`.

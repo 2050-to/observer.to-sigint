@@ -15,7 +15,7 @@ const expired = await signSession(user, Math.floor(Date.now() / 1000) - 10)
 assert.equal(await verifySession(`Bearer ${expired}`), null)
 
 const [header, body, signature] = token.split('.')
-const flipped = signature.endsWith('a') ? `${signature.slice(0, -1)}b` : `${signature.slice(0, -1)}a`
+const flipped = signature.startsWith('a') ? `b${signature.slice(1)}` : `a${signature.slice(1)}`
 assert.equal(await verifySession(`Bearer ${header}.${body}.${flipped}`), null)
 
 const webLink = `${appOrigin()}/auth/verify?token=abc`

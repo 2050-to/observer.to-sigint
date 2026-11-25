@@ -44,7 +44,7 @@ export default function Page() {
         <ul>
           <li>Range, a map, open networks, and a log of the public beacons the drive heard.</li>
           <li>
-            An owned-network check lists addresses and announced names on a network you own. It does not open video, try passwords, or record traffic.
+            An owned-network check lists addresses and announced names on a network you own, and what changed since the previous inventory. It does not open video, try passwords, or record traffic.
           </li>
           <li>
             Enrichment ties observed Wi-Fi and Bluetooth names to public support pages, vendor advisories, CVE and NVD records, and CISA KEV. It prepares vendor-supported remediation guidance and does not download exploit code.
@@ -59,7 +59,7 @@ export default function Page() {
         <article id="download">
           <h2>Free</h2>
           <p>
-            The Mac app is free. Sign in and use the observer: drives, range, map, open networks, log, enrichment, exports, and the owned-network check.
+            The Mac app is free. Sign in and use the observer: drives, range, map, open networks, log, enrichment, exports, sites, the Changes tab, and the owned-network check.
           </p>
           <a className="button" href={macAppHref}>
             Mac app on GitHub
@@ -68,7 +68,7 @@ export default function Page() {
         <article id="subscribe">
           <h2>$5 per month</h2>
           <p>
-            One email each week laying out vulnerabilities and patch guidance for the local Wi-Fi and Bluetooth devices in your saved catalog. The review covers open networks, high-risk public research, and what is new since the last review. The same subscription lets you ask questions about your own Wi-Fi places.
+            One email each week laying out the same review shown on the Changes tab: open networks, high-risk public research, site findings, owned-network changes, and what is new since the last review. The same subscription sends an immediate email when a claimed network is heard as open or WEP, on a BSSID you did not claim, or on a different channel. It also lets you ask questions about your own records. The Android app notifies the phone that uploaded a scan when that scan opens an evil twin.
           </p>
           <p>Subscribe from this site or from the Mac app after you sign in.</p>
         </article>

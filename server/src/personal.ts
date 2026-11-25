@@ -34,9 +34,9 @@ export interface UsPlace {
   countryCode: string | null
 }
 
-const DATASETS = new Set(['wifi'])
+const DATASETS = new Set(['wifi', 'account'])
 
-export function isAskDataset(value: unknown): value is 'wifi' {
+export function isAskDataset(value: unknown): value is 'wifi' | 'account' {
   return typeof value === 'string' && DATASETS.has(value)
 }
 
@@ -308,6 +308,13 @@ export async function wipePersonal(db: Db, userId: string): Promise<void> {
     'wifi_places',
     'bluetooth_places',
     'bookmarks',
+    'sites',
+    'dispositions',
+    'reviews',
+    'lan_previous',
+    'lan_changes',
+    'lan_saved',
+    'critical_alerts',
   ]) {
     await db.query(`DELETE FROM ${table} WHERE user_id = $1`, [userId])
   }

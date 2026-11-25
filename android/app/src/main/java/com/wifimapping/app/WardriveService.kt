@@ -2,6 +2,7 @@ package com.wifimapping.app
 
 import android.annotation.SuppressLint
 import android.app.Notification
+import android.app.PendingIntent
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
@@ -293,6 +294,7 @@ class WardriveService : Service() {
                         failed = true
                         break
                     }
+                    notifyEvilTwins(response)
                     uploadedIds += body.getString("scanId")
                     val networks = body.optJSONArray("networks")
                     if (networks != null) {
@@ -397,6 +399,39 @@ class WardriveService : Service() {
         return devices to cells
     }
 
+    private fun notifyEvilTwins(response: JSONObject) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+        val twins = response.optJSONArray("evilTwins") ?: return
+        val manager = getSystemService(NotificationManager::class.java)
+        val channel = NotificationChannel(ALERT_CHANNEL_ID, "Site alerts", NotificationManager.IMPORTANCE_HIGH)
+        manager.createNotificationChannel(channel)
+        val open = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        for (index in 0 until twins.length()) {
+            val item = twins.optJSONObject(index) ?: continue
+            val site = item.optString("site").ifBlank { "Site" }
+            val ssid = item.optString("ssid").ifBlank { "Network" }
+            val bssid = item.optString("bssid")
+            if (bssid.isBlank()) continue
+            val alert = Notification.Builder(this, ALERT_CHANNEL_ID)
+                .setContentTitle("$site: Evil twin")
+                .setContentText("$ssid heard on $bssid")
+                .setSmallIcon(android.R.drawable.stat_notify_error)
+                .setAutoCancel(true)
+                .setContentIntent(open)
+                .build()
+            manager.notify(ALERT_NOTIFICATION_ID + (bssid.hashCode() and 0x0fff), alert)
+        }
+    }
+
     private fun notification(): Notification {
         val manager = getSystemService(NotificationManager::class.java)
         val channel = NotificationChannel(CHANNEL_ID, "Wardrive", NotificationManager.IMPORTANCE_LOW)
@@ -417,7 +452,9 @@ class WardriveService : Service() {
         const val EXTRA_API_URL = "apiUrl"
         const val EXTRA_TOKEN = "token"
         private const val CHANNEL_ID = "wardrive"
+        private const val ALERT_CHANNEL_ID = "site-alerts"
         private const val NOTIFICATION_ID = 41
+        private const val ALERT_NOTIFICATION_ID = 80
         private const val V_SLOW = 0.82
         private const val V_MAX = 44.704
 

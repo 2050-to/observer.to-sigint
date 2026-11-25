@@ -1,7 +1,7 @@
 # Terms of Service
 
-Last updated: 23 November 2026
-Version: 2026-11-23.3
+Last updated: 24 November 2026
+Version: 2026-11-24.2
 
 These terms are a contract between you and Observer.to. They cover the Mac app, the Android app, the website, and the account API. If you do not agree, do not create an account, do not use the apps, and do not view stored data.
 
@@ -19,9 +19,9 @@ You must read these Terms and the Privacy Policy through to the end and accept t
 
 Sign-in uses a magic link sent to your email. The link expires quickly and works once. You are responsible for the email account and for keeping the session on your devices private.
 
-The free account can run drives, review range, the map, open networks, the log, enrichment, exports, and the owned-network check.
+The free account can run drives, review range, the map, open networks, the log, enrichment, exports, the owned-network check, named sites, finding dispositions, the Changes tab, and a site report.
 
-A $5 monthly plan, when billing is configured, adds one weekly email about the public beacons in your own catalog and lets you ask questions about your own Wi-Fi places. Payment is handled by Stripe. Taxes are not collected until a tax registration exists. You can cancel in the billing portal. The plan stays off until Stripe reports an active subscription.
+A $5 monthly plan, when billing is configured, adds one weekly email of that same review, an immediate email when a site finding is critical, and questions about your own records: Wi-Fi places, Bluetooth places, towers, enrichment, and the owned-network inventory. A critical finding is a claimed network heard as open or WEP, your claimed name on a BSSID you did not claim, or a claimed BSSID on a different channel. The Android app also shows a notification on the phone that uploaded the scan when that scan opens an evil twin. That notification is on the free account as well as the paid plan. Payment is handled by Stripe. Taxes are not collected until a tax registration exists. You can cancel in the billing portal. The plan stays off until Stripe reports an active subscription.
 
 ## 3. What you may record
 
@@ -33,7 +33,9 @@ ZIP, state, and city search on the map uses networks your account heard in the U
 
 Search and questions stay inside the signed-in account. You cannot search, map, export, or ask about another account's networks, Bluetooth advertisements, device details, or local network inventory. Another account cannot do those things with your records.
 
-Questions on the paid plan are answered from an excerpt of your own Wi-Fi places. The model does not receive another account's rows, email, or identifier, and it does not receive a way to query the database on its own.
+Questions on the paid plan are answered from an excerpt of your own Wi-Fi places, Bluetooth places, towers, enrichment, and owned-network inventory. The model does not receive another account's rows, email, or identifier, and it does not receive a way to query the database on its own.
+
+A site report is an export of one site on your account. It does not grant another account access to that site or to the rest of your catalog.
 
 ## 5. Prohibited use
 

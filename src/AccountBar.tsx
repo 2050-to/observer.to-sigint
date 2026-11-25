@@ -43,7 +43,7 @@ export function UpgradeBanner({ account }: { account: Account | null }) {
   return (
     <aside className="upgrade" role="region" aria-label="Upgrade">
       <p>
-        <strong>$5 per month.</strong> One purple-team alert email each week. Open networks, high-risk public research, and what is new since the last review.
+        <strong>$5 per month.</strong> One purple-team alert email each week, the same review shown on the Changes tab. Open networks, high-risk public research, site findings, owned-network changes, and what is new since the last review.
       </p>
       <div className="upgrade-side">
         <div className="actions">

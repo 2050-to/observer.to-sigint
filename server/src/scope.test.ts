@@ -87,8 +87,57 @@ try {
     (error: unknown) => error instanceof ApiError && error.status === 402,
   )
 
+  const sealedSpeaker = encryptJson({
+    name: 'SecretSpeaker',
+    lat: 47.61,
+    lon: -122.33,
+    city: 'Seattle',
+    state: 'WA',
+    zip: '98101',
+  })
+  await pool.query(
+    `INSERT INTO bluetooth_places (user_id, address_hmac, payload, nonce, first_seen, last_seen)
+     VALUES ($1, $2, $3, $4, now(), now())`,
+    [userB.id, bssidHmac('bb:bb:bb:bb:bb:09'), sealedSpeaker.payload, sealedSpeaker.nonce],
+  )
+  const secretAsk = await askAccount(
+    store,
+    userA.id,
+    { dataset: 'account', question: 'Where is SecretSpeaker?' },
+    async (_question, excerpt) => excerpt,
+  )
+  assert.doesNotMatch(secretAsk.answer, /SecretSpeaker/)
+  assert.match(secretAsk.answer, /Cafe Only A|No records/)
+
+  const site = await store.createSite(userA.id, {
+    name: 'Scope office',
+    boundary: { kind: 'radius', lat: 47.62, lon: -122.35, radiusM: 150 },
+    claims: [{ ssid: 'Cafe Only A', bssid: 'aa:bb:cc:dd:ee:41', baseline: 'wpa2' }],
+  })
+  assert.equal(site?.name, 'Scope office')
+  assert.equal((await store.sites(userB.id)).length, 0)
+  const disposition = await store.saveDisposition(userA.id, {
+    kind: 'ap',
+    id: 'aa:bb:cc:dd:ee:41',
+    status: 'verified',
+    note: 'Checked the label',
+  })
+  assert.equal(disposition?.status, 'verified')
+  assert.equal((await store.dispositions(userB.id)).length, 0)
+  await store.replaceLanInventory(userA.id, [{
+    ip: '10.9.9.2', role: 'host', present: true, mac: null, name: 'printer', services: [], ports: [],
+  }])
+  const lanChanges = await store.replaceLanInventory(userA.id, [{
+    ip: '10.9.9.4', role: 'host', present: true, mac: null, name: 'lobby camera', services: [], ports: [],
+  }])
+  assert.equal(lanChanges.some((change) => change.kind === 'recorder_appeared'), true)
+  assert.equal((await store.lanChanges(userB.id)).length, 0)
+
   await store.wipe(userA.id)
   assert.equal((await store.searchWifi(userA.id, { zip: '98109', state: null, city: null })).length, 0)
+  assert.equal((await store.sites(userA.id)).length, 0)
+  assert.equal((await store.dispositions(userA.id)).length, 0)
+  assert.equal((await store.lanChanges(userA.id)).length, 0)
   assert.equal((await store.searchWifi(userB.id, { zip: '98101', state: null, city: null })).length, 1)
   assert.deepEqual(await store.ownedConsentFor(userA.id), { addresses: false, details: false })
   assert.deepEqual(await store.saveOwnedConsent(userA.id, { addresses: true, details: true }), { addresses: true, details: true })

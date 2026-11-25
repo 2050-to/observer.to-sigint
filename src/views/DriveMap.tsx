@@ -570,7 +570,7 @@ export function DriveMap({
         <button type="submit">Search my networks</button>
       </form>
       {searchNote && <p className="note">{searchNote}</p>}
-      {!onMacApp() && <AskBox dataset="wifi" subscribed={subscribed} />}
+      {!onMacApp() && <AskBox dataset="account" subscribed={subscribed} />}
       <SignalLegend />
       <div ref={host} className="map" />
       {pickedSignals.length > 0 && (

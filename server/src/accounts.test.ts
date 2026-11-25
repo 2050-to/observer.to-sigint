@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { Redis } from 'ioredis'
 import pg from 'pg'
-import { deliverDueAlerts } from './alerts.js'
+import { deliverCriticalAlerts, deliverDueAlerts } from './alerts.js'
 import { askAccount } from './ask.js'
 import { loginToken } from './auth.js'
 import { emailHmac } from './crypto.js'
@@ -173,6 +173,44 @@ try {
   })
   assert.equal(failed, true)
   assert.equal((await store.alertCandidates()).some((user) => user.id === userA.id), true)
+
+  const site = await store.createSite(userA.id, {
+    name: 'Office',
+    boundary: { kind: 'radius', lat: 47.6205, lon: -122.3493, radiusM: 150 },
+    claims: [{ ssid: 'Office', bssid: 'aa:bb:cc:dd:ee:01', baseline: 'wpa2' }],
+  })
+  assert.ok(site)
+  const twin = scan('Office', 'aa:bb:cc:dd:ee:77')
+  const heardTwin = await store.ingest(userA.id, twin)
+  assert.equal(heardTwin.applied, true)
+  assert.equal(heardTwin.evilTwins[0]?.ssid, 'Office')
+  assert.equal(heardTwin.evilTwins[0]?.bssid, 'aa:bb:cc:dd:ee:77')
+  const replay = await store.ingest(userA.id, twin)
+  assert.equal(replay.applied, false)
+  assert.deepEqual(replay.evilTwins, [])
+  const criticalTo: string[] = []
+  assert.equal(await deliverCriticalAlerts(store, async (message) => {
+    criticalTo.push(message.to)
+    assert.equal(message.subject, 'Observer.to site alert')
+    assert.match(message.text, /not claimed/)
+    assert.equal(message.text.includes('aa:bb:cc:dd:ee:77'), false)
+  }, userA.id), 1)
+  assert.deepEqual(criticalTo, [userA.email])
+  assert.equal(await deliverCriticalAlerts(store, async () => {
+    throw new Error('same episode')
+  }, userA.id), 0)
+  const plain = await store.upsertUser(`accounts-test-${stamp}-critical@example.com`)
+  createdIds.push(plain.id)
+  await store.createSite(plain.id, {
+    name: 'Plain',
+    boundary: { kind: 'radius', lat: 47.6205, lon: -122.3493, radiusM: 150 },
+    claims: [{ ssid: 'Office', bssid: 'aa:bb:cc:dd:ee:01', baseline: 'wpa2' }],
+  })
+  const plainTwin = await store.ingest(plain.id, scan('Office', 'aa:bb:cc:dd:ee:78'))
+  assert.equal(plainTwin.evilTwins.length, 1)
+  assert.equal(await deliverCriticalAlerts(store, async () => {
+    throw new Error('free account')
+  }, plain.id), 0)
 
   await store.wipe(userA.id)
   const afterWipe = await deliverDueAlerts(store, async (message) => {

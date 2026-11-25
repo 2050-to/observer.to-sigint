@@ -17,6 +17,7 @@ import {
   type SubnetHost,
 } from '../../shared/ownedNetwork'
 import { classifyRecorder } from '../../shared/recorders'
+import { ownedChangeText, type OwnedChange } from '../../shared/ownedDiff'
 
 export function OwnedNetwork({ active, resetToken }: { active: boolean; resetToken: number }) {
   const [prefs, setPrefs] = useState<OwnedPrefs>(EMPTY_OWNED)
@@ -26,6 +27,7 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
   const [error, setError] = useState('')
   const [status, setStatus] = useState('')
   const [showAll, setShowAll] = useState(false)
+  const [changes, setChanges] = useState<OwnedChange[]>([])
   const catalogLife = useRef(0)
   const detailsLife = useRef(0)
   const choiceRef = useRef(EMPTY_OWNED)
@@ -37,6 +39,12 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
     setCatalogBusy(false)
     setDetailsBusy(false)
     setShowAll(false)
+    setChanges([])
+    if (sessionToken()) {
+      void api.lanChanges().then((next) => {
+        if (!stop) setChanges(next)
+      }).catch(() => undefined)
+    }
     if (!active) {
       choiceRef.current = EMPTY_OWNED
       setPrefs(EMPTY_OWNED)
@@ -85,7 +93,8 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
       setStatus(catalogStatus(catalog))
       if (sessionToken()) {
         try {
-          await api.saveLan(catalog)
+          const saved = await api.saveLan(catalog)
+          if (current === catalogLife.current) setChanges(saved.changes)
         } catch {
           if (current === catalogLife.current) setError('Saved on this device. The account copy could not be updated.')
         }
@@ -194,6 +203,14 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
         <h2>Network you own</h2>
         <p className="disclaimer">{OWNED_NETWORK_DISCLAIMER}</p>
         <p className="owned-help">The Android and macOS apps ask before cataloging addresses or collecting device details.</p>
+        {changes.length > 0 && (
+          <>
+            <h2>Changes since the previous inventory</h2>
+            <ul className="diff-list">
+              {changes.map((change) => <li key={`${change.kind}:${change.ip}:${change.name ?? ''}`}>{ownedChangeText(change)}</li>)}
+            </ul>
+          </>
+        )}
       </section>
     )
   }
@@ -252,6 +269,14 @@ export function OwnedNetwork({ active, resetToken }: { active: boolean; resetTok
       )}
       {status && <p className="owned-help" aria-live="polite">{status}</p>}
       {error && <p className="warn" aria-live="polite">{error}</p>}
+      {changes.length > 0 && (
+        <>
+          <h2>Changes since the previous inventory</h2>
+          <ul className="diff-list">
+            {changes.map((change) => <li key={`${change.kind}:${change.ip}:${change.name ?? ''}`}>{ownedChangeText(change)}</li>)}
+          </ul>
+        </>
+      )}
       {catalog && (
         <>
           {catalog.limited && (

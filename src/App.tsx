@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { heardPresence, newlyHeard, presenceKey, type PresenceHit } from '../shared/presence'
+import type { Disposition, DispositionKind, DispositionStatus } from '../shared/disposition'
 import { useLabels } from './labels'
 import { api } from './api'
 import { AccountBar, UpgradeBanner, alertLabel, useAccount } from './AccountBar'
@@ -13,21 +15,27 @@ import { LogView } from './views/LogView'
 import { OwnedNetwork } from './views/OwnedNetwork'
 import { OpenList } from './views/OpenList'
 import { RangeGraph } from './views/RangeGraph'
+import { SitesView } from './views/SitesView'
+import { ChangesView } from './views/ChangesView'
 
-type Tab = 'range' | 'map' | 'open' | 'log'
+type Tab = 'range' | 'map' | 'open' | 'log' | 'sites' | 'changes'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'range', label: 'In range' },
   { id: 'map', label: 'Map' },
   { id: 'open', label: 'Open' },
   { id: 'log', label: 'Log' },
+  { id: 'sites', label: 'Sites' },
+  { id: 'changes', label: 'Changes' },
 ]
 
 const ASK_CONTEXT: Record<Tab, { dataset: AskDataset; scope: string; source: string }> = {
-  range: { dataset: 'wifi', scope: 'the networks in range', source: 'In range' },
-  map: { dataset: 'wifi', scope: 'the networks on the map', source: 'Map' },
-  open: { dataset: 'wifi', scope: 'the open networks', source: 'Open' },
-  log: { dataset: 'wifi', scope: 'the catalog', source: 'Catalog' },
+  range: { dataset: 'account', scope: 'this account', source: 'In range' },
+  map: { dataset: 'account', scope: 'this account', source: 'Map' },
+  open: { dataset: 'account', scope: 'this account', source: 'Open' },
+  log: { dataset: 'account', scope: 'this account', source: 'Catalog' },
+  sites: { dataset: 'account', scope: 'this account', source: 'Sites' },
+  changes: { dataset: 'account', scope: 'this account', source: 'Changes' },
 }
 
 const NO_HEARD: RangeSnapshot['heard'] = []
@@ -75,12 +83,49 @@ export function App() {
   const [eraseStep, setEraseStep] = useState<0 | 1 | 2>(0)
   const [erasing, setErasing] = useState(false)
   const [ownedReset, setOwnedReset] = useState(0)
+  const [dispositions, setDispositions] = useState<Disposition[]>([])
+  const [arrivals, setArrivals] = useState<PresenceHit[]>([])
+  const knownPresence = useRef<Set<string> | null>(null)
   const macApp = onMacApp()
   const ask = ASK_CONTEXT[tab]
   const { nameFor, nameForGroup, draftFor, rename, clear } = useLabels()
   const account = useAccount()
   const queue = useRef(Promise.resolve())
   const billing = new URLSearchParams(window.location.search).get('billing')
+
+  useEffect(() => {
+    if (!sessionToken()) {
+      setDispositions([])
+      return
+    }
+    void api.dispositions().then(setDispositions).catch(() => undefined)
+  }, [account?.id])
+
+  useEffect(() => {
+    if (!map || !range) return
+    const heard = heardPresence(range.heard, range.heardDevices ?? [])
+    const catalog = new Set<string>([
+      ...map.accessPoints.map((ap) => presenceKey({ kind: 'ap', id: ap.id })),
+      ...map.advertisers.map((group) => presenceKey({ kind: 'adv', id: group.id })),
+    ])
+    if (knownPresence.current == null) {
+      knownPresence.current = catalog
+      return
+    }
+    const fresh = newlyHeard(knownPresence.current, heard)
+    for (const hit of fresh) knownPresence.current.add(presenceKey(hit))
+    if (fresh.length === 0) return
+    setArrivals((current) => {
+      const seen = new Set(current.map(presenceKey))
+      return [...current, ...fresh.filter((hit) => !seen.has(presenceKey(hit)))]
+    })
+  }, [map, range])
+
+  async function saveDisposition(kind: DispositionKind, id: string, status: DispositionStatus | null, note: string) {
+    if (status == null) await api.clearDisposition({ kind, id })
+    else await api.saveDisposition({ kind, id, status, note })
+    setDispositions(await api.dispositions())
+  }
 
   const refresh = useCallback((mode: RefreshMode) => {
     const run = queue.current.then(() => loadView(mode))
@@ -316,6 +361,20 @@ export function App() {
         </div>
       ) : note && <p className="note">{note}</p>}
       {error && <p className="warn">{error}</p>}
+      {arrivals.length > 0 && (
+        <div className="prompt presence-dialog" role="dialog" aria-labelledby="presence-title">
+          <div>
+            <h3 id="presence-title">New in range</h3>
+            <ul className="diff-list">
+              {arrivals.slice(0, 8).map((hit) => (
+                <li key={presenceKey(hit)}>{hit.kind === 'ap' ? 'Wi-Fi' : 'Bluetooth'} · {hit.label}</li>
+              ))}
+            </ul>
+            {arrivals.length > 8 && <p>and {arrivals.length - 8} more</p>}
+          </div>
+          <button type="button" onClick={() => setArrivals([])}>Dismiss</button>
+        </div>
+      )}
       <nav>
         {TABS.map((item) => (
           <button
@@ -382,10 +441,23 @@ export function App() {
           phone={map?.phone ?? null}
           history={range?.history ?? []}
           enrichmentStatus={enrichmentStatus}
+          dispositions={dispositions}
+          onDisposition={saveDisposition}
           nameForGroup={nameForGroup}
           draftFor={draftFor}
           rename={rename}
         />
+      )}
+      {tab === 'sites' && (
+        <SitesView
+          phone={range?.phone ?? null}
+          accessPoints={map?.accessPoints ?? []}
+          dispositions={dispositions}
+          onDisposition={saveDisposition}
+        />
+      )}
+      {tab === 'changes' && (
+        <ChangesView dispositions={dispositions} onDisposition={saveDisposition} />
       )}
       <OwnedNetwork active={onDevice()} resetToken={ownedReset} />
       </div>

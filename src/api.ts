@@ -1,4 +1,8 @@
 import { clearSession, sessionToken } from './session'
+import type { Disposition, DispositionKind, DispositionStatus } from '../shared/disposition'
+import type { OwnedChange } from '../shared/ownedDiff'
+import type { WeeklyReview } from '../shared/review'
+import type { SiteDraft, SiteRecord } from '../shared/sites'
 import type { EnrichmentQueueStatus, MapState, NetworkRecord, OpenRow, PlaceInfo, RangeSnapshot } from './types'
 
 export interface Account {
@@ -114,9 +118,42 @@ export const api = {
     request('/api/device', { method: 'POST', body: JSON.stringify(body) }).then(() => undefined),
   saveOwned: (body: { addresses: boolean; details: boolean }): Promise<{ addresses: boolean; details: boolean }> =>
     request('/api/owned', { method: 'POST', body: JSON.stringify(body) }).then((response) => response.json()),
-  saveLan: (body: unknown): Promise<void> =>
-    request('/api/lan', { method: 'POST', body: JSON.stringify(body) }).then(() => undefined),
-  ask: async (dataset: 'wifi', question: string): Promise<string> => {
+  saveLan: async (body: unknown): Promise<{ count: number; changes: OwnedChange[] }> =>
+    request('/api/lan', { method: 'POST', body: JSON.stringify(body) }).then((response) => response.json()),
+  lanChanges: async (): Promise<OwnedChange[]> => {
+    const body = await request('/api/lan/changes').then((response) => response.json() as Promise<{ changes: OwnedChange[] }>)
+    return body.changes
+  },
+  sites: async (): Promise<SiteRecord[]> => {
+    const body = await request('/api/sites').then((response) => response.json() as Promise<{ sites: SiteRecord[] }>)
+    return body.sites
+  },
+  createSite: async (body: SiteDraft): Promise<SiteRecord> => {
+    const saved = await request('/api/sites', { method: 'POST', body: JSON.stringify(body) }).then((response) => response.json() as Promise<{ site: SiteRecord }>)
+    return saved.site
+  },
+  updateSite: async (id: string, body: SiteDraft): Promise<SiteRecord> => {
+    const saved = await request('/api/sites/update', { method: 'POST', body: JSON.stringify({ ...body, id }) }).then((response) => response.json() as Promise<{ site: SiteRecord }>)
+    return saved.site
+  },
+  deleteSite: (id: string): Promise<void> =>
+    request('/api/sites/delete', { method: 'POST', body: JSON.stringify({ id }) }).then(() => undefined),
+  siteReport: (id: string): Promise<Blob> => request(`/api/sites/report.md?id=${encodeURIComponent(id)}`).then((response) => response.blob()),
+  dispositions: async (): Promise<Disposition[]> => {
+    const body = await request('/api/dispositions').then((response) => response.json() as Promise<{ dispositions: Disposition[] }>)
+    return body.dispositions
+  },
+  saveDisposition: async (body: { kind: DispositionKind; id: string; status: DispositionStatus; note: string }): Promise<Disposition> => {
+    const saved = await request('/api/dispositions', { method: 'POST', body: JSON.stringify(body) }).then((response) => response.json() as Promise<{ disposition: Disposition }>)
+    return saved.disposition
+  },
+  clearDisposition: (body: { kind: DispositionKind; id: string }): Promise<void> =>
+    request('/api/dispositions/clear', { method: 'POST', body: JSON.stringify(body) }).then(() => undefined),
+  review: async (): Promise<{ builtAt: string | null; digest: WeeklyReview | null }> =>
+    request('/api/review').then((response) => response.json()),
+  buildReview: async (): Promise<{ builtAt: string; digest: WeeklyReview }> =>
+    request('/api/review', { method: 'POST' }).then((response) => response.json()),
+  ask: async (dataset: 'wifi' | 'account', question: string): Promise<string> => {
     const body = await request('/api/ask', { method: 'POST', body: JSON.stringify({ dataset, question }) }).then((response) => response.json() as Promise<{ answer: string }>)
     return body.answer
   },

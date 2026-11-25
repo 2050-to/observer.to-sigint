@@ -1,5 +1,5 @@
-export const TOS_VERSION = '2026-11-23.3'
-export const PRIVACY_VERSION = '2026-11-23.4'
+export const TOS_VERSION = '2026-11-24.2'
+export const PRIVACY_VERSION = '2026-11-24.2'
 
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/
 

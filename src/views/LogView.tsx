@@ -5,7 +5,9 @@ import { enrichmentSearchText } from '../../shared/enrichment'
 import { findRotatingAddresses, type RotationGroup } from '../../shared/rotation'
 import { SIGNAL_COLORS, SIGNAL_KINDS, SIGNAL_NAMES, stackSignals, type SignalKind, type StackedDevice } from '../../shared/sources'
 import { api } from '../api'
+import { DispositionControl } from '../DispositionControl'
 import { SignalStack } from '../SignalStack'
+import type { Disposition, DispositionKind, DispositionStatus } from '../../shared/disposition'
 import type {
   AccessPoint,
   AdvertiserGroup,
@@ -42,6 +44,8 @@ export function LogView({
   phone,
   history,
   enrichmentStatus,
+  dispositions,
+  onDisposition,
   nameForGroup,
   draftFor,
   rename,
@@ -58,6 +62,8 @@ export function LogView({
   phone: Fix | null
   history: ScenePing[]
   enrichmentStatus: EnrichmentQueueStatus | null
+  dispositions: Disposition[]
+  onDisposition: (kind: DispositionKind, id: string, status: DispositionStatus | null, note: string) => Promise<void>
   nameForGroup: (ids: string[], fallback: string) => string
   draftFor: (id: string, fallback: string) => string
   rename: (id: string, value: string) => void
@@ -278,19 +284,37 @@ export function LogView({
         )}
         {listed.length > 0 && (
           <ul className="datasource-grid">
-            {listed.map((source) => (
-              <li key={source.id}>
-                <SignalStack
-                  id={source.id}
-                  fallback={source.title}
-                  signals={source.signals}
-                  enrichments={source.enrichments}
-                  note={source.note}
-                  draftFor={draftFor}
-                  rename={rename}
-                />
-              </li>
-            ))}
+            {listed.map((source) => {
+              const kind = source.signals.some((signal) => signal.kind === 'wifi')
+                ? 'ap'
+                : source.signals.some((signal) => signal.kind === 'bluetooth')
+                  ? 'adv'
+                  : null
+              const disposition = kind
+                ? dispositions.find((item) => item.kind === kind && item.id === source.id) ?? null
+                : null
+              return (
+                <li key={source.id}>
+                  <SignalStack
+                    id={source.id}
+                    fallback={source.title}
+                    signals={source.signals}
+                    enrichments={source.enrichments}
+                    note={source.note}
+                    draftFor={draftFor}
+                    rename={rename}
+                  />
+                  {kind && (
+                    <DispositionControl
+                      kind={kind}
+                      id={source.id}
+                      disposition={disposition}
+                      onSave={onDisposition}
+                    />
+                  )}
+                </li>
+              )
+            })}
           </ul>
         )}
         {shown.length > notable.length && (

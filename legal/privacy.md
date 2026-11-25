@@ -1,7 +1,7 @@
 # Privacy Policy
 
-Last updated: 23 November 2026
-Version: 2026-11-23.4
+Last updated: 24 November 2026
+Version: 2026-11-24.2
 
 This policy explains what Observer.to stores, who can see it, and how to delete it. It covers the Mac app, the Android app, the website, and the account API. Read it with the Terms of Service. You must accept the current version of both before an app opens your data or the website shows stored data.
 
@@ -15,7 +15,7 @@ The public marketing pages and the Terms and Privacy Policy can be read without 
 
 ## 2. Information you provide
 
-- Email address, used to send the magic link and, on the paid plan, the weekly review.
+- Email address, used to send the magic link and, on the paid plan, the weekly review and an immediate email when a site finding is critical.
 - Date of birth, used only to confirm that you are 18 or older and to decide when you must accept the current terms again. It is not shown to other accounts.
 - The versions of the Terms and Privacy Policy you accepted, and the time you accepted them.
 - Billing identifiers from Stripe if you start a subscription. Observer.to does not store a full card number.
@@ -29,7 +29,13 @@ After you accept, a drive can record:
 - This device's GPS, altitude, and speed while a drive runs, so the observation can be placed.
 - Cell tower identifiers the phone reports during normal operation, such as mobile country and network codes, area, and cell id. Observer.to does not collect IMSI, TMSI, or call content.
 
-If you turn on the owned-network check, Observer.to stores the current device description you allowed (operating system, browser string, memory, processor, and hostname) and the address inventory of a network you own (address, role, announced name, and related service names). Those rows are saved to your account. They are not a record of other people's traffic.
+If you turn on the owned-network check, Observer.to stores the current device description you allowed (operating system, browser string, memory, processor, and hostname) and the address inventory of a network you own (address, role, announced name, and related service names). It also keeps the previous inventory and the change list from announced names and the classifications already computed. Those rows are saved to your account. They are not a record of other people's traffic.
+
+A named site stores the name you give it, the radius or walk boundary, the SSIDs and BSSIDs you claim, the security baseline, and the beacons heard on the latest walk. It also stores each radio heard inside that boundary: BSSID, SSID, channel, security, and the first and last time your account heard it there.
+
+A disposition stores a status and an optional note on an access point or Bluetooth advertiser in your account.
+
+A weekly review is stored on your account so the Changes tab can show it. The email of that review is sent only for an active plan. An active plan also sends an immediate email for a critical site finding: a claimed network heard as open or WEP, your claimed name on a BSSID you did not claim, or a claimed BSSID on a different channel. The Android app shows a notification on that phone when a scan it uploads opens an evil twin. The phone creates that notification from the upload response. Observer.to does not use a push service for it.
 
 ## 4. Place fields
 
@@ -41,7 +47,7 @@ Place text is about the location of a public beacon your account heard. It is no
 
 The database is Postgres. Each row is tied to your account. The database disks and their backups are encrypted at rest. Observer.to also encrypts account fields with a server key before writing them.
 
-The email address is stored as a keyed hash, so sign-in can find the account, and as ciphertext. Date of birth is ciphertext. Scan catalogs, device details, local network hosts, Wi-Fi place fields, and Bluetooth place fields are ciphertext. The server decrypts a field only to answer the signed-in account, including a map filter or a paid question. Time stays indexed so your own rows can be ordered. Hardware-address lookups use a keyed hash, not the address in the clear.
+The email address is stored as a keyed hash, so sign-in can find the account, and as ciphertext. Date of birth is ciphertext. Scan catalogs, device details, local network hosts, the previous owned-network inventory, Wi-Fi place fields, Bluetooth place fields, named sites, dispositions, and the stored weekly review are ciphertext. A keyed hash records that a critical site finding was emailed, so the same finding is not emailed twice. That hash is not the hardware address. The server decrypts a field only to answer the signed-in account, including a map filter or a paid question. Time stays indexed so your own rows can be ordered. Hardware-address lookups use a keyed hash, not the address in the clear.
 
 A short-lived Redis copy uses the same server key. The Mac and Android apps also keep a local catalog so a drive can continue while the server is unreachable. Protect those devices.
 
@@ -55,7 +61,7 @@ People who operate the service can access the database to run and protect it. Th
 
 These processors receive only what they need:
 
-- Resend, or the server log when email is not configured, receives your email address and the message text for sign-in and weekly reviews.
+- Resend, or the server log when email is not configured, receives your email address and the message text for sign-in, weekly reviews, and immediate critical site alerts.
 - Stripe receives the billing details required to charge the monthly plan and to open the customer portal.
 - DeepSeek receives a question you submit and a bounded excerpt of your own rows for that question, when the assistant is enabled. It does not receive another account's rows, your password (there is none), or a database login. Observer.to does not send the assistant your email address.
 - Nominatim and Open-Meteo receive coordinates from a place your account is already recording, so the server can attach an address, elevation, or United States city, state, and ZIP.
@@ -64,7 +70,7 @@ Observer.to does not let customers query across accounts. Place search, exports,
 
 ## 7. The assistant
 
-The assistant is part of the paid plan. A question is about your own Wi-Fi places. The server loads a limited excerpt of those rows and asks DeepSeek to answer from that excerpt. If the excerpt does not contain the answer, the reply should say so. The assistant is not a source of records about other people, and it is not a substitute for your own judgment.
+The assistant is part of the paid plan. A question is about your own Wi-Fi places, Bluetooth places, towers, enrichment, and owned-network inventory. The server loads a limited excerpt of those rows and asks DeepSeek to answer from that excerpt. If the excerpt does not contain the answer, the reply should say so. The assistant is not a source of records about other people, and it is not a substitute for your own judgment.
 
 If the DeepSeek key is not configured, questions are unavailable. That does not open the rest of the account to anyone else.
 
@@ -72,13 +78,13 @@ If the DeepSeek key is not configured, questions are unavailable. That does not 
 
 Records stay until you delete them, you delete the account's data, or the account is removed. Acceptance of these documents is kept so the service can require a new acceptance when the text changes.
 
-Weekly review mail is sent only for an active plan, and not more than about once a week.
+Weekly review mail is sent only for an active plan, and not more than about once a week. Immediate critical mail is sent only for an active plan. The same finding is not emailed again. An account receives at most 20 of those messages a day.
 
 Server logs may keep operational errors for as long as the host keeps process logs. Those logs are not a second catalog.
 
 ## 9. Deletion and access
 
-Delete all data in the app removes your scans and the records described in the Terms from the device and, when the server is reachable, from the server. You can export a CSV and a markdown report of your beacon catalog while you are signed in.
+Delete all data in the app removes your scans and the records described in the Terms from the device and, when the server is reachable, from the server. You can export a CSV and a markdown report of your beacon catalog, and a markdown report of one site, while you are signed in.
 
 You may ask for a copy of the email and acceptance record associated with your account by using the contact below.
 

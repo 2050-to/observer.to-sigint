@@ -20,8 +20,8 @@ export function Home() {
           <li>A floor inventory misses what a phone can actually hear. Neighboring open Wi-Fi, guest radios, and Bluetooth advertisers show up only while you walk the site.</li>
           <li>Listing those networks by joining them or capturing traffic is the wrong tool, and often unlawful. Observer.to records public beacons only.</li>
           <li>A device name does not say whether the product is still supported or listed in public advisories and CISA KEV. Enrichment ties that public research to names you observed. It does not download exploit code.</li>
-          <li>Cameras and recorders on a network you own are easy to miss. The owned-network check lists addresses and announced names. It does not open video, try passwords, or record traffic.</li>
-          <li>Purple-team evidence goes stale. The paid plan emails one review a week.</li>
+          <li>Cameras and recorders on a network you own are easy to miss. The owned-network check lists addresses and announced names, and what changed since the previous inventory. It does not open video, try passwords, or record traffic.</li>
+          <li>Purple-team evidence goes stale. The Changes tab keeps the weekly review. The paid plan emails that same review, and emails immediately when a site finding is critical.</li>
         </ul>
       </section>
       <section>
@@ -38,11 +38,11 @@ export function Home() {
       <section className="price">
         <article>
           <h2>Free</h2>
-          <p>Sign in and use the observer: drives, range, map, open networks, log, enrichment, exports, and the owned-network check.</p>
+          <p>Sign in and use the observer: drives, range, map, open networks, log, enrichment, exports, sites, the Changes tab, and the owned-network check.</p>
         </article>
         <article>
           <h2>$5 per month</h2>
-          <p>One purple-team alert email each week. Open networks, high-risk public research, and what is new since the last review.</p>
+          <p>One purple-team alert email each week, the same review shown on the Changes tab, plus an immediate email when a site finding is critical. Open networks, high-risk public research, site findings, site events, owned-network changes, and what is new since the last review. Questions use this account's own records. The Android app notifies the uploading phone when a scan opens an evil twin.</p>
         </article>
       </section>
       <section>

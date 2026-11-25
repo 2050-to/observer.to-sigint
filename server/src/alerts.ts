@@ -1,19 +1,18 @@
 import { accessPointByBssid, groupAccessPoints, groupAdvertisers } from '../../shared/accessPoints.js'
+import { dispositionOpen, type Disposition } from '../../shared/disposition.js'
+import { ownedChangeText, type OwnedChange } from '../../shared/ownedDiff.js'
+import type { WeeklyReview } from '../../shared/review.js'
+import { reviewSiteEvents, siteFindings, type SiteEvent, type SiteRecord } from '../../shared/sites.js'
+import { bssidHmac } from './crypto.js'
 import { appOrigin } from './auth.js'
 import { sendEmail } from './mail.js'
 import type { Store } from './store.js'
 import type { CellRecord, DeviceRecord, NetworkRecord, OpenRow } from './types.js'
 
 export const ALERT_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000
+export const CRITICAL_DAILY_CAP = 20
 
-export interface AlertDigest {
-  openNetworks: { name: string; security: string; lastSeen: string; place: string | null }[]
-  highRisk: { name: string; reason: string }[]
-  newAccessPoints: number
-  newAdvertisers: number
-  newCells: number
-  observationCount: number
-}
+export type AlertDigest = WeeklyReview
 
 export function alertShouldSend(input: {
   status: string
@@ -34,16 +33,31 @@ function isNew(firstSeen: string, since: string | null): boolean {
   return Number.isFinite(seen) && Number.isFinite(start) && seen > start
 }
 
-function riskItems(records: { name: string; enrichment: NetworkRecord['enrichment'] }[]): AlertDigest['highRisk'] {
+function riskItems(
+  records: { name: string; enrichment: NetworkRecord['enrichment']; kind: 'ap' | 'adv' | null; id: string | null }[],
+  dispositions: Disposition[],
+): AlertDigest['highRisk'] {
+  const closed = new Set(
+    dispositions.filter((item) => !dispositionOpen(item.status)).map((item) => `${item.kind}:${item.id}`),
+  )
+  const statusOf = new Map(dispositions.map((item) => [`${item.kind}:${item.id}`, item.status]))
   const items: AlertDigest['highRisk'] = []
   const listed = new Set<string>()
   for (const record of records) {
+    if (record.kind && record.id && closed.has(`${record.kind}:${record.id}`)) continue
     if (record.enrichment?.risk.level !== 'high') continue
     const name = record.name || 'Unnamed device'
-    if (listed.has(name.trim().toLowerCase())) continue
-    listed.add(name.trim().toLowerCase())
+    const key = name.trim().toLowerCase()
+    if (listed.has(key)) continue
+    listed.add(key)
     const reason = record.enrichment.risk.reasons.find((item) => item.trim()) ?? 'Flagged from public support and vulnerability records'
-    items.push({ name, reason })
+    items.push({
+      name,
+      reason,
+      kind: record.kind,
+      id: record.id,
+      status: record.kind && record.id ? statusOf.get(`${record.kind}:${record.id}`) ?? null : null,
+    })
     if (items.length >= 15) break
   }
   return items
@@ -55,6 +69,9 @@ export function digestFromCatalog(input: {
   cells: CellRecord[]
   openRows: OpenRow[]
   since: string | null
+  sites?: SiteRecord[]
+  dispositions?: Disposition[]
+  ownedChanges?: OwnedChange[]
 }): AlertDigest {
   const openNetworks = input.openRows.slice(0, 15).map((row) => ({
     name: row.label,
@@ -64,38 +81,99 @@ export function digestFromCatalog(input: {
   }))
   const accessPoints = groupAccessPoints(input.networks)
   const accessPointOf = accessPointByBssid(accessPoints)
+  const advertisers = groupAdvertisers(input.devices)
+  const advertiserOf = new Map(advertisers.flatMap((group) => group.devices.map((device) => [device.address, group] as const)))
+  const dispositions = input.dispositions ?? []
   const fromNetworks = input.networks.map((network) => {
     const ap = accessPointOf.get(network.bssid)
     return {
       name: ap && ap.ssids.length > 0 ? ap.label : 'Unnamed network',
       enrichment: network.enrichment,
+      kind: 'ap' as const,
+      id: ap?.id ?? network.bssid,
     }
   })
-  const fromDevices = input.devices.map((device) => ({
-    name: device.name || device.enrichment?.queryTitle || 'Unnamed advertiser',
-    enrichment: device.enrichment,
-  }))
+  const fromDevices = input.devices.map((device) => {
+    const group = advertiserOf.get(device.address)
+    return {
+      name: device.name || device.enrichment?.queryTitle || 'Unnamed advertiser',
+      enrichment: device.enrichment,
+      kind: 'adv' as const,
+      id: group?.id ?? device.address,
+    }
+  })
   return {
     openNetworks,
-    highRisk: riskItems([...fromNetworks, ...fromDevices]),
+    highRisk: riskItems([...fromNetworks, ...fromDevices], dispositions),
     newAccessPoints: accessPoints.filter((ap) => ap.networks.every((network) => isNew(network.firstSeen, input.since))).length,
-    newAdvertisers: groupAdvertisers(input.devices)
+    newAdvertisers: advertisers
       .filter((group) => group.devices.every((device) => isNew(device.firstSeen, input.since))).length,
     newCells: input.cells.filter((cell) => isNew(cell.firstSeen, input.since)).length,
     observationCount: input.networks.length + input.devices.length + input.cells.length,
+    siteFindings: (input.sites ?? []).flatMap((site) => siteFindings(site)).slice(0, 15),
+    siteEvents: siteEventsFor(input.sites ?? [], input.since),
+    ownedChanges: (input.ownedChanges ?? []).slice(0, 15).map((change) => ({ text: ownedChangeText(change) })),
   }
 }
 
+function siteEventsFor(sites: SiteRecord[], since: string | null): AlertDigest['siteEvents'] {
+  return sites.flatMap((site) => reviewSiteEvents(site, since).map((event) => ({
+    site: site.name,
+    kind: event.kind,
+    severity: event.severity,
+    at: event.at,
+    bssid: event.bssid,
+    label: event.detail,
+  }))).sort((a, b) => {
+    if (a.severity !== b.severity) return a.severity === 'critical' ? -1 : 1
+    return Date.parse(b.at) - Date.parse(a.at)
+  }).slice(0, 15)
+}
+
+export function criticalShouldSend(status: string): boolean {
+  return status === 'active'
+}
+
+export function underCriticalCap(sentToday: number): boolean {
+  return sentToday < CRITICAL_DAILY_CAP
+}
+
+export function findingKey(siteId: string, event: Pick<SiteEvent, 'kind' | 'bssid' | 'episode'>): string {
+  return `critical:${siteId}:${event.kind}:${event.bssid}:${event.episode}`
+}
+
+export function pendingCritical(siteId: string, events: SiteEvent[], sent: ReadonlySet<string>): SiteEvent[] {
+  return events.filter((event) => event.severity === 'critical' && !sent.has(findingKey(siteId, event)))
+}
+
+export function criticalAlertText(rows: { site: string; detail: string }[]): string {
+  return [
+    'Observer.to site alert',
+    '',
+    ...rows.map((row) => `- ${row.site}: ${row.detail}`),
+    '',
+    `Open the observer: ${appOrigin()}/app`,
+    '',
+    'Observer.to records public beacons only. It does not intercept protected Wi-Fi, Bluetooth connections, or cellular calls. It does not capture subscriber identities, transmit, jam, spoof, or track a person.',
+  ].join('\n')
+}
+
+function section(rows: string[], empty: string): string {
+  return rows.length ? rows.join('\n') : empty
+}
+
 export function alertText(digest: AlertDigest): string {
-  const open = digest.openNetworks.length
-    ? digest.openNetworks.map((row) => {
-      const place = row.place ? `, ${row.place}` : ''
-      return `- ${row.name} (${row.security}), last heard ${row.lastSeen}${place}`
-    }).join('\n')
-    : '- None in the saved catalog'
-  const risk = digest.highRisk.length
-    ? digest.highRisk.map((row) => `- ${row.name}: ${row.reason}`).join('\n')
-    : '- None in the saved catalog'
+  const open = section(digest.openNetworks.map((row) => {
+    const place = row.place ? `, ${row.place}` : ''
+    return `- ${row.name} (${row.security}), last heard ${row.lastSeen}${place}`
+  }), '- None in the saved catalog')
+  const risk = section(digest.highRisk.map((row) => {
+    const verified = row.status === 'verified' ? ' (verified)' : ''
+    return `- ${row.name}: ${row.reason}${verified}`
+  }), '- None in the saved catalog')
+  const findings = section((digest.siteFindings ?? []).map((row) => `- ${row.site}: ${row.label}`), '- None in the saved catalog')
+  const events = section((digest.siteEvents ?? []).map((row) => `- ${row.site}: ${row.label}`), '- None in the saved catalog')
+  const owned = section((digest.ownedChanges ?? []).map((row) => `- ${row.text}`), '- None in the saved catalog')
   return [
     'Observer.to weekly review',
     '',
@@ -110,6 +188,15 @@ export function alertText(digest: AlertDigest): string {
     `- Bluetooth advertisers: ${digest.newAdvertisers}`,
     `- Towers: ${digest.newCells}`,
     '',
+    'Site findings',
+    findings,
+    '',
+    'Site events',
+    events,
+    '',
+    'Owned-network changes',
+    owned,
+    '',
     `Open the observer: ${appOrigin()}/app`,
     '',
     'Observer.to records public beacons only. It does not intercept protected Wi-Fi, Bluetooth connections, or cellular calls. It does not capture subscriber identities, transmit, jam, spoof, or track a person.',
@@ -117,13 +204,27 @@ export function alertText(digest: AlertDigest): string {
 }
 
 export async function digestFor(store: Store, userId: string, since: string | null): Promise<AlertDigest> {
-  const [networks, devices, cells, openRows] = await Promise.all([
+  const [networks, devices, cells, openRows, sites, dispositions, ownedChanges] = await Promise.all([
     store.catalog(userId),
     store.devices(userId),
     store.cells(userId),
     store.open(userId),
+    store.sites(userId),
+    store.dispositions(userId),
+    store.lanChanges(userId),
   ])
-  return digestFromCatalog({ networks, devices, cells, openRows, since })
+  return digestFromCatalog({ networks, devices, cells, openRows, since, sites, dispositions, ownedChanges })
+}
+
+export async function buildDueReviews(store: Store): Promise<number> {
+  const due = await store.reviewCandidates()
+  let built = 0
+  for (const user of due) {
+    const digest = await digestFor(store, user.id, user.lastReviewAt)
+    await store.saveReview(user.id, digest)
+    built += 1
+  }
+  return built
 }
 
 export async function deliverDueAlerts(
@@ -133,7 +234,9 @@ export async function deliverDueAlerts(
   const due = await store.alertCandidates()
   let sent = 0
   for (const user of due) {
-    const digest = await digestFor(store, user.id, user.lastAlertAt)
+    const stored = await store.reviewFor(user.id)
+    const digest = stored?.digest ?? await digestFor(store, user.id, user.lastAlertAt)
+    if (!stored) await store.saveReview(user.id, digest)
     if (!alertShouldSend({
       status: 'active',
       lastAlertAt: user.lastAlertAt,
@@ -157,6 +260,67 @@ export async function deliverDueAlerts(
   return sent
 }
 
+export async function deliverCriticalAlerts(
+  store: Store,
+  send: (input: { to: string; subject: string; text: string }) => Promise<unknown> = sendEmail,
+  userId?: string,
+): Promise<number> {
+  const recipients = userId
+    ? await oneRecipient(store, userId)
+    : await store.criticalRecipients()
+  let sent = 0
+  for (const user of recipients) {
+    try {
+      sent += await deliverCriticalTo(store, user, send)
+    } catch {
+      console.error('critical alert failed')
+    }
+  }
+  return sent
+}
+
+async function oneRecipient(store: Store, userId: string): Promise<{ id: string; email: string }[]> {
+  const user = await store.userById(userId)
+  return user ? [user] : []
+}
+
+async function deliverCriticalTo(
+  store: Store,
+  user: { id: string; email: string },
+  send: (input: { to: string; subject: string; text: string }) => Promise<unknown>,
+): Promise<number> {
+  const subscription = await store.subscriptionFor(user.id)
+  if (!criticalShouldSend(subscription.status)) return 0
+  const sites = await store.sites(user.id)
+  const sentKeys = await store.criticalFindingKeys(user.id)
+  const seen = new Set<string>()
+  const pending = sites.flatMap((site) => (site.events ?? []).flatMap((event) => {
+    if (event.severity !== 'critical') return []
+    const hmac = bssidHmac(findingKey(site.id, event))
+    const hex = hmac.toString('hex')
+    if (sentKeys.has(hex) || seen.has(hex)) return []
+    seen.add(hex)
+    return [{ site: site.name, detail: event.detail, hmac }]
+  }))
+  if (pending.length === 0 || !underCriticalCap(await store.criticalMessagesToday(user.id))) return 0
+  const claimed = await store.claimCriticalFindings(user.id, pending.map((item) => item.hmac), CRITICAL_DAILY_CAP)
+  if (claimed.length === 0) return 0
+  const claimedHex = new Set(claimed.map((hmac) => hmac.toString('hex')))
+  const rows = pending.filter((item) => claimedHex.has(item.hmac.toString('hex')))
+  try {
+    await send({
+      to: user.email,
+      subject: 'Observer.to site alert',
+      text: criticalAlertText(rows),
+    })
+    return 1
+  } catch {
+    await store.releaseCriticalFindings(user.id, claimed)
+    console.error('critical alert failed')
+    return 0
+  }
+}
+
 export class AlertWorker {
   private timer: NodeJS.Timeout | null = null
 
@@ -177,7 +341,9 @@ export class AlertWorker {
 
   private async tick(): Promise<void> {
     try {
+      await buildDueReviews(this.store)
       await deliverDueAlerts(this.store)
+      await deliverCriticalAlerts(this.store)
     } catch {
       console.error('weekly alert pass failed')
     }

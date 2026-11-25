@@ -158,3 +158,56 @@ CREATE TABLE IF NOT EXISTS bookmarks (
 
 DROP TABLE IF EXISTS search_queries;
 DROP TABLE IF EXISTS page_visits;
+
+CREATE TABLE IF NOT EXISTS sites (
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  site_id uuid NOT NULL,
+  payload bytea NOT NULL,
+  nonce bytea NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, site_id)
+);
+
+CREATE TABLE IF NOT EXISTS dispositions (
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  subject_hmac bytea NOT NULL,
+  payload bytea NOT NULL,
+  nonce bytea NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, subject_hmac)
+);
+
+CREATE TABLE IF NOT EXISTS reviews (
+  user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  payload bytea NOT NULL,
+  nonce bytea NOT NULL,
+  built_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_review_at timestamptz;
+
+CREATE TABLE IF NOT EXISTS lan_saved (
+  user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  saved_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS lan_previous (
+  user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  payload bytea NOT NULL,
+  nonce bytea NOT NULL,
+  saved_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS lan_changes (
+  user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  payload bytea NOT NULL,
+  nonce bytea NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS critical_alerts (
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  finding_hmac bytea NOT NULL,
+  sent_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, finding_hmac)
+);

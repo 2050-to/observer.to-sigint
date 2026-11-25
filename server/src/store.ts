@@ -6,7 +6,9 @@ import { COMP_EMAILS, entitledStatus } from './comp.js'
 import { sealPlaintextColumns } from './atRest.js'
 import { bssidHmac, decryptJson, emailHmac, encryptJson } from './crypto.js'
 import { circleFor, snapshotFrom } from '../../shared/range.js'
+import type { EvilTwinNotice } from '../../shared/sites.js'
 import { cellKeyOf, collapseCells, collapseDevices, mergeCell, mergeDevice } from '../../shared/radios.js'
+import { collapseScan, mergeRecord, normalizeBssid } from './merge.js'
 import { inferScene, pingFrom, stripPing, trimHistory } from '../../shared/scene.js'
 import { DEFAULT_RADIUS_M, timingFor } from './dwell.js'
 import {
@@ -19,11 +21,9 @@ import {
 import { lookupPlaceParts, type PlaceParts } from './geocode.js'
 import {
   acceptLegal,
-  askExcerpt,
   consentFor,
   deleteUser,
   ownedConsentFor,
-  replaceLanHosts,
   saveDeviceProfile,
   saveOwnedConsent,
   searchWifi,
@@ -32,7 +32,23 @@ import {
   usPlace,
   wipePersonal,
 } from './personal.js'
-import { mergeRecord, collapseScan, normalizeBssid } from './merge.js'
+import {
+  createSite,
+  deleteDisposition,
+  deleteSite,
+  listDispositions,
+  listLanHosts,
+  listSites,
+  readLanChanges,
+  readReview,
+  replaceLanInventory,
+  reviewCandidates,
+  saveDisposition,
+  saveReview,
+  touchSites,
+  updateSite,
+} from './defender.js'
+import { buildAskExcerpt, type AskBluetoothRow, type AskWifiRow } from './askExcerpt.js'
 import { addPostalCode, postalCellKey, samePostalCell } from '../../shared/postal.js'
 import { openRows } from './security.js'
 import type {
@@ -219,7 +235,7 @@ export class Store {
     await this.db.end()
   }
 
-  async ingest(userId: string, scan: ScanInput): Promise<{ applied: boolean; snapshot: RangeSnapshot }> {
+  async ingest(userId: string, scan: ScanInput): Promise<{ applied: boolean; snapshot: RangeSnapshot; evilTwins: EvilTwinNotice[] }> {
     const seenAt = new Date(scan.observedAt).toISOString()
     const fix: Fix = {
       lat: scan.lat,
@@ -261,7 +277,7 @@ export class Store {
       if (inserted.rowCount === 0) {
         await client.query('ROLLBACK')
         const snapshot = await this.readSnapshot(userId)
-        return { applied: false, snapshot }
+        return { applied: false, snapshot, evilTwins: [] }
       }
       const heard: NetworkRecord[] = []
       const observedDevices: DeviceRecord[] = []
@@ -305,6 +321,18 @@ export class Store {
       }
       await upsertWifiPlaces(client, userId, heard, usPlace(placeParts))
       await upsertBluetoothPlaces(client, userId, observedDevices, usPlace(placeParts))
+      const evilTwins = await touchSites(client, userId, {
+        at: seenAt,
+        lat: scan.lat,
+        lon: scan.lon,
+        heard: heard.map((network) => ({
+          bssid: network.bssid,
+          ssid: network.ssid,
+          security: network.security,
+          channel: network.channel,
+        })),
+        heardDevices: observedDevices.map((device) => ({ address: device.address, name: device.name })),
+      })
       for (const cell of cells) {
         const hmac = bssidHmac(cellKeyOf(cell))
         const existingRow = await client.query<{ payload: Buffer; nonce: Buffer }>(
@@ -342,7 +370,7 @@ export class Store {
         console.error('failed to queue device enrichment')
       })
       await this.cacheRange(userId, snapshot, heard)
-      return { applied: true, snapshot }
+      return { applied: true, snapshot, evilTwins }
     } catch (error) {
       await client.query('ROLLBACK')
       throw error
@@ -888,6 +916,90 @@ export class Store {
     await this.db.query('UPDATE users SET last_alert_at = $2 WHERE id = $1', [userId, lastAlertAt])
   }
 
+  async criticalRecipients(): Promise<{ id: string; email: string }[]> {
+    const hmacs = COMP_EMAILS.map((email) => emailHmac(email))
+    const comp = hmacs.map((_, index) => `users.email_hmac = $${index + 1}`).join(' OR ')
+    const result = await this.db.query<{ id: string; email_payload: Buffer; email_nonce: Buffer }>(
+      `SELECT users.id, users.email_payload, users.email_nonce
+       FROM users
+       LEFT JOIN subscriptions ON subscriptions.user_id = users.id
+       WHERE (
+         subscriptions.status = 'active'
+         OR ${comp}
+       )
+         AND EXISTS (SELECT 1 FROM sites WHERE sites.user_id = users.id)`,
+      hmacs,
+    )
+    return result.rows.map((row) => ({
+      id: row.id,
+      email: decryptJson<string>(row.email_payload, row.email_nonce),
+    }))
+  }
+
+  async criticalFindingKeys(userId: string): Promise<Set<string>> {
+    const result = await this.db.query<{ finding_hmac: Buffer }>(
+      'SELECT finding_hmac FROM critical_alerts WHERE user_id = $1',
+      [userId],
+    )
+    return new Set(result.rows.map((row) => Buffer.from(row.finding_hmac).toString('hex')))
+  }
+
+  async criticalMessagesToday(userId: string): Promise<number> {
+    const result = await this.db.query<{ count: string }>(
+      `SELECT COUNT(DISTINCT sent_at)::text AS count
+       FROM critical_alerts
+       WHERE user_id = $1 AND sent_at > now() - interval '1 day'`,
+      [userId],
+    )
+    return Number(result.rows[0]?.count ?? 0)
+  }
+
+  async claimCriticalFindings(userId: string, hmacs: Buffer[], dailyCap: number): Promise<Buffer[]> {
+    if (hmacs.length === 0) return []
+    const client = await this.db.connect()
+    try {
+      await client.query('BEGIN')
+      const count = await client.query<{ count: string }>(
+        `SELECT COUNT(DISTINCT sent_at)::text AS count
+         FROM critical_alerts
+         WHERE user_id = $1 AND sent_at > now() - interval '1 day'`,
+        [userId],
+      )
+      if (Number(count.rows[0]?.count ?? 0) >= dailyCap) {
+        await client.query('COMMIT')
+        return []
+      }
+      const claimed: Buffer[] = []
+      for (const hmac of hmacs) {
+        const inserted = await client.query<{ finding_hmac: Buffer }>(
+          `INSERT INTO critical_alerts (user_id, finding_hmac)
+           VALUES ($1, $2)
+           ON CONFLICT DO NOTHING
+           RETURNING finding_hmac`,
+          [userId, hmac],
+        )
+        const row = inserted.rows[0]
+        if (row) claimed.push(Buffer.from(row.finding_hmac))
+      }
+      await client.query('COMMIT')
+      return claimed
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
+  async releaseCriticalFindings(userId: string, hmacs: Buffer[]): Promise<void> {
+    for (const hmac of hmacs) {
+      await this.db.query(
+        'DELETE FROM critical_alerts WHERE user_id = $1 AND finding_hmac = $2',
+        [userId, hmac],
+      )
+    }
+  }
+
   private async readNetwork(userId: string, bssid: string): Promise<NetworkRecord | null> {
     const hmac = bssidHmac(normalizeBssid(bssid))
     const existing = await this.db.query<{ payload: Buffer; nonce: Buffer }>(
@@ -956,7 +1068,59 @@ export class Store {
   }
 
   async replaceLanHosts(userId: string, hosts: { ip: string }[]): Promise<void> {
-    await replaceLanHosts(this.db, userId, hosts)
+    await replaceLanInventory(this.db, userId, hosts as Parameters<typeof replaceLanInventory>[2])
+  }
+
+  async replaceLanInventory(userId: string, hosts: Parameters<typeof replaceLanInventory>[2]) {
+    return replaceLanInventory(this.db, userId, hosts)
+  }
+
+  async lanChanges(userId: string) {
+    return readLanChanges(this.db, userId)
+  }
+
+  async lanHosts(userId: string) {
+    return listLanHosts(this.db, userId)
+  }
+
+  async sites(userId: string) {
+    return listSites(this.db, userId)
+  }
+
+  async createSite(userId: string, value: unknown) {
+    return createSite(this.db, userId, value)
+  }
+
+  async updateSite(userId: string, siteId: string, value: unknown) {
+    return updateSite(this.db, userId, siteId, value)
+  }
+
+  async deleteSite(userId: string, siteId: string) {
+    return deleteSite(this.db, userId, siteId)
+  }
+
+  async dispositions(userId: string) {
+    return listDispositions(this.db, userId)
+  }
+
+  async saveDisposition(userId: string, value: unknown) {
+    return saveDisposition(this.db, userId, value)
+  }
+
+  async deleteDisposition(userId: string, kind: string, id: string) {
+    await deleteDisposition(this.db, userId, kind, id)
+  }
+
+  async reviewFor(userId: string) {
+    return readReview(this.db, userId)
+  }
+
+  async saveReview(userId: string, digest: Parameters<typeof saveReview>[2]) {
+    return saveReview(this.db, userId, digest)
+  }
+
+  async reviewCandidates() {
+    return reviewCandidates(this.db)
   }
 
   async ownedConsentFor(userId: string) {
@@ -971,8 +1135,36 @@ export class Store {
     return searchWifi(this.db, userId, filter)
   }
 
-  async askExcerpt(userId: string, dataset: 'wifi', question: string) {
-    return askExcerpt(this.db, userId, dataset, question)
+  async askExcerpt(userId: string, _dataset: 'wifi' | 'account', question: string) {
+    const [networks, devices, cells, owned, wifiRows, bluetoothRows] = await Promise.all([
+      this.catalog(userId),
+      this.devices(userId),
+      this.cells(userId),
+      listLanHosts(this.db, userId),
+      this.db.query<{ payload: Buffer; nonce: Buffer }>(
+        'SELECT payload, nonce FROM wifi_places WHERE user_id = $1 ORDER BY last_seen DESC LIMIT 80',
+        [userId],
+      ),
+      this.db.query<{ payload: Buffer; nonce: Buffer }>(
+        'SELECT payload, nonce FROM bluetooth_places WHERE user_id = $1 ORDER BY last_seen DESC LIMIT 80',
+        [userId],
+      ),
+    ])
+    const wifi = wifiRows.rows.flatMap((row) => {
+      try {
+        return [decryptJson<AskWifiRow>(row.payload, row.nonce)]
+      } catch {
+        return []
+      }
+    })
+    const bluetooth = bluetoothRows.rows.flatMap((row) => {
+      try {
+        return [decryptJson<AskBluetoothRow>(row.payload, row.nonce)]
+      } catch {
+        return []
+      }
+    })
+    return buildAskExcerpt({ question, wifi, bluetooth, cells, networks, devices, owned })
   }
 
   async summary(userId: string): Promise<{
