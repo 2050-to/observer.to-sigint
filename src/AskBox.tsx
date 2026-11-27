@@ -162,11 +162,10 @@ export function AskBox({
             <button type="button" onClick={() => onDismissArrivals?.()}>Dismiss</button>
           </div>
           <ul className="diff-list">
-            {arrivals.slice(0, 8).map((hit) => (
+            {arrivals.map((hit) => (
               <li key={presenceKey(hit)}>{hit.kind === 'ap' ? 'Wi-Fi' : 'Bluetooth'} · {hit.label}</li>
             ))}
           </ul>
-          {arrivals.length > 8 && <p>and {arrivals.length - 8} more</p>}
         </div>
       )}
       {size !== 'min' && (subscribed ? (

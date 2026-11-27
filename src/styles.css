@@ -442,7 +442,7 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #303237; }
   background: var(--surface);
   border-radius: 16px;
   padding: 14px;
-  overflow: hidden;
+  overflow: auto;
 }
 .ask-rail-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .ask-source { font-size: 14px; }
@@ -452,6 +452,7 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #303237; }
   width: 92px;
   flex: 0 0 92px;
   padding: 10px 8px;
+  overflow: hidden;
 }
 .ask-rail.min .ask-rail-controls { flex-direction: column; width: 100%; }
 .ask-rail.min .ask-rail-controls button { width: 100%; }
@@ -480,15 +481,16 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #303237; }
 .ask-scope { margin: 0; color: var(--text-muted); font-size: 13px; }
 .ask-rail .presence-dialog {
   margin: 0;
-  flex: 0 0 auto;
+  flex: 2 1 auto;
   flex-direction: column;
   align-items: stretch;
   flex-wrap: nowrap;
   gap: 8px;
-  max-height: 38%;
-  min-height: 0;
+  min-height: 12rem;
   overflow: hidden;
 }
+.ask-rail:has(.ask-turn) .presence-dialog { flex: 2 1 0%; }
+.ask-rail:has(.ask-turn) .ask-transcript { flex: 1 1 0%; min-height: 6rem; }
 .ask-rail .presence-heading { flex: 0 0 auto; }
 .ask-rail .presence-dialog .diff-list {
   margin: 0;
@@ -497,7 +499,6 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #303237; }
   overflow: auto;
 }
 .ask-rail .presence-dialog .diff-list li { overflow-wrap: anywhere; }
-.ask-rail .presence-dialog > p { flex: 0 0 auto; margin: 0; }
 .ask-presence-min {
   width: 100%;
   padding: 5px 4px;
