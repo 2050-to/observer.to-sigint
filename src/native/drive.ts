@@ -1,6 +1,7 @@
 import { Capacitor, WebPlugin, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 import type { JournalScan, LocalCatalog } from '../../shared/catalog'
 import type { DeviceDetails, OwnedConsent, SubnetCatalog } from '../../shared/ownedNetwork'
+import { emptySnapshot, type SecureLinkSnapshot } from '../../shared/secureLinks'
 
 export interface DriveStatus {
   running: boolean
@@ -27,6 +28,9 @@ interface WardrivePlugin {
   getOwnedPrefs(): Promise<OwnedConsent | null>
   setOwnedPrefs(options: OwnedConsent): Promise<OwnedConsent>
   clearOwnedPrefs(): Promise<void>
+  getSecureLinks(): Promise<{ allowed: boolean }>
+  setSecureLinks(options: { allowed: boolean }): Promise<{ allowed: boolean }>
+  listConnections(options: { consent: boolean }): Promise<SecureLinkSnapshot>
   apiOrigin(): Promise<string>
   addListener(eventName: 'scanQueued', listenerFunc: () => void): Promise<PluginListenerHandle>
   addListener(eventName: 'scansSynced', listenerFunc: (event: { count: number }) => void): Promise<PluginListenerHandle>
@@ -112,6 +116,18 @@ class WardriveWeb extends WebPlugin implements WardrivePlugin {
   }
 
   async clearOwnedPrefs(): Promise<void> {}
+
+  async getSecureLinks(): Promise<{ allowed: boolean }> {
+    return { allowed: false }
+  }
+
+  async setSecureLinks(options: { allowed: boolean }): Promise<{ allowed: boolean }> {
+    return { allowed: options.allowed === true }
+  }
+
+  async listConnections(): Promise<SecureLinkSnapshot> {
+    return emptySnapshot('The browser cannot read the socket table.')
+  }
 }
 
 function parseJournal(text: string): JournalScan[] {
@@ -141,6 +157,9 @@ interface MacBridge {
   getOwnedPrefs(): Promise<OwnedConsent | null>
   setOwnedPrefs(options: OwnedConsent): Promise<OwnedConsent>
   clearOwnedPrefs(): Promise<void>
+  getSecureLinks(): Promise<{ allowed: boolean }>
+  setSecureLinks(options: { allowed: boolean }): Promise<{ allowed: boolean }>
+  listConnections(options: { consent: boolean }): Promise<SecureLinkSnapshot>
   apiOrigin(): Promise<string>
   promptLocation(): Promise<void>
   addListener(eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void): Promise<PluginListenerHandle>
@@ -205,6 +224,18 @@ class WardriveMac extends WebPlugin {
 
   clearOwnedPrefs(): Promise<void> {
     return this.bridge.clearOwnedPrefs()
+  }
+
+  getSecureLinks(): Promise<{ allowed: boolean }> {
+    return this.bridge.getSecureLinks()
+  }
+
+  setSecureLinks(options: { allowed: boolean }): Promise<{ allowed: boolean }> {
+    return this.bridge.setSecureLinks(options)
+  }
+
+  listConnections(options: { consent: boolean }): Promise<SecureLinkSnapshot> {
+    return this.bridge.listConnections(options)
   }
 
   apiOrigin(): Promise<string> {

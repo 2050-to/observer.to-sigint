@@ -371,6 +371,8 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #303237; }
 
 .owned-network { display: grid; gap: 10px; margin: 12px 0; }
 .owned-network h2, .owned-network h3 { font-size: 16px; }
+.host-scan h3 { margin: 12px 0 0; font-size: 16px; }
+.host-scan .diff-list { overflow-wrap: anywhere; }
 .disclaimer, .owned-help { margin: 0; color: var(--text-secondary); }
 .disclaimer {
   padding: 10px 12px;
@@ -419,6 +421,8 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #303237; }
 .host-reasons { display: block; color: var(--text-muted); font-size: 12px; }
 .owned-network .meta { margin: 0; }
 .owned-network .meta dd { overflow-wrap: anywhere; }
+.secure-links { display: grid; gap: 10px; }
+.secure-links td { overflow-wrap: anywhere; }
 
 .legal-gate { display: grid; gap: 16px; }
 .legal-columns { display: grid; gap: 12px; }

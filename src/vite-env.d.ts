@@ -34,10 +34,36 @@ interface MacWardriveBridge {
   getOwnedPrefs(): Promise<{ addresses: boolean; details: boolean } | null>
   setOwnedPrefs(options: { addresses: boolean; details: boolean }): Promise<{ addresses: boolean; details: boolean }>
   clearOwnedPrefs(): Promise<void>
+  getSecureLinks(): Promise<{ allowed: boolean }>
+  setSecureLinks(options: { allowed: boolean }): Promise<{ allowed: boolean }>
+  listConnections(options: { consent: boolean }): Promise<{
+    vpnRoute: { active: boolean; interfaceName: string | null }
+    sockets: {
+      process: string
+      pid: number
+      protocol: 'tcp' | 'udp'
+      local: { host: string; port: number | null }
+      remote: { host: string; port: number | null } | null
+      state: string | null
+      flags: Array<'443' | 'tor' | 'vpn' | 'ssh' | 'dot' | 'mail' | 'ldaps' | 'ftps' | 'telnets' | 'sips' | 'ircs' | 'alt-tls' | 'apns'>
+    }[]
+    counts: { flag: '443' | 'tor' | 'vpn' | 'ssh' | 'dot' | 'mail' | 'ldaps' | 'ftps' | 'telnets' | 'sips' | 'ircs' | 'alt-tls' | 'apns'; count: number }[]
+    truncated: boolean
+    note: string | null
+  }>
   promptLocation(): Promise<void>
   addListener(eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void): Promise<{ remove: () => Promise<void> }>
 }
 
+interface MacSecurityBridge {
+  scan(): Promise<import('../shared/hostScan').HostScanReport>
+  read(): Promise<import('../shared/macSecurity').SecurityReading[]>
+  apply(): Promise<import('../shared/macSecurity').MacSecurityApplyResult>
+}
+
 interface Window {
-  wifiMapping?: { wardrive: MacWardriveBridge }
+  wifiMapping?: {
+    wardrive: MacWardriveBridge
+    security?: MacSecurityBridge
+  }
 }

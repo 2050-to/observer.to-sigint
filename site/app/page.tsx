@@ -54,6 +54,9 @@ export default function Page() {
           <li>
             A passive scan does not reveal installed firmware. Recording the model and firmware replaces the potentially applicable line. High risk stays in the review until the disposition is closed.
           </li>
+          <li>
+            The Mac app shows a checklist of security settings on that Mac. One button applies the stricter listed settings, then the app reports which settings are now more secure. The report stays on that Mac.
+          </li>
         </ul>
       </section>
 
@@ -61,7 +64,7 @@ export default function Page() {
         <article id="download">
           <h2>Free</h2>
           <p>
-            The Mac app is free. Sign in and use the observer: drives, range, map, open networks, log, enrichment, exports, sites, the Changes tab, and the owned-network check.
+            The Mac app is free. Sign in and use the observer: drives, range, map, open networks, log, enrichment, exports, sites, the Changes tab, the owned-network check, and the This Mac checklist.
           </p>
           <a className="button" href={macDownloadHref}>Download for Mac</a>
           <a className="button" href={macAppHref}>
@@ -86,6 +89,7 @@ export default function Page() {
           <li>It does not track a person from a hardware address.</li>
           <li>Search and questions stay inside the signed-in account.</li>
           <li>Sign in with your email. The first time, you accept the Terms of Service and the Privacy Policy and confirm you are 18 or older. Later sign-ins remind you that signing in agrees to them.</li>
+          <li>The This Mac checklist does not upload those settings, does not change another computer, and does not turn off Wi-Fi or Bluetooth.</li>
         </ul>
       </section>
       <p className="note">

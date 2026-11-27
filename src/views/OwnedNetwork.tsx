@@ -23,6 +23,7 @@ import {
 } from '../../shared/ownedNetwork'
 import { classifyRecorder } from '../../shared/recorders'
 import { ownedChangeText, type OwnedChange } from '../../shared/ownedDiff'
+import { SecureLinks } from './SecureLinks'
 
 export function OwnedNetwork({
   active,
@@ -256,6 +257,7 @@ export function OwnedNetwork({
             </ul>
           </>
         )}
+        <SecureLinks />
       </section>
     )
   }
@@ -377,6 +379,7 @@ export function OwnedNetwork({
           </div>
         </dl>
       )}
+      <SecureLinks />
     </section>
   )
 

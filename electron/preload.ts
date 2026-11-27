@@ -1,6 +1,11 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 
 contextBridge.exposeInMainWorld('wifiMapping', {
+  security: {
+    scan: () => ipcRenderer.invoke('security:scan'),
+    read: () => ipcRenderer.invoke('mac-security:read'),
+    apply: () => ipcRenderer.invoke('mac-security:apply'),
+  },
   wardrive: {
     startDrive: (options: { apiUrl: string; token: string }) => ipcRenderer.invoke('wardrive:start', options),
     stopDrive: () => ipcRenderer.invoke('wardrive:stop'),
@@ -16,6 +21,9 @@ contextBridge.exposeInMainWorld('wifiMapping', {
     getOwnedPrefs: () => ipcRenderer.invoke('wardrive:owned-get'),
     setOwnedPrefs: (options: { addresses: boolean; details: boolean }) => ipcRenderer.invoke('wardrive:owned-set', options),
     clearOwnedPrefs: () => ipcRenderer.invoke('wardrive:owned-clear'),
+    getSecureLinks: () => ipcRenderer.invoke('wardrive:secure-get'),
+    setSecureLinks: (options: { allowed: boolean }) => ipcRenderer.invoke('wardrive:secure-set', options),
+    listConnections: (options: { consent: boolean }) => ipcRenderer.invoke('wardrive:connections', options),
     apiOrigin: () => ipcRenderer.invoke('wardrive:api-origin'),
     promptLocation: () => ipcRenderer.invoke('wardrive:prompt-location'),
     addListener: (eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void) => {

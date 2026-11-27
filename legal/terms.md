@@ -1,7 +1,7 @@
 # Terms of Service
 
-Last updated: 25 November 2026
-Version: 2026-11-25.1
+Last updated: 27 November 2026
+Version: 2026-11-27.1
 
 These terms are a contract between you and Observer.to. They cover the Mac app, the Android app, the website, and the account API. If you do not agree, do not create an account, do not use the apps, and do not view stored data.
 
@@ -19,7 +19,7 @@ You must read these Terms and the Privacy Policy through to the end and accept t
 
 Sign-in uses a magic link sent to your email. The link expires quickly and works once. You are responsible for the email account and for keeping the session on your devices private. The account can list the sessions signed in on your devices and can revoke one session, or sign out everywhere.
 
-The free account can run drives, review range, the map, open networks, the log, enrichment, exports, the owned-network check, named sites, finding dispositions, the Changes tab, and a site report. Custom names are stored on the account. A drive can be replayed for the retention window below.
+The free account can run drives, review range, the map, open networks, the log, enrichment, exports, the owned-network check, the This Mac checklist, named sites, finding dispositions, the Changes tab, and a site report. Custom names are stored on the account. A drive can be replayed for the retention window below.
 
 A $5 monthly plan, when billing is configured, adds one weekly email of that same review, an immediate email when a site finding is critical, and questions about your own records: Wi-Fi places, Bluetooth places, towers, enrichment, and the owned-network inventory. The answer and the excerpt it was written from are stored on the account. A critical finding is a claimed network heard as open or WEP, your claimed name on a BSSID you did not claim, or a claimed BSSID on a different channel. The Android app and the Mac app each show a notification on the device that uploaded the scan when that scan opens an evil twin. That notification is on the free account as well as the paid plan. Payment is handled by Stripe. Taxes are not collected until a tax registration exists. You can cancel in the billing portal. The plan stays off until Stripe reports an active subscription.
 
@@ -60,6 +60,8 @@ You decide when a drive runs and when an owned-network check runs. You confirm t
 
 Public beacons do not prove who owns a device, which firmware is installed, or that a vulnerability applies. Enrichment is public research about a name or advertisement. It is not an instruction to attack a device. A passive scan cannot see the installed firmware. You may record a model and firmware you verified. That record replaces the "potentially applicable" line. It does not by itself clear a high-risk finding. An assignee and a due date on a disposition are a name and a date you type. They are not another login, and they do not send mail.
 
+On a Mac, the This Mac checklist reads security settings on the Mac where the app is running. Apply secure settings changes only the listed settings on that Mac. A setting that is already stricter is left alone. macOS asks for the administrator password for the privileged settings, and Observer.to does not receive that password. The button does not turn FileVault on or off, does not change System Integrity Protection, and does not turn Wi-Fi or Bluetooth off. You can change the settings back in System Settings. The app does not promise that macOS will accept every change.
+
 ## 7. Deletion
 
 Delete all data removes that account's scans, names, device details, and local network inventory from the device and from the server when the server can be reached. It does not delete the account itself or the record that you accepted these terms. If the server is offline, the app tells you that the server copy may remain until a later delete succeeds.
@@ -72,7 +74,7 @@ An acceptance attempt from someone under 18 deletes the new account and its toke
 
 Features can change. The assistant can be unavailable when its key is not configured. Place lookup depends on public geocoding services and can fail. Drives depend on the permissions the operating system grants.
 
-The apps and the website are provided as available. Observer.to does not promise that records are complete, that a place lookup is accurate, or that a question is correct. You check anything important before you act on it.
+The apps and the website are provided as available. Observer.to does not promise that records are complete, that a place lookup is accurate, or that a question is correct. You check anything important before you act on it. A security setting change can fail when macOS refuses it.
 
 ## 9. Liability
 

@@ -7,6 +7,9 @@ import { join, resolve } from 'node:path'
 import { request as httpsRequest } from 'node:https'
 import { app, BrowserWindow, ipcMain, Notification, powerSaveBlocker } from 'electron'
 import { CatalogStore, type StoredScan } from './catalog'
+import { readSecureConnections } from './connections'
+import { scanThisMac } from './hostScan'
+import { applyMacSecurity, readMacSecurity } from './macSecurity'
 import { catalogLocalSubnet, localDeviceDetails } from './ownedNetwork'
 import { listen } from './server'
 
@@ -176,6 +179,27 @@ function waitingStatus(count: number): string {
 
 function ownedPrefsPath(): string {
   return join(app.getPath('userData'), 'owned-prefs.json')
+}
+
+function secureLinksPath(): string {
+  return join(app.getPath('userData'), 'secure-links.json')
+}
+
+function readSecureChoice(): { allowed: boolean } {
+  try {
+    const value = JSON.parse(readFileSync(secureLinksPath(), 'utf8')) as { allowed?: unknown }
+    return { allowed: value.allowed === true }
+  } catch {
+    return { allowed: false }
+  }
+}
+
+function writeSecureChoice(allowed: boolean): { allowed: boolean } {
+  const directory = app.getPath('userData')
+  mkdirSync(directory, { recursive: true })
+  const choice = { allowed: allowed === true }
+  writeFileSync(secureLinksPath(), JSON.stringify(choice))
+  return choice
 }
 
 function readOwnedChoice(): { addresses: boolean; details: boolean } | null {
@@ -433,6 +457,9 @@ function deliverAuth(raw: string): void {
 }
 
 function registerIpc(): void {
+  ipcMain.handle('security:scan', async () => scanThisMac())
+  ipcMain.handle('mac-security:read', async () => readMacSecurity())
+  ipcMain.handle('mac-security:apply', async () => applyMacSecurity())
   ipcMain.handle('wardrive:start', async (_event, options: { apiUrl?: string; token?: string }) => {
     const nextUrl = options?.apiUrl ?? ''
     const nextToken = options?.token ?? ''
@@ -502,6 +529,12 @@ function registerIpc(): void {
   ipcMain.handle('wardrive:owned-set', (_event, options: { addresses?: boolean; details?: boolean }) => writeOwnedChoice(options ?? {}))
   ipcMain.handle('wardrive:owned-clear', () => {
     rmSync(ownedPrefsPath(), { force: true })
+  })
+  ipcMain.handle('wardrive:secure-get', () => readSecureChoice())
+  ipcMain.handle('wardrive:secure-set', (_event, options: { allowed?: boolean }) => writeSecureChoice(options?.allowed === true))
+  ipcMain.handle('wardrive:connections', async (_event, options: { consent?: boolean }) => {
+    if (options?.consent !== true) throw new Error('Connection listing stays off until you allow it on this Mac.')
+    return readSecureConnections()
   })
   ipcMain.handle('wardrive:clear', async () => {
     running = false

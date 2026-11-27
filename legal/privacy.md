@@ -1,7 +1,7 @@
 # Privacy Policy
 
-Last updated: 25 November 2026
-Version: 2026-11-25.1
+Last updated: 27 November 2026
+Version: 2026-11-27.2
 
 This policy explains what Observer.to stores, who can see it, and how to delete it. It covers the Mac app, the Android app, the website, and the account API. Read it with the Terms of Service. You must accept the current version of both before an app opens your data or the website shows stored data.
 
@@ -32,6 +32,10 @@ After you accept, a drive can record:
 - Cell tower identifiers the phone reports during normal operation, such as mobile country and network codes, area, and cell id. Observer.to does not collect IMSI, TMSI, or call content.
 
 If you turn on the owned-network check, Observer.to stores the current device description you allowed (operating system, browser string, memory, processor, and hostname) and the address inventory of a network you own (address, role, announced name, and related service names). Each named site keeps its own inventory history for the retention window. A check on one site does not replace another site's inventory. Those rows are saved to your account. They are not a record of other people's traffic. The website cannot see a local network. Only the Mac or Android app on that network can take the inventory.
+
+If you allow it, the Mac app lists this Mac's connection metadata on the device, and that list is not uploaded.
+
+The This Mac checklist reads the firewall, Gatekeeper, screen lock, sharing, update, login, AirDrop, FileVault, and System Integrity Protection settings on that Mac. The reading and the report stay on the device. They are not uploaded and are not stored on the account. The administrator password is entered in the macOS dialog. Observer.to does not receive it, store it, or send it to the server. The This Mac scan of startup items and weakened settings also stays on the device and is not uploaded.
 
 A named site stores the name you give it, the radius or walk boundary, the SSIDs and BSSIDs you claim, the security baseline, how often you mean to walk it again, and each walk inside the retention window. It also stores each radio heard inside that boundary: BSSID, SSID, channel, security, and the first and last time your account heard it there.
 

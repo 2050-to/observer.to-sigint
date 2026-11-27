@@ -17,8 +17,10 @@ import { OpenList } from './views/OpenList'
 import { RangeGraph } from './views/RangeGraph'
 import { SitesView } from './views/SitesView'
 import { ChangesView } from './views/ChangesView'
+import { HostScan } from './views/HostScan'
+import { MacSecurity } from './views/MacSecurity'
 
-type Tab = 'range' | 'map' | 'open' | 'log' | 'sites' | 'changes'
+type Tab = 'range' | 'map' | 'open' | 'log' | 'sites' | 'changes' | 'mac'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'range', label: 'In range' },
@@ -36,6 +38,7 @@ const ASK_CONTEXT: Record<Tab, { dataset: AskDataset; scope: string; source: str
   log: { dataset: 'account', scope: 'this account', source: 'Catalog' },
   sites: { dataset: 'account', scope: 'this account', source: 'Sites' },
   changes: { dataset: 'account', scope: 'this account', source: 'Changes' },
+  mac: { dataset: 'account', scope: 'this Mac', source: 'This Mac' },
 }
 
 const NO_HEARD: RangeSnapshot['heard'] = []
@@ -88,6 +91,7 @@ export function App() {
   const [arrivals, setArrivals] = useState<PresenceHit[]>([])
   const knownPresence = useRef<Set<string> | null>(null)
   const macApp = onMacApp()
+  const tabs: { id: Tab; label: string }[] = macApp ? [...TABS, { id: 'mac', label: 'This Mac' }] : TABS
   const ask = ASK_CONTEXT[tab]
   const { nameFor, nameForGroup, draftFor, rename, clear } = useLabels()
   const account = useAccount()
@@ -383,7 +387,7 @@ export function App() {
         </div>
       )}
       <nav>
-        {TABS.map((item) => (
+        {tabs.map((item) => (
           <button
             key={item.id}
             type="button"
@@ -464,6 +468,12 @@ export function App() {
           dispositions={dispositions}
           onDisposition={saveDisposition}
         />
+      )}
+      {tab === 'mac' && (
+        <>
+          <HostScan />
+          <MacSecurity />
+        </>
       )}
       {tab === 'changes' && (
         <ChangesView
