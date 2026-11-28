@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import type { Disposition, DispositionKind, DispositionStatus } from '../../shared/disposition'
 import type { ReviewRadio, WeeklyReview } from '../../shared/review'
 import { api } from '../api'
+import { isDemoMode } from '../demo'
+import { demoReview } from '../demoData'
 import { DispositionControl } from '../DispositionControl'
 import { sessionToken } from '../session'
 
@@ -14,10 +16,11 @@ export function ChangesView({
   onDisposition: (kind: DispositionKind, id: string, status: DispositionStatus | null, note: string) => Promise<void>
   onOpen: (radio: ReviewRadio) => void
 }) {
-  const [reviewId, setReviewId] = useState<string | null>(null)
-  const [history, setHistory] = useState<{ id: string; builtAt: string }[]>([])
-  const [builtAt, setBuiltAt] = useState<string | null>(null)
-  const [digest, setDigest] = useState<WeeklyReview | null>(null)
+  const [sample] = useState(() => (isDemoMode() ? demoReview() : null))
+  const [reviewId, setReviewId] = useState<string | null>(sample?.id ?? null)
+  const [history, setHistory] = useState<{ id: string; builtAt: string }[]>(sample ? [{ id: sample.id, builtAt: sample.builtAt }] : [])
+  const [builtAt, setBuiltAt] = useState<string | null>(sample?.builtAt ?? null)
+  const [digest, setDigest] = useState<WeeklyReview | null>(sample?.digest ?? null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const signedIn = Boolean(sessionToken())
@@ -31,11 +34,11 @@ export function ChangesView({
   }
 
   useEffect(() => {
-    if (!signedIn) return
+    if (sample || !signedIn) return
     void load().catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.message : 'The review could not be loaded')
     })
-  }, [signedIn])
+  }, [signedIn, sample])
 
   async function build() {
     setBusy(true)
@@ -53,7 +56,7 @@ export function ChangesView({
     }
   }
 
-  if (!signedIn) {
+  if (!signedIn && !sample) {
     return <section className="card"><h2>Changes</h2><p>Sign in to see the weekly review.</p></section>
   }
 
@@ -62,17 +65,22 @@ export function ChangesView({
       <div className="log-head">
         <div>
           <h2>Changes</h2>
-          <p>{builtAt ? `Built ${new Date(builtAt).toLocaleString()}.` : 'No review has been stored yet.'}</p>
+          <p>
+            {builtAt ? `Built ${new Date(builtAt).toLocaleString()}.` : 'No review has been stored yet.'}
+            {sample ? ' Sample review. Nothing is saved.' : ''}
+          </p>
         </div>
-        <div className="actions">
-          <button type="button" onClick={() => void build()} disabled={busy}>{busy ? 'Building…' : digest ? 'Build again' : 'Build review'}</button>
-          {reviewId && (
-            <>
-              <button type="button" onClick={() => void download(reviewId, 'md')}>Download review</button>
-              <button type="button" onClick={() => void download(reviewId, 'csv')}>Download radios</button>
-            </>
-          )}
-        </div>
+        {!sample && (
+          <div className="actions">
+            <button type="button" onClick={() => void build()} disabled={busy}>{busy ? 'Building…' : digest ? 'Build again' : 'Build review'}</button>
+            {reviewId && (
+              <>
+                <button type="button" onClick={() => void download(reviewId, 'md')}>Download review</button>
+                <button type="button" onClick={() => void download(reviewId, 'csv')}>Download radios</button>
+              </>
+            )}
+          </div>
+        )}
       </div>
       {history.length > 1 && (
         <label>

@@ -2,9 +2,12 @@ import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import 'leaflet/dist/leaflet.css'
 import { App } from './App'
+import { captureDemoQuery } from './demo'
 import { LegalGate } from './LegalGate'
 import { Verify } from './Verify'
 import './styles.css'
+
+captureDemoQuery()
 
 function Root() {
   const [path, setPath] = useState(window.location.pathname)

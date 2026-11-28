@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { api } from './api'
+import { clearDemo } from './demo'
 import { setSession } from './session'
 
 function clientKind(): 'web' | 'mac' | 'android' {
@@ -33,6 +34,7 @@ export function Verify() {
     void verifyOnce(token).then((session) => {
       if (stop) return
       setSession(session.token)
+      clearDemo()
       window.location.assign('/app')
     }).catch(() => {
       if (!stop) setMessage('This sign-in link is invalid or expired.')

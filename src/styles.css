@@ -163,7 +163,7 @@ button:disabled { opacity: 0.6; }
   padding: 8px 12px;
   font: inherit;
 }
-.upgrade {
+.upgrade, .demo-banner {
   display: flex;
   justify-content: space-between;
   gap: 16px;
@@ -174,7 +174,7 @@ button:disabled { opacity: 0.6; }
   background: var(--surface);
   border-radius: 16px;
 }
-.upgrade p { margin: 0; max-width: 42rem; }
+.upgrade p, .demo-banner p { margin: 0; max-width: 42rem; }
 .upgrade-side { display: grid; gap: 8px; justify-items: end; }
 .upgrade .note, .upgrade .warn { margin: 0; }
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
+import { isDemoMode } from './demo'
 import { sessionToken } from './session'
 
 const KEY = 'wifi-mapping-labels'
@@ -27,10 +28,10 @@ function rowsOf(labels: Record<string, string>): { id: string; name: string }[] 
 }
 
 export function useLabels() {
-  const [labels, setLabels] = useState<Record<string, string>>(readLabels)
+  const [labels, setLabels] = useState<Record<string, string>>(() => (isDemoMode() ? {} : readLabels()))
 
   useEffect(() => {
-    if (!sessionToken()) return
+    if (isDemoMode() || !sessionToken()) return
     let stop = false
     void (async () => {
       const remote = await api.labels()
@@ -57,6 +58,7 @@ export function useLabels() {
   const rename = useCallback((id: string, value: string) => {
     setLabels((current) => {
       const next = { ...current, [id]: value }
+      if (isDemoMode()) return next
       writeLabels(next)
       if (sessionToken()) {
         void api.saveLabels([{ id, name: value }]).catch(() => undefined)
@@ -81,10 +83,12 @@ export function useLabels() {
   ), [labels])
 
   const clear = useCallback(() => {
-    try {
-      localStorage.removeItem(KEY)
-    } catch {
-      // The names are already dropped from the page.
+    if (!isDemoMode()) {
+      try {
+        localStorage.removeItem(KEY)
+      } catch {
+        // The names are already dropped from the page.
+      }
     }
     setLabels({})
   }, [])

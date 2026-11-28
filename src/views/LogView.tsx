@@ -5,6 +5,7 @@ import { enrichmentSearchText } from '../../shared/enrichment'
 import { findRotatingAddresses, type RotationGroup } from '../../shared/rotation'
 import { SIGNAL_COLORS, SIGNAL_KINDS, SIGNAL_NAMES, stackSignals, type SignalKind, type StackedDevice } from '../../shared/sources'
 import { api } from '../api'
+import { isDemoMode } from '../demo'
 import { DispositionControl } from '../DispositionControl'
 import { SignalStack } from '../SignalStack'
 import type { Disposition, DispositionKind, DispositionStatus } from '../../shared/disposition'
@@ -72,6 +73,7 @@ export function LogView({
   draftFor: (id: string, fallback: string) => string
   rename: (id: string, value: string) => void
 }) {
+  const readOnly = isDemoMode()
   const [query, setQuery] = useState(controlledQuery)
   useEffect(() => setQuery(controlledQuery), [controlledQuery])
   const [kinds, setKinds] = useState<Set<SignalKind>>(() => new Set(SIGNAL_KINDS))
@@ -321,10 +323,10 @@ export function LogView({
                       onSave={onDisposition}
                     />
                   )}
-                  {kind === 'ap' && subjectId && (
+                  {!readOnly && kind === 'ap' && subjectId && (
                     <button type="button" className="danger" onClick={() => void api.deleteRadio(subjectId).then(() => onDeleted?.())}>Delete radio</button>
                   )}
-                  {kind === 'adv' && subjectId && (
+                  {!readOnly && kind === 'adv' && subjectId && (
                     <button type="button" className="danger" onClick={() => void api.deleteAdvertiser(subjectId).then(() => onDeleted?.())}>Delete advertiser</button>
                   )}
                 </li>

@@ -21,6 +21,8 @@ import {
   type SiteRecord,
 } from '../../shared/sites'
 import { api } from '../api'
+import { isDemoMode } from '../demo'
+import { demoSite } from '../demoData'
 import { DispositionControl } from '../DispositionControl'
 import { sessionToken } from '../session'
 import { Wardrive } from '../native/drive'
@@ -37,8 +39,9 @@ export function SitesView({
   dispositions: Disposition[]
   onDisposition: (kind: DispositionKind, id: string, status: DispositionStatus | null, note: string) => Promise<void>
 }) {
-  const [sites, setSites] = useState<SiteRecord[]>([])
-  const [selected, setSelected] = useState<string | null>(null)
+  const demo = isDemoMode()
+  const [sites, setSites] = useState<SiteRecord[]>(() => (demo ? [demoSite()] : []))
+  const [selected, setSelected] = useState<string | null>(() => (demo ? demoSite().id : null))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [name, setName] = useState('')
@@ -55,7 +58,7 @@ export function SitesView({
   }
 
   useEffect(() => {
-    if (!signedIn) return
+    if (demo || !signedIn) return
     let stopped = false
     const refresh = () => {
       void load().catch((reason: unknown) => {
@@ -68,7 +71,7 @@ export function SitesView({
       stopped = true
       window.clearInterval(timer)
     }
-  }, [signedIn])
+  }, [signedIn, demo])
 
   async function createSite() {
     setBusy(true)
@@ -106,7 +109,7 @@ export function SitesView({
     }
   }
 
-  if (!signedIn) {
+  if (!signedIn && !demo) {
     return <section className="card"><h2>Sites</h2><p>Sign in to keep a site on this account.</p></section>
   }
 
@@ -114,8 +117,9 @@ export function SitesView({
     <section className="card site-view">
       <h2>Sites</h2>
       <p>A site is the radius or walk you are responsible for, and the radios you claim there.</p>
+      {demo && <p className="owned-help">Sample site. Nothing is saved.</p>}
       {error && <p className="warn">{error}</p>}
-      <div className="site-create">
+      {!demo && <div className="site-create">
         <input aria-label="Site name" value={name} placeholder="Site name" maxLength={80} onChange={(event) => setName(event.target.value)} />
         <label>
           Radius
@@ -135,7 +139,7 @@ export function SitesView({
         <button type="button" onClick={() => void createSite()} disabled={busy}>{busy ? 'Saving…' : 'Save site'}</button>
         {boundary?.kind === 'walk' && <p className="owned-help">{boundaryLabel(boundary)} selected.</p>}
         {boundary == null && phone?.lat != null && <p className="owned-help">Radius uses the current position.</p>}
-      </div>
+      </div>}
       {sites.length === 0 && <p className="empty">No sites yet.</p>}
       <div className="actions">
         {sites.map((item) => (
@@ -147,6 +151,7 @@ export function SitesView({
       {site && (
         <SiteDetail
           site={site}
+          readOnly={demo}
           points={points}
           dispositions={dispositions}
           onDisposition={onDisposition}
@@ -165,6 +170,7 @@ export function SitesView({
 
 function SiteDetail({
   site,
+  readOnly = false,
   points,
   dispositions,
   onDisposition,
@@ -172,6 +178,7 @@ function SiteDetail({
   onDelete,
 }: {
   site: SiteRecord
+  readOnly?: boolean
   points: Map<string, AccessPoint>
   dispositions: Disposition[]
   onDisposition: (kind: DispositionKind, id: string, status: DispositionStatus | null, note: string) => Promise<void>
@@ -180,7 +187,7 @@ function SiteDetail({
 }) {
   const diff = siteDiff(site)
   const [claims, setClaims] = useState<SiteClaim[]>(site.claims)
-  const [walks, setWalks] = useState<SiteWalk[]>([])
+  const [walks, setWalks] = useState<SiteWalk[]>(() => (readOnly && site.lastWalk ? [site.lastWalk] : []))
   const [everyDays, setEveryDays] = useState(String(walkIntervalDays(site)))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -190,6 +197,10 @@ function SiteDetail({
     setEveryDays(String(walkIntervalDays(site)))
   }, [site])
   useEffect(() => {
+    if (readOnly) {
+      setWalks(site.lastWalk ? [site.lastWalk] : [])
+      return
+    }
     let stop = false
     void api.walks(site.id).then((next) => {
       if (!stop) setWalks(next ?? [])
@@ -197,7 +208,7 @@ function SiteDetail({
     return () => {
       stop = true
     }
-  }, [site.id, site.lastWalk?.walkedAt])
+  }, [readOnly, site.id, site.lastWalk])
   const heard = site.lastWalk?.heard ?? []
   const groups = groupHeard(heard)
 
@@ -275,24 +286,28 @@ function SiteDetail({
           <p>{boundaryLabel(site.boundary)}. Last walked {site.lastWalk ? new Date(site.lastWalk.walkedAt).toLocaleString() : 'not yet'}.</p>
           {due.overdue && <p className="warn">Re-walk due {new Date(due.dueAt).toLocaleDateString()}.</p>}
         </div>
-        <div className="actions">
-          <button type="button" onClick={() => void download()}>Download site report</button>
-          <button type="button" className="danger" onClick={() => void onDelete()}>Delete site</button>
-        </div>
+        {!readOnly && (
+          <div className="actions">
+            <button type="button" onClick={() => void download()}>Download site report</button>
+            <button type="button" className="danger" onClick={() => void onDelete()}>Delete site</button>
+          </div>
+        )}
       </div>
-      <label>
-        Re-walk every
-        <input
-          aria-label="Re-walk interval in days"
-          type="number"
-          min={1}
-          max={90}
-          value={everyDays}
-          onChange={(event) => setEveryDays(event.target.value)}
-          onBlur={() => void saveInterval()}
-        />
-        days
-      </label>
+      {!readOnly && (
+        <label>
+          Re-walk every
+          <input
+            aria-label="Re-walk interval in days"
+            type="number"
+            min={1}
+            max={90}
+            value={everyDays}
+            onChange={(event) => setEveryDays(event.target.value)}
+            onBlur={() => void saveInterval()}
+          />
+          days
+        </label>
+      )}
       <h2>Walks</h2>
       {walks.length === 0 ? <p className="empty">No stored walks in the observation window.</p> : (
         <ul className="diff-list">
@@ -344,20 +359,20 @@ function SiteDetail({
               <strong>{group.ssid || 'Hidden network'}</strong>
               <label>
                 Baseline
-                <select aria-label={`Baseline for ${group.ssid || 'hidden network'}`} value={baseline} onChange={(event) => setBaseline(group.ssid, event.target.value as SiteClaim['baseline'])}>
+                <select aria-label={`Baseline for ${group.ssid || 'hidden network'}`} value={baseline} disabled={readOnly} onChange={(event) => setBaseline(group.ssid, event.target.value as SiteClaim['baseline'])}>
                   {SECURITY_LABELS.map((label) => <option key={label} value={label}>{label}</option>)}
                 </select>
               </label>
               {group.ssid && (
                 <label>
-                  <input type="checkbox" checked={nameClaimed} onChange={() => toggleName(group.ssid, baseline)} />
+                  <input type="checkbox" checked={nameClaimed} disabled={readOnly} onChange={() => toggleName(group.ssid, baseline)} />
                   Expect this name
                 </label>
               )}
             </div>
             {group.beacons.map((beacon) => (
               <label key={beacon.bssid}>
-                <input type="checkbox" checked={claimedBssid(beacon.bssid)} onChange={() => toggleBssid(beacon, baseline)} />
+                <input type="checkbox" checked={claimedBssid(beacon.bssid)} disabled={readOnly} onChange={() => toggleBssid(beacon, baseline)} />
                 {beacon.bssid} ({beacon.security}). Claim this BSSID to arm evil-twin and channel checks.
               </label>
             ))}
@@ -365,7 +380,7 @@ function SiteDetail({
         )
       })}
       {error && <p className="warn">{error}</p>}
-      {heard.length > 0 && <button type="button" onClick={() => void saveClaims()} disabled={busy}>{busy ? 'Saving…' : 'Save claims'}</button>}
+      {!readOnly && heard.length > 0 && <button type="button" onClick={() => void saveClaims()} disabled={busy}>{busy ? 'Saving…' : 'Save claims'}</button>}
     </div>
   )
 }

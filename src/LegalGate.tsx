@@ -1,11 +1,13 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { api, type LegalDocuments } from './api'
+import { enterDemo, isDemoMode } from './demo'
 import { SignInForm } from './SignInForm'
 import { clearSession, sessionToken } from './session'
 import { isAdult } from '../shared/legal'
 
 export function LegalGate({ children }: { children: ReactNode }) {
   const [documents, setDocuments] = useState<LegalDocuments | null>(null)
+  const [demo, setDemo] = useState(isDemoMode)
   const [accepted, setAccepted] = useState<boolean | null>(sessionToken() ? null : false)
   const [storedBornOn, setStoredBornOn] = useState<string | null>(null)
   const [bornOn, setBornOn] = useState('')
@@ -38,7 +40,7 @@ export function LegalGate({ children }: { children: ReactNode }) {
     return () => { stop = true }
   }, [accepted])
 
-  if (accepted) return children
+  if (demo || accepted) return children
   if (!sessionToken() || refused) {
     return (
       <main className="legal-gate">
@@ -58,7 +60,15 @@ export function LegalGate({ children }: { children: ReactNode }) {
           </section>
         )}
         {error && <p className="warn">{error}</p>}
-        {!refused && <SignInForm action="Email me a link" />}
+        {!refused && (
+          <SignInForm
+            action="Email me a link"
+            onDemo={() => {
+              enterDemo()
+              setDemo(true)
+            }}
+          />
+        )}
       </main>
     )
   }

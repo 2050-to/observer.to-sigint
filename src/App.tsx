@@ -4,6 +4,7 @@ import type { Disposition, DispositionKind, DispositionStatus } from '../shared/
 import { useLabels } from './labels'
 import { api } from './api'
 import { AccountBar, UpgradeBanner, alertLabel, useAccount } from './AccountBar'
+import { isDemoMode, leaveDemo } from './demo'
 import { sessionToken } from './session'
 import { loadView, type RefreshMode } from './localCatalog'
 import { AskBox, type AskDataset } from './AskBox'
@@ -103,11 +104,12 @@ export function App() {
   const ask = ASK_CONTEXT[tab]
   const { nameFor, nameForGroup, draftFor, rename, clear } = useLabels()
   const account = useAccount()
+  const demo = isDemoMode()
   const queue = useRef(Promise.resolve())
   const billing = new URLSearchParams(window.location.search).get('billing')
 
   useEffect(() => {
-    if (!sessionToken()) {
+    if (isDemoMode() || !sessionToken()) {
       setDispositions([])
       return
     }
@@ -141,6 +143,18 @@ export function App() {
     note: string,
     extra?: { model?: string; firmware?: string; assignee?: string; dueAt?: string | null },
   ) {
+    if (isDemoMode()) {
+      setDispositions((current) => {
+        if (status == null) return current.filter((item) => item.kind !== kind || item.id !== id)
+        const next = { kind, id, status, note, ...extra, updatedAt: new Date().toISOString() }
+        const index = current.findIndex((item) => item.kind === kind && item.id === id)
+        if (index < 0) return [...current, next]
+        const copy = current.slice()
+        copy[index] = next
+        return copy
+      })
+      return
+    }
     if (status == null) await api.clearDisposition({ kind, id })
     else await api.saveDisposition({ kind, id, status, note, ...extra })
     setDispositions(await api.dispositions())
@@ -157,7 +171,7 @@ export function App() {
       setWaiting(view.waiting)
       if (view.syncedNow > 0) setSyncedCount(view.syncedNow)
       setError('')
-      if (!sessionToken()) {
+      if (isDemoMode() || !sessionToken()) {
         setEnrichmentStatus(null)
         return
       }
@@ -315,23 +329,34 @@ export function App() {
 
   return (
     <main className={macApp ? 'observer mac-app' : 'observer'}>
-      <UpgradeBanner account={account} />
+      {demo ? (
+        <aside className="demo-banner" role="region" aria-label="Demo">
+          <p><strong>Sample data.</strong> This is the Harbor Annex walk. Nothing here is saved.</p>
+          <button type="button" onClick={leaveDemo}>Leave demo</button>
+        </aside>
+      ) : (
+        <UpgradeBanner account={account} />
+      )}
       <header>
         <div>
           <p className="eyebrow">Omnidirectional range</p>
           <h1>Observer.to</h1>
         </div>
         {account && <AccountBar account={account} />}
-        <div className="actions">
-          {onDevice() ? (
-            <button type="button" onClick={() => void toggleDrive()}>{running ? 'Stop drive' : 'Start drive'}</button>
-          ) : (
-            <p className="note">Wi-Fi, Bluetooth, and GPS are captured by the Mac app. This site shows what that app has already uploaded.</p>
-          )}
-          {eraseStep === 0 && (
-            <button type="button" className="danger" onClick={() => setEraseStep(1)}>Delete all data</button>
-          )}
-        </div>
+        {demo ? (
+          <p className="note">This is a sample walk. Drives and deletion are off.</p>
+        ) : (
+          <div className="actions">
+            {onDevice() ? (
+              <button type="button" onClick={() => void toggleDrive()}>{running ? 'Stop drive' : 'Start drive'}</button>
+            ) : (
+              <p className="note">Wi-Fi, Bluetooth, and GPS are captured by the Mac app. This site shows what that app has already uploaded.</p>
+            )}
+            {eraseStep === 0 && (
+              <button type="button" className="danger" onClick={() => setEraseStep(1)}>Delete all data</button>
+            )}
+          </div>
+        )}
       </header>
       {eraseStep > 0 && (
         <section className="confirm" role="alertdialog" aria-labelledby="erase-title">
@@ -511,7 +536,7 @@ export function App() {
         />
       )}
       </div>
-      {macApp && (
+      {macApp && !demo && (
         <AskBox
           layout="rail"
           dataset={ask.dataset}

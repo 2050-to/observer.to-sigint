@@ -8,6 +8,7 @@ import type { CompactScan } from '../../shared/replay'
 import { roomSignals, SIGNAL_COLORS, stackFor, stackSignals, type SignalRow } from '../../shared/sources'
 import { api, type WifiPlace } from '../api'
 import { AskBox } from '../AskBox'
+import { isDemoMode } from '../demo'
 import { onMacApp } from '../native/drive'
 import { floorLabel, gpsGround, plottedHeight } from '../height'
 import { SignalLegend, SignalStack } from '../SignalStack'
@@ -235,6 +236,7 @@ export function DriveMap({
   draftFor: (id: string, fallback: string) => string
   rename: (id: string, value: string) => void
 }) {
+  const demo = isDemoMode()
   const host = useRef<HTMLDivElement>(null)
   const leaflet = useRef<L.Map | null>(null)
   const layer = useRef<L.LayerGroup | null>(null)
@@ -438,7 +440,7 @@ export function DriveMap({
       mapView.off('resize', layout)
       pins.current = []
     }
-  }, [map, roomsByAp, nameFor, nameForGroup])
+  }, [map, roomsByAp, nameFor, nameForGroup, demo])
 
   useEffect(() => {
     for (const pin of pins.current) {
@@ -466,6 +468,10 @@ export function DriveMap({
       pinKey,
       lat,
       lon,
+    }
+    if (demo) {
+      setCard({ title, place: null, floor: level, ...facts, error: '' })
+      return
     }
     if (ready) {
       setCard({ title, place: ready, floor: level, ...facts, error: ready.crossStreets.length === 0 ? 'Cross streets were not available.' : '' })
@@ -627,7 +633,7 @@ export function DriveMap({
 
   return (
     <div className="panel fill-view">
-      <form className="signin" onSubmit={(event) => void searchPlace(event)}>
+      {!demo && <form className="signin" onSubmit={(event) => void searchPlace(event)}>
         <label>
           Country
           <input value={country} onChange={(event) => setCountry(event.target.value)} placeholder="US" maxLength={2} />
@@ -645,9 +651,9 @@ export function DriveMap({
           <input value={postal} onChange={(event) => setPostal(event.target.value)} placeholder="98109" />
         </label>
         <button type="submit">Search my networks</button>
-      </form>
-      {searchNote && <p className="note">{searchNote}</p>}
-      <form className="signin" onSubmit={(event) => void loadReplay(event)}>
+      </form>}
+      {!demo && searchNote && <p className="note">{searchNote}</p>}
+      {!demo && <form className="signin" onSubmit={(event) => void loadReplay(event)}>
         <label>
           Replay from
           <input type="datetime-local" value={replayFrom} onChange={(event) => setReplayFrom(event.target.value)} />
@@ -663,8 +669,8 @@ export function DriveMap({
         {replayScan?.driveId && (
           <button type="button" className="danger" onClick={() => void removeReplayDrive()}>Delete this drive</button>
         )}
-      </form>
-      {replayNote && <p className="note">{replayNote}{replayScan ? ` ${new Date(replayScan.observedAt).toLocaleString()}${replayScan.scannerLabel ? ` · ${replayScan.scannerLabel}` : ''}` : ''}</p>}
+      </form>}
+      {!demo && replayNote && <p className="note">{replayNote}{replayScan ? ` ${new Date(replayScan.observedAt).toLocaleString()}${replayScan.scannerLabel ? ` · ${replayScan.scannerLabel}` : ''}` : ''}</p>}
       {replay.length > 1 && (
         <input
           aria-label="Replay position"
@@ -678,7 +684,7 @@ export function DriveMap({
           }}
         />
       )}
-      {!onMacApp() && <AskBox dataset="account" subscribed={subscribed} />}
+      {!demo && !onMacApp() && <AskBox dataset="account" subscribed={subscribed} />}
       <SignalLegend />
       <div ref={host} className="map" />
       {pickedSignals.length > 0 && (

@@ -5,7 +5,7 @@ function macApp(): boolean {
   return typeof window !== 'undefined' && window.wifiMapping != null
 }
 
-export function SignInForm({ action = 'Start free' }: { action?: string }) {
+export function SignInForm({ action = 'Start free', onDemo }: { action?: string; onDemo?: () => void }) {
   const [email, setEmail] = useState('')
   const [sent, setSent] = useState(false)
   const [error, setError] = useState('')
@@ -52,6 +52,7 @@ export function SignInForm({ action = 'Start free' }: { action?: string }) {
           />
         </label>
         <button type="submit" disabled={busy}>{busy ? 'Sending…' : action}</button>
+        {onDemo && <button type="button" onClick={onDemo}>Try demo</button>}
         {error && <p className="warn">{error}</p>}
       </form>
       <Agreement />

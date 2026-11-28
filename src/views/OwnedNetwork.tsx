@@ -4,6 +4,8 @@ import { pointInSite, type SiteRecord } from '../../shared/sites'
 import type { Disposition, DispositionKind, DispositionStatus } from '../../shared/disposition'
 import type { Fix } from '../types'
 import { api } from '../api'
+import { isDemoMode } from '../demo'
+import { demoOwnedChange, demoSubnet } from '../demoData'
 import { DispositionControl } from '../DispositionControl'
 import { sessionToken } from '../session'
 import { Wardrive } from '../native/drive'
@@ -53,6 +55,7 @@ export function OwnedNetwork({
   const choiceRef = useRef(EMPTY_OWNED)
 
   useEffect(() => {
+    if (isDemoMode()) return
     let stop = false
     setPrompt(null)
     setError('')
@@ -240,6 +243,25 @@ export function OwnedNetwork({
     void saveOwnedChoice({ addresses: next.addresses, details: next.details }).catch(() => {
       setError('Saved on this device. The account copy could not be updated.')
     })
+  }
+
+  if (isDemoMode()) {
+    const catalog = demoSubnet()
+    const change = demoOwnedChange()
+    return (
+      <section className="card owned-network">
+        <h2>Network you own</h2>
+        <p className="disclaimer">{OWNED_NETWORK_DISCLAIMER}</p>
+        <p className="owned-help">This inventory is sample data. Nothing is saved.</p>
+        <h2>Changes since the previous inventory</h2>
+        <ul className="diff-list">
+          <li>{ownedChangeText(change)}</li>
+        </ul>
+        <p className="owned-help" aria-live="polite">{catalogStatus(catalog)}</p>
+        <p className="owned-help">Present means the address answered a ping, announced a camera service, accepted a camera port, or this device has its hardware address.</p>
+        <HostTable hosts={catalog.hosts} dispositions={dispositions} onDisposition={onDisposition} />
+      </section>
+    )
   }
 
   if (!active) {

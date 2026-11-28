@@ -1,4 +1,6 @@
 import { api } from './api'
+import { isDemoMode } from './demo'
+import { demoScans } from './demoData'
 import { Wardrive } from './native/drive'
 import { sessionToken } from './session'
 import {
@@ -118,7 +120,34 @@ async function fetchServer(): Promise<{ networks: LocalCatalog['networks']; devi
   }
 }
 
+function presentedView(catalog: LocalCatalog, waiting: number, syncedNow: number): LocalView {
+  const presented = presentCatalog(catalog)
+  return {
+    range: presented.range,
+    map: {
+      phone: presented.range.phone,
+      postalCodes: presented.range.postalCodes,
+      radiusM: presented.range.radiusM,
+      dwellSeconds: presented.range.dwellSeconds,
+      scanPeriodSeconds: presented.range.scanPeriodSeconds,
+      circle: presented.circle,
+      networks: presented.networks,
+      accessPoints: presented.accessPoints,
+      devices: catalog.devices,
+      advertisers: presented.advertisers,
+      cells: catalog.cells,
+      rooms: presented.range.rooms,
+      movers: presented.range.movers,
+    },
+    openRows: presented.openRows,
+    count: presented.count,
+    waiting,
+    syncedNow,
+  }
+}
+
 export async function loadView(mode: RefreshMode): Promise<LocalView> {
+  if (isDemoMode()) return presentedView(foldScans(emptyCatalog(), demoScans()), 0, 0)
   const first = await readState()
   let journal = first.journal
   let catalog = foldScans(first.catalog, journal)
@@ -148,27 +177,5 @@ export async function loadView(mode: RefreshMode): Promise<LocalView> {
     catalog = await stampPhonePostalCode(catalog)
   }
   await Wardrive.saveLocalCatalog({ catalog: JSON.stringify(catalog) })
-  const presented = presentCatalog(catalog)
-  return {
-    range: presented.range,
-    map: {
-      phone: presented.range.phone,
-      postalCodes: presented.range.postalCodes,
-      radiusM: presented.range.radiusM,
-      dwellSeconds: presented.range.dwellSeconds,
-      scanPeriodSeconds: presented.range.scanPeriodSeconds,
-      circle: presented.circle,
-      networks: presented.networks,
-      accessPoints: presented.accessPoints,
-      devices: catalog.devices,
-      advertisers: presented.advertisers,
-      cells: catalog.cells,
-      rooms: presented.range.rooms,
-      movers: presented.range.movers,
-    },
-    openRows: presented.openRows,
-    count: presented.count,
-    waiting: journal.filter((scan) => !scan.uploaded).length,
-    syncedNow,
-  }
+  return presentedView(catalog, journal.filter((scan) => !scan.uploaded).length, syncedNow)
 }

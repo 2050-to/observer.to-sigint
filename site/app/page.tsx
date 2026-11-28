@@ -18,6 +18,7 @@ export default function Page() {
         </div>
         <div className="header-actions">
           <a className="button" href="/app">Sign in</a>
+          <a className="button" href="/app?demo=1">Try demo</a>
           <a className="button" href={macDownloadHref}>Download for Mac</a>
           <a className="button" href={macAppHref}>
             Mac app on GitHub
