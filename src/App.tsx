@@ -13,6 +13,7 @@ import type { EnrichmentQueueStatus, MapState, OpenRow, RangeSnapshot } from './
 import { DriveMap } from './views/DriveMap'
 import { LogView } from './views/LogView'
 import { OwnedNetwork } from './views/OwnedNetwork'
+import { SecureLinks } from './views/SecureLinks'
 import { OpenList } from './views/OpenList'
 import { RangeGraph } from './views/RangeGraph'
 import { SitesView } from './views/SitesView'
@@ -21,7 +22,7 @@ import { HostScan } from './views/HostScan'
 import { MacProcesses } from './views/MacProcesses'
 import { MacSecurity } from './views/MacSecurity'
 
-type Tab = 'range' | 'map' | 'open' | 'log' | 'sites' | 'changes' | 'mac' | 'processes'
+type Tab = 'range' | 'map' | 'open' | 'log' | 'sites' | 'changes' | 'owned' | 'mac' | 'processes' | 'connections'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'range', label: 'In range' },
@@ -30,6 +31,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'log', label: 'Log' },
   { id: 'sites', label: 'Sites' },
   { id: 'changes', label: 'Changes' },
+  { id: 'owned', label: 'Network you own' },
 ]
 
 const ASK_CONTEXT: Record<Tab, { dataset: AskDataset; scope: string; source: string }> = {
@@ -39,8 +41,10 @@ const ASK_CONTEXT: Record<Tab, { dataset: AskDataset; scope: string; source: str
   log: { dataset: 'account', scope: 'this account', source: 'Catalog' },
   sites: { dataset: 'account', scope: 'this account', source: 'Sites' },
   changes: { dataset: 'account', scope: 'this account', source: 'Changes' },
+  owned: { dataset: 'account', scope: 'this account', source: 'Network you own' },
   mac: { dataset: 'account', scope: 'this Mac', source: 'This Mac' },
   processes: { dataset: 'account', scope: 'this Mac', source: 'Mac Processes' },
+  connections: { dataset: 'account', scope: 'this Mac', source: 'Connections on this Mac' },
 }
 
 const NO_HEARD: RangeSnapshot['heard'] = []
@@ -94,7 +98,7 @@ export function App() {
   const knownPresence = useRef<Set<string> | null>(null)
   const macApp = onMacApp()
   const tabs: { id: Tab; label: string }[] = macApp
-    ? [...TABS, { id: 'mac', label: 'This Mac' }, { id: 'processes', label: 'Mac Processes' }]
+    ? [...TABS, { id: 'mac', label: 'This Mac' }, { id: 'processes', label: 'Mac Processes' }, { id: 'connections', label: 'Connections on this Mac' }]
     : TABS
   const ask = ASK_CONTEXT[tab]
   const { nameFor, nameForGroup, draftFor, rename, clear } = useLabels()
@@ -480,6 +484,7 @@ export function App() {
         </>
       )}
       {tab === 'processes' && <MacProcesses />}
+      {tab === 'connections' && <SecureLinks resetToken={ownedReset} />}
       {tab === 'changes' && (
         <ChangesView
           dispositions={dispositions}
@@ -495,13 +500,15 @@ export function App() {
           }}
         />
       )}
-      <OwnedNetwork
-        active={onDevice()}
-        resetToken={ownedReset}
-        phone={range?.phone ?? null}
-        dispositions={dispositions}
-        onDisposition={saveDisposition}
-      />
+      {tab === 'owned' && (
+        <OwnedNetwork
+          active={onDevice()}
+          resetToken={ownedReset}
+          phone={range?.phone ?? null}
+          dispositions={dispositions}
+          onDisposition={saveDisposition}
+        />
+      )}
       </div>
       {macApp && (
         <AskBox

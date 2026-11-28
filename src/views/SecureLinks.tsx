@@ -110,7 +110,7 @@ export function SecureLinks({ resetToken = 0 }: { resetToken?: number }) {
   const changes = catalog ? reviewChanges(catalog) : null
 
   return (
-    <div className="secure-links">
+    <section className="card secure-links">
       <h2>Connections on this Mac</h2>
       <p className="owned-help">This lists sockets on this Mac and keeps a catalog of them on this Mac until you clear it or delete all data. It does not read contents, see other devices, or upload the catalog.</p>
       <fieldset className="owned-options">
@@ -182,7 +182,7 @@ export function SecureLinks({ resetToken = 0 }: { resetToken?: number }) {
           {catalog.entries.length > 0 ? <CatalogTable entries={catalog.entries} /> : <p className="owned-help">No saved connections.</p>}
         </>
       )}
-    </div>
+    </section>
   )
 
   function onToggle() {
