@@ -425,6 +425,23 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #303237; }
 .secure-links h3 { margin: 0; }
 .secure-links td { overflow-wrap: anywhere; }
 .connection-open td { background: rgba(168, 196, 214, 0.2); }
+.mac-processes { display: grid; gap: 10px; }
+.mac-processes h3 { margin: 0; }
+.mac-processes td { overflow-wrap: anywhere; }
+.process-scroll { max-height: 480px; overflow: auto; }
+.process-table { font-variant-numeric: tabular-nums; }
+.process-table td.command { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.allowlist-editor {
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--background);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+}
 
 .legal-gate { display: grid; gap: 16px; }
 .legal-columns { display: grid; gap: 12px; }

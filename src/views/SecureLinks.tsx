@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   reviewChanges,
+  sortBySamples,
   type ConnectionCatalog,
   type ConnectionEntry,
   type ConnectionSnapshot,
@@ -282,11 +283,7 @@ function ConnectionTable({ rows }: { rows: ShownSocket[] }) {
 }
 
 function CatalogTable({ entries }: { entries: ConnectionEntry[] }) {
-  const ordered = [...entries].sort((left, right) => (
-    Number(right.openCount > 0) - Number(left.openCount > 0)
-    || right.lastSeen.localeCompare(left.lastSeen)
-    || left.process.localeCompare(right.process)
-  ))
+  const ordered = sortBySamples(entries)
   return (
     <div className="host-scroll">
       <table>

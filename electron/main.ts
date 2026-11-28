@@ -7,11 +7,24 @@ import { join, resolve } from 'node:path'
 import { request as httpsRequest } from 'node:https'
 import { app, BrowserWindow, ipcMain, Notification, powerSaveBlocker } from 'electron'
 import { CatalogStore, type StoredScan } from './catalog'
+import { bindBaselineFiles, discardBaselineFile } from './baseline'
 import { clearStoredConnections, readSecureConnections, readStoredConnections, reviewStoredConnections } from './connections'
 import { scanThisMac } from './hostScan'
 import { applyMacSecurity, readMacSecurity } from './macSecurity'
 import { catalogLocalSubnet, localDeviceDetails } from './ownedNetwork'
+import {
+  allowProcessName,
+  clearStoredProcesses,
+  collectProcesses,
+  dismissStoredProcess,
+  readLoggingChoice,
+  readProcessSnapshot,
+  saveAllowlist,
+  writeLoggingChoice,
+  type ProcessFiles,
+} from './processes'
 import { listen } from './server'
+import type { ProcessAlert } from '../shared/processCatalog.js'
 
 const require = createRequire(__filename)
 const CLOUD_API = 'https://observer.to'
@@ -19,6 +32,7 @@ const LOCAL_API = 'https://127.0.0.1:9453'
 const MIN_PERIOD_MS = 30_000
 const V_SLOW = 0.82
 const V_MAX = 44.704
+const PROCESS_POLL_MS = 2_000
 
 interface ScannerModule {
   start(callback: (json: string) => void): void
@@ -70,6 +84,8 @@ let chain = Promise.resolve()
 let serverClose: (() => Promise<void>) | null = null
 let promptedLocationStatus: string | null = null
 let driveId: string | null = null
+let processTimer: ReturnType<typeof setInterval> | null = null
+let processPollBusy = false
 
 function scannerIdentity(): { scannerId: string; scannerLabel: string } {
   const file = join(app.getPath('userData'), 'scanner.json')
@@ -100,6 +116,23 @@ function notifyEvilTwins(twins: ScanReply['evilTwins']): void {
       // A desktop notification is local and optional.
     }
   }
+}
+
+function notifyProcessAlerts(alerts: ProcessAlert[]): void {
+  const first = alerts[0]
+  if (!first) return
+  const title = alerts.length === 1
+    ? (first.reason === 'changed' ? `${first.name} no longer matches the baseline` : `New process: ${first.name}`)
+    : `${alerts.length} processes are outside the baseline`
+  const body = alerts.length === 1 ? first.path : alerts.slice(0, 4).map((item) => item.name).join(', ')
+  try {
+    const note = new Notification({ title, body })
+    note.on('click', () => focusObserver())
+    note.show()
+  } catch {
+    // A desktop notification is local and optional.
+  }
+  focusObserver()
 }
 
 function exclusive<T>(fn: () => T): Promise<T> {
@@ -187,6 +220,55 @@ function secureLinksPath(): string {
 
 function connectionsPath(): string {
   return join(app.getPath('userData'), 'connections.json')
+}
+
+function processFileSet(): ProcessFiles {
+  const directory = app.getPath('userData')
+  return {
+    catalog: join(directory, 'processes.json'),
+    allowlist: join(directory, 'allowlist.md'),
+    logging: join(directory, 'process-logging.json'),
+  }
+}
+
+function bindProcessBaseline(): void {
+  const directory = app.getPath('userData')
+  bindBaselineFiles({
+    processes: join(directory, 'processes.json'),
+    connections: connectionsPath(),
+    baseline: join(directory, 'baseline.md'),
+  })
+}
+
+function startProcessPoller(): void {
+  if (processTimer) return
+  void pollMacProcesses()
+  processTimer = setInterval(() => {
+    void pollMacProcesses()
+  }, PROCESS_POLL_MS)
+}
+
+function stopProcessPoller(): void {
+  if (!processTimer) return
+  clearInterval(processTimer)
+  processTimer = null
+}
+
+async function pollMacProcesses(): Promise<void> {
+  if (processPollBusy) return
+  const files = processFileSet()
+  if (!readLoggingChoice(files.logging).allowed) return
+  processPollBusy = true
+  try {
+    const result = await collectProcesses(files, () => readLoggingChoice(files.logging).allowed)
+    if (result.alerts.length > 0) notifyProcessAlerts(result.alerts)
+    window?.webContents.send('processes:snapshot', result.snapshot)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'The process table could not be read.'
+    window?.webContents.send('processes:snapshot', { ...readProcessSnapshot(files), error: message })
+  } finally {
+    processPollBusy = false
+  }
 }
 
 function readSecureChoice(): { allowed: boolean } {
@@ -461,6 +543,8 @@ function deliverAuth(raw: string): void {
 }
 
 function registerIpc(): void {
+  bindProcessBaseline()
+  if (readLoggingChoice(processFileSet().logging).allowed) startProcessPoller()
   ipcMain.handle('security:scan', async () => scanThisMac())
   ipcMain.handle('mac-security:read', async () => readMacSecurity())
   ipcMain.handle('mac-security:apply', async () => applyMacSecurity())
@@ -557,10 +641,25 @@ function registerIpc(): void {
       }
       await exclusive(() => store.clear())
       await clearStoredConnections(connectionsPath())
+      await clearStoredProcesses(processFileSet())
+      discardBaselineFile()
     } finally {
       discarding = false
     }
   })
+  ipcMain.handle('processes:get', () => readProcessSnapshot(processFileSet()))
+  ipcMain.handle('processes:set-allowed', (_event, options: { allowed?: boolean }) => {
+    const choice = writeLoggingChoice(processFileSet().logging, options?.allowed === true)
+    if (choice.allowed) startProcessPoller()
+    else stopProcessPoller()
+    return choice
+  })
+  ipcMain.handle('processes:allow-set', (_event, options: { text?: string }) => saveAllowlist(processFileSet(), options?.text ?? ''))
+  ipcMain.handle('processes:allow-name', (_event, options: { name?: string }) => allowProcessName(processFileSet(), options?.name ?? ''))
+  ipcMain.handle('processes:dismiss', (_event, options: { path?: string; fingerprint?: string }) => (
+    dismissStoredProcess(processFileSet(), options?.path ?? '', options?.fingerprint ?? '')
+  ))
+  ipcMain.handle('processes:clear', () => clearStoredProcesses(processFileSet()))
 }
 
 async function openWindow(): Promise<void> {
@@ -632,6 +731,7 @@ app.on('before-quit', () => {
   quitting = true
   running = false
   holdAwake(false)
+  stopProcessPoller()
   scanner?.stop()
   void serverClose?.()
 })

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import type { ProcessSnapshot } from '../shared/processCatalog.js'
 
 contextBridge.exposeInMainWorld('wifiMapping', {
   security: {
@@ -36,6 +37,24 @@ contextBridge.exposeInMainWorld('wifiMapping', {
       return Promise.resolve({
         remove: () => {
           ipcRenderer.removeListener(channel, wrapped)
+          return Promise.resolve()
+        },
+      })
+    },
+  },
+  processes: {
+    get: () => ipcRenderer.invoke('processes:get'),
+    setAllowed: (options: { allowed: boolean }) => ipcRenderer.invoke('processes:set-allowed', options),
+    saveAllowlist: (options: { text: string }) => ipcRenderer.invoke('processes:allow-set', options),
+    allowName: (options: { name: string }) => ipcRenderer.invoke('processes:allow-name', options),
+    dismiss: (options: { path: string; fingerprint: string }) => ipcRenderer.invoke('processes:dismiss', options),
+    clear: () => ipcRenderer.invoke('processes:clear'),
+    onSnapshot: (listener: (snapshot: ProcessSnapshot) => void) => {
+      const wrapped = (_event: IpcRendererEvent, snapshot: ProcessSnapshot) => listener(snapshot)
+      ipcRenderer.on('processes:snapshot', wrapped)
+      return Promise.resolve({
+        remove: () => {
+          ipcRenderer.removeListener('processes:snapshot', wrapped)
           return Promise.resolve()
         },
       })

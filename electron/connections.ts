@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { userInfo } from 'node:os'
 import { dirname } from 'node:path'
 import { promisify } from 'node:util'
+import { scheduleBaselineRewrite } from './baseline.js'
 import {
   emptyConnectionCatalog,
   foldCatalog,
@@ -42,6 +43,7 @@ export function clearStoredConnections(catalogFile: string): Promise<ConnectionC
   return enqueue(async () => {
     rmSync(catalogFile, { force: true })
     rmSync(`${catalogFile}.tmp`, { force: true })
+    scheduleBaselineRewrite()
     return emptyConnectionCatalog()
   })
 }
@@ -81,6 +83,7 @@ function writeCatalog(file: string, catalog: ConnectionCatalog): void {
   } catch {
     throw new Error('The connection catalog could not be saved.')
   }
+  scheduleBaselineRewrite()
 }
 
 async function readLsof(): Promise<string> {

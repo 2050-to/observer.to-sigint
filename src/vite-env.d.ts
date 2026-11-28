@@ -50,9 +50,20 @@ interface MacSecurityBridge {
   apply(): Promise<import('../shared/macSecurity').MacSecurityApplyResult>
 }
 
+interface MacProcessesBridge {
+  get(): Promise<import('../shared/processCatalog').ProcessSnapshot>
+  setAllowed(options: { allowed: boolean }): Promise<{ allowed: boolean }>
+  saveAllowlist(options: { text: string }): Promise<{ text: string }>
+  allowName(options: { name: string }): Promise<{ text: string }>
+  dismiss(options: { path: string; fingerprint: string }): Promise<import('../shared/processCatalog').ProcessCatalog>
+  clear(): Promise<import('../shared/processCatalog').ProcessCatalog>
+  onSnapshot(listener: (snapshot: import('../shared/processCatalog').ProcessSnapshot) => void): Promise<{ remove: () => Promise<void> }>
+}
+
 interface Window {
   wifiMapping?: {
     wardrive: MacWardriveBridge
     security?: MacSecurityBridge
+    processes?: MacProcessesBridge
   }
 }

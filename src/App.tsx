@@ -18,9 +18,10 @@ import { RangeGraph } from './views/RangeGraph'
 import { SitesView } from './views/SitesView'
 import { ChangesView } from './views/ChangesView'
 import { HostScan } from './views/HostScan'
+import { MacProcesses } from './views/MacProcesses'
 import { MacSecurity } from './views/MacSecurity'
 
-type Tab = 'range' | 'map' | 'open' | 'log' | 'sites' | 'changes' | 'mac'
+type Tab = 'range' | 'map' | 'open' | 'log' | 'sites' | 'changes' | 'mac' | 'processes'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'range', label: 'In range' },
@@ -39,6 +40,7 @@ const ASK_CONTEXT: Record<Tab, { dataset: AskDataset; scope: string; source: str
   sites: { dataset: 'account', scope: 'this account', source: 'Sites' },
   changes: { dataset: 'account', scope: 'this account', source: 'Changes' },
   mac: { dataset: 'account', scope: 'this Mac', source: 'This Mac' },
+  processes: { dataset: 'account', scope: 'this Mac', source: 'Mac Processes' },
 }
 
 const NO_HEARD: RangeSnapshot['heard'] = []
@@ -91,7 +93,9 @@ export function App() {
   const [arrivals, setArrivals] = useState<PresenceHit[]>([])
   const knownPresence = useRef<Set<string> | null>(null)
   const macApp = onMacApp()
-  const tabs: { id: Tab; label: string }[] = macApp ? [...TABS, { id: 'mac', label: 'This Mac' }] : TABS
+  const tabs: { id: Tab; label: string }[] = macApp
+    ? [...TABS, { id: 'mac', label: 'This Mac' }, { id: 'processes', label: 'Mac Processes' }]
+    : TABS
   const ask = ASK_CONTEXT[tab]
   const { nameFor, nameForGroup, draftFor, rename, clear } = useLabels()
   const account = useAccount()
@@ -475,6 +479,7 @@ export function App() {
           <MacSecurity />
         </>
       )}
+      {tab === 'processes' && <MacProcesses />}
       {tab === 'changes' && (
         <ChangesView
           dispositions={dispositions}

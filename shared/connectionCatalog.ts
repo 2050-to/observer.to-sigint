@@ -1,3 +1,4 @@
+import { compareBySamples } from './sampleOrder.js'
 import {
   SECURE_FLAGS,
   type ClassifiedSocket,
@@ -117,6 +118,13 @@ export function reviewChanges(catalog: ConnectionCatalog): ConnectionChanges {
     else if (entry.lastSeen <= reviewedAt && entry.openCount === 0) quiet.push(entry)
   }
   return { unreviewed: [], appeared: sortEntries(appeared), quiet: sortEntries(quiet) }
+}
+
+export function sortBySamples(entries: readonly ConnectionEntry[]): ConnectionEntry[] {
+  return [...entries].sort((left, right) => compareBySamples(
+    { samples: left.samples, name: left.process, key: entryKey(left) },
+    { samples: right.samples, name: right.process, key: entryKey(right) },
+  ))
 }
 
 export function markReviewed(catalog: ConnectionCatalog): ConnectionCatalog {

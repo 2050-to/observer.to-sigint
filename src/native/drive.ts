@@ -300,3 +300,8 @@ export function onDevice(): boolean {
 export function onMacApp(): boolean {
   return desktop != null
 }
+
+export function macProcesses(): MacProcessesBridge | null {
+  if (typeof window === 'undefined') return null
+  return window.wifiMapping?.processes ?? null
+}

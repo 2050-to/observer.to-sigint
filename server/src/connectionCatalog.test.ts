@@ -6,6 +6,7 @@ import {
   markReviewed,
   parseConnectionCatalog,
   reviewChanges,
+  sortBySamples,
   type ConnectionCatalog,
 } from '../../shared/connectionCatalog.js'
 import type { ClassifiedSocket, VpnRoute } from '../../shared/secureLinks.js'
@@ -150,5 +151,15 @@ assert.equal(changedReview.quiet[0]?.lastSeen, t2)
 assert.equal(changedReview.quiet[0]?.samples, 2)
 assert.deepEqual(reviewChanges(parseConnectionCatalog(JSON.stringify(changed))), changedReview)
 assert.deepEqual(parseConnectionCatalog('not json'), emptyConnectionCatalog())
+
+const commonRow = { ...once.entries[0]!, process: 'Cursor Helper', samples: 651 }
+const rareRow = { ...once.entries[0]!, process: 'rare', samples: 1, destination: { host: '9.9.9.9', port: 1 } }
+const sampleOrder = sortBySamples([commonRow, rareRow])
+assert.equal(sampleOrder[0]?.process, 'rare')
+assert.equal(sampleOrder[0]?.samples, 1)
+assert.equal(sampleOrder[1]?.process, 'Cursor Helper')
+const alpha = { ...once.entries[0]!, process: 'alpha', samples: 3 }
+const beta = { ...once.entries[0]!, process: 'beta', samples: 3, destination: { host: '8.8.8.8', port: 2 } }
+assert.deepEqual(sortBySamples([beta, alpha]).map((item) => item.process), ['alpha', 'beta'])
 
 console.log('connection catalog checks passed')
