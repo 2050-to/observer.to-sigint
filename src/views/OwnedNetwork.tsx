@@ -426,7 +426,7 @@ function HostTable({
             <th scope="col">Name</th>
             <th scope="col">Hardware address</th>
             <th scope="col">Notice</th>
-            <th scope="col">Work</th>
+            <th scope="col" className="row-actions">Work</th>
           </tr>
         </thead>
         <tbody>
@@ -445,7 +445,7 @@ function HostTable({
                   </>
                 )}
               </td>
-              <td>
+              <td className="row-actions">
                 <DispositionControl
                   kind="lan_host"
                   id={(host.mac || host.ip).toLowerCase()}

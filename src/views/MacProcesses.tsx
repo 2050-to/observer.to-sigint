@@ -291,7 +291,7 @@ function CatalogTable({
             <th scope="col">First seen</th>
             <th scope="col">Last seen</th>
             <th scope="col">Standing</th>
-            <th scope="col">Action</th>
+            <th scope="col" className="row-actions">Action</th>
           </tr>
         </thead>
         <tbody>
@@ -301,14 +301,14 @@ function CatalogTable({
             return (
               <tr key={entry.path} className={flagged ? 'host-flagged' : undefined}>
                 <td>{entry.name}</td>
-                <td>{entry.path}</td>
+                <td title={entry.path}>{entry.path}</td>
                 <td>{SIGNATURE_LABEL[entry.signature.status]}</td>
                 <td>{entry.user}</td>
                 <td>{entry.samples}</td>
                 <td>{seenText(entry.firstSeen)}</td>
                 <td>{seenText(entry.lastSeen)}</td>
                 <td>{standingText(entry, names, seededAt)}{dismissed(entry) ? ', dismissed' : ''}</td>
-                <td>
+                <td className="row-actions">
                   {standing !== 'allowed' && <button type="button" onClick={() => onAllow(entry.name)} disabled={busy}>Allow</button>}
                   {canDismiss(entry) && (
                     <button type="button" onClick={() => onDismiss(entry)} disabled={busy}>Dismiss</button>
