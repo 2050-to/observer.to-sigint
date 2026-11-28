@@ -30,6 +30,34 @@ export default function Page() {
         Observer.to records the wireless presence around a place you are responsible for. It is a purple-team observer: the same evidence for the people who defend a site and the people who test it. It records public beacons. It does not join networks or record anyone else's traffic. The Mac app captures Wi-Fi, Bluetooth, and GPS. This site is where you sign in and review what that Mac has already uploaded.
       </p>
 
+      <section className="sample" id="sample" aria-labelledby="sample-heading">
+        <h2 id="sample-heading">Sample walk</h2>
+        <p>The demo is the Harbor Annex walk. Nothing is saved, and drives and deletion are off.</p>
+        <figure>
+          <a href="/app?demo=1">
+            <img
+              src="/demo/harbor-range.jpg"
+              width={1024}
+              height={558}
+              alt="Observer.to demo on the In range tab, showing the Harbor Annex walk: Annex IoT, Harbor Guest, and Harbor Annex around this device, plus a lobby beacon and an unnamed Bluetooth advertiser."
+            />
+          </a>
+          <figcaption>In range. The access points and Bluetooth advertisers heard on the walk.</figcaption>
+        </figure>
+        <figure>
+          <a href="/app?demo=1">
+            <img
+              src="/demo/harbor-map.jpg"
+              width={1024}
+              height={559}
+              alt="Observer.to demo on the Map tab, showing the Harbor Annex walk on a street map with Harbor Guest, the lobby beacon, Annex IoT, Harbor Annex, the serving tower, and this device."
+            />
+          </a>
+          <figcaption>Map. The same walk, with this device and the serving tower.</figcaption>
+        </figure>
+        <p><a href="/app?demo=1">Open the demo</a></p>
+      </section>
+
       <section id="how-it-works" aria-labelledby="how-heading">
         <h2 id="how-heading">How it works</h2>
         <ol className="steps">

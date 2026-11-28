@@ -74,7 +74,7 @@ function firstFix(items: Pick<NetworkRecord, 'bestLat' | 'bestLon'>[]): string |
 
 function radioDetail(network: StackNetwork): string {
   const band = network.band ? `${network.band} GHz` : null
-  return [`${Math.round(network.bestRssi)} dBm`, network.bssid, band, channelLoadText(network) ?? 'Not reported by this radio.'].filter(Boolean).join(' · ')
+  return [`${Math.round(network.bestRssi)} dBm`, network.bssid, band, channelLoadText(network)].filter(Boolean).join(' · ')
 }
 
 function enrichmentsOf(items: { enrichment?: DeviceEnrichment | null }[]): DeviceEnrichment[] {

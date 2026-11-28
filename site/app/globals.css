@@ -143,8 +143,43 @@ ul {
 }
 
 .note a,
-.legal-copy a {
+.legal-copy a,
+.sample a {
   color: #86b7ff;
+}
+
+.sample p,
+.sample figure {
+  margin: 0;
+}
+
+.sample figure {
+  display: grid;
+  gap: 8px;
+}
+
+.sample figure a {
+  display: block;
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.sample img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.sample figcaption {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.sample a:focus-visible {
+  outline: 2px solid #86b7ff;
+  outline-offset: 3px;
 }
 
 .legal-copy {
