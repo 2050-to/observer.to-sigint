@@ -212,12 +212,17 @@ export function parseLsof(text: string): ParsedSocket[] {
   return sockets
 }
 
-export function buildSnapshot(sockets: ParsedSocket[], vpnRoute: VpnRoute): SecureLinkSnapshot {
+export function flagSockets(sockets: ParsedSocket[]): ClassifiedSocket[] {
   const flagged: ClassifiedSocket[] = []
   for (const socket of sockets) {
     const flags = classifySocket(socket)
     if (flags.length > 0) flagged.push({ ...socket, flags })
   }
+  return flagged
+}
+
+export function buildSnapshot(sockets: ParsedSocket[], vpnRoute: VpnRoute): SecureLinkSnapshot {
+  const flagged = flagSockets(sockets)
   return {
     vpnRoute,
     sockets: flagged.slice(0, SOCKET_CAP),

@@ -422,7 +422,9 @@ th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #303237; }
 .owned-network .meta { margin: 0; }
 .owned-network .meta dd { overflow-wrap: anywhere; }
 .secure-links { display: grid; gap: 10px; }
+.secure-links h3 { margin: 0; }
 .secure-links td { overflow-wrap: anywhere; }
+.connection-open td { background: rgba(168, 196, 214, 0.2); }
 
 .legal-gate { display: grid; gap: 16px; }
 .legal-columns { display: grid; gap: 12px; }

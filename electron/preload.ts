@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld('wifiMapping', {
     getSecureLinks: () => ipcRenderer.invoke('wardrive:secure-get'),
     setSecureLinks: (options: { allowed: boolean }) => ipcRenderer.invoke('wardrive:secure-set', options),
     listConnections: (options: { consent: boolean }) => ipcRenderer.invoke('wardrive:connections', options),
+    getConnectionCatalog: () => ipcRenderer.invoke('wardrive:connections-catalog'),
+    reviewConnectionCatalog: () => ipcRenderer.invoke('wardrive:connections-review'),
+    clearConnectionCatalog: () => ipcRenderer.invoke('wardrive:connections-clear'),
     apiOrigin: () => ipcRenderer.invoke('wardrive:api-origin'),
     promptLocation: () => ipcRenderer.invoke('wardrive:prompt-location'),
     addListener: (eventName: 'scanQueued' | 'scansSynced', listener: (event?: { count?: number }) => void) => {

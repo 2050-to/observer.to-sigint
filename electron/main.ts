@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path'
 import { request as httpsRequest } from 'node:https'
 import { app, BrowserWindow, ipcMain, Notification, powerSaveBlocker } from 'electron'
 import { CatalogStore, type StoredScan } from './catalog'
-import { readSecureConnections } from './connections'
+import { clearStoredConnections, readSecureConnections, readStoredConnections, reviewStoredConnections } from './connections'
 import { scanThisMac } from './hostScan'
 import { applyMacSecurity, readMacSecurity } from './macSecurity'
 import { catalogLocalSubnet, localDeviceDetails } from './ownedNetwork'
@@ -183,6 +183,10 @@ function ownedPrefsPath(): string {
 
 function secureLinksPath(): string {
   return join(app.getPath('userData'), 'secure-links.json')
+}
+
+function connectionsPath(): string {
+  return join(app.getPath('userData'), 'connections.json')
 }
 
 function readSecureChoice(): { allowed: boolean } {
@@ -534,8 +538,11 @@ function registerIpc(): void {
   ipcMain.handle('wardrive:secure-set', (_event, options: { allowed?: boolean }) => writeSecureChoice(options?.allowed === true))
   ipcMain.handle('wardrive:connections', async (_event, options: { consent?: boolean }) => {
     if (options?.consent !== true) throw new Error('Connection listing stays off until you allow it on this Mac.')
-    return readSecureConnections()
+    return readSecureConnections(connectionsPath(), () => readSecureChoice().allowed)
   })
+  ipcMain.handle('wardrive:connections-catalog', () => readStoredConnections(connectionsPath()))
+  ipcMain.handle('wardrive:connections-review', () => reviewStoredConnections(connectionsPath()))
+  ipcMain.handle('wardrive:connections-clear', () => clearStoredConnections(connectionsPath()))
   ipcMain.handle('wardrive:clear', async () => {
     running = false
     promptedLocationStatus = null
@@ -549,6 +556,7 @@ function registerIpc(): void {
         await new Promise((resolve) => setTimeout(resolve, 25))
       }
       await exclusive(() => store.clear())
+      await clearStoredConnections(connectionsPath())
     } finally {
       discarding = false
     }

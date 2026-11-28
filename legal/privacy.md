@@ -1,7 +1,7 @@
 # Privacy Policy
 
 Last updated: 27 November 2026
-Version: 2026-11-27.2
+Version: 2026-11-27.3
 
 This policy explains what Observer.to stores, who can see it, and how to delete it. It covers the Mac app, the Android app, the website, and the account API. Read it with the Terms of Service. You must accept the current version of both before an app opens your data or the website shows stored data.
 
@@ -33,7 +33,7 @@ After you accept, a drive can record:
 
 If you turn on the owned-network check, Observer.to stores the current device description you allowed (operating system, browser string, memory, processor, and hostname) and the address inventory of a network you own (address, role, announced name, and related service names). Each named site keeps its own inventory history for the retention window. A check on one site does not replace another site's inventory. Those rows are saved to your account. They are not a record of other people's traffic. The website cannot see a local network. Only the Mac or Android app on that network can take the inventory.
 
-If you allow it, the Mac app lists this Mac's connection metadata on the device, and that list is not uploaded.
+If you allow it, the Mac app keeps a catalog on that Mac of this Mac's secure-connection metadata: the process, protocol, destination or listen address, and the first and last time it was seen. The catalog is not uploaded. It stays on that Mac until you clear it or delete all data.
 
 The This Mac checklist reads the firewall, Gatekeeper, screen lock, sharing, update, login, AirDrop, FileVault, and System Integrity Protection settings on that Mac. The reading and the report stay on the device. They are not uploaded and are not stored on the account. The administrator password is entered in the macOS dialog. Observer.to does not receive it, store it, or send it to the server. The This Mac scan of startup items and weakened settings also stays on the device and is not uploaded.
 

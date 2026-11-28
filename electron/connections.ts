@@ -1,19 +1,86 @@
 import { execFile } from 'node:child_process'
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { userInfo } from 'node:os'
+import { dirname } from 'node:path'
 import { promisify } from 'node:util'
+import {
+  emptyConnectionCatalog,
+  foldCatalog,
+  markReviewed,
+  parseConnectionCatalog,
+  type ConnectionCatalog,
+  type ConnectionSnapshot,
+} from '../shared/connectionCatalog.js'
 import {
   buildSnapshot,
   defaultRouteInterface,
+  flagSockets,
   parseLsof,
   vpnRouteFrom,
-  type SecureLinkSnapshot,
 } from '../shared/secureLinks.js'
 
 const execFileAsync = promisify(execFile)
+let pending: Promise<void> = Promise.resolve()
 
-export async function readSecureConnections(): Promise<SecureLinkSnapshot> {
+export function readSecureConnections(catalogFile: string, stillAllowed: () => boolean): Promise<ConnectionSnapshot> {
+  return enqueue(() => collectSecureConnections(catalogFile, stillAllowed))
+}
+
+export function readStoredConnections(catalogFile: string): Promise<ConnectionCatalog> {
+  return enqueue(async () => readCatalog(catalogFile))
+}
+
+export function reviewStoredConnections(catalogFile: string): Promise<ConnectionCatalog> {
+  return enqueue(async () => {
+    const next = markReviewed(readCatalog(catalogFile))
+    writeCatalog(catalogFile, next)
+    return next
+  })
+}
+
+export function clearStoredConnections(catalogFile: string): Promise<ConnectionCatalog> {
+  return enqueue(async () => {
+    rmSync(catalogFile, { force: true })
+    rmSync(`${catalogFile}.tmp`, { force: true })
+    return emptyConnectionCatalog()
+  })
+}
+
+function enqueue<T>(work: () => Promise<T>): Promise<T> {
+  const run = pending.then(work)
+  pending = run.then(() => undefined, () => undefined)
+  return run
+}
+
+async function collectSecureConnections(catalogFile: string, stillAllowed: () => boolean): Promise<ConnectionSnapshot> {
   const [table, routeText] = await Promise.all([readLsof(), readDefaultRoute()])
-  return buildSnapshot(parseLsof(table), vpnRouteFrom(defaultRouteInterface(routeText)))
+  const parsed = parseLsof(table)
+  const vpnRoute = vpnRouteFrom(defaultRouteInterface(routeText))
+  const snapshot = buildSnapshot(parsed, vpnRoute)
+  if (!stillAllowed()) return { ...snapshot, catalog: readCatalog(catalogFile) }
+  const catalog = foldCatalog(readCatalog(catalogFile), flagSockets(parsed), vpnRoute, new Date().toISOString())
+  if (!stillAllowed()) return { ...snapshot, catalog: readCatalog(catalogFile) }
+  writeCatalog(catalogFile, catalog)
+  return { ...snapshot, catalog }
+}
+
+function readCatalog(file: string): ConnectionCatalog {
+  try {
+    return parseConnectionCatalog(readFileSync(file, 'utf8'))
+  } catch {
+    return emptyConnectionCatalog()
+  }
+}
+
+function writeCatalog(file: string, catalog: ConnectionCatalog): void {
+  try {
+    mkdirSync(dirname(file), { recursive: true })
+    const temp = `${file}.tmp`
+    writeFileSync(temp, JSON.stringify(catalog))
+    renameSync(temp, file)
+  } catch {
+    throw new Error('The connection catalog could not be saved.')
+  }
 }
 
 async function readLsof(): Promise<string> {

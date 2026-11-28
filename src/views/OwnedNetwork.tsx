@@ -257,7 +257,7 @@ export function OwnedNetwork({
             </ul>
           </>
         )}
-        <SecureLinks />
+        <SecureLinks resetToken={resetToken} />
       </section>
     )
   }
@@ -379,7 +379,7 @@ export function OwnedNetwork({
           </div>
         </dl>
       )}
-      <SecureLinks />
+      <SecureLinks resetToken={resetToken} />
     </section>
   )
 
